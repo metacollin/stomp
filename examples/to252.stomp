@@ -23,5 +23,6 @@ footprint "TO-252" {
 
   body 6.6 x 6.1 x 2.3
   body bottom is 1.1 above pad 1             # body edge, also given from the pin row
+  body is centered on pad 2 horizontally     # else §9.2's weak cross-axis rule aligns it with pad 1
   pin1 none
 }

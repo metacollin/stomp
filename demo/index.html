@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>stomp live</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Write stomp footprint code and watch the land pattern update as you type.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <a class="brand" href="https://github.com/metacollin/stomp" title="stomp on GitHub">
+      <svg class="mark" viewBox="0 0 28 16" aria-hidden="true"><rect x="1" y="2" width="9" height="12" rx="2"></rect><rect x="18" y="2" width="9" height="12" rx="2"></rect><path d="M12.5 8h3"></path></svg>
+      <span class="word">stomp</span><span class="live">live</span>
+    </a>
+    <div class="picker">
+      <label for="example">Example</label>
+      <select id="example"></select>
+      <button id="reset" class="btn ghost" type="button" title="Discard your edits to this example">Reset</button>
+    </div>
+    <div class="spacer"></div>
+    <button id="about-btn" class="btn ghost" type="button" aria-haspopup="dialog">How it works</button>
+  </header>
+
+  <main class="panes" id="panes">
+    <section class="pane src" aria-label="stomp source">
+      <div class="pane-head">
+        <span class="file" id="file-name">untitled.stomp</span>
+        <span class="hint">edits are compiled as you type</span>
+        <span class="ms" id="compile-ms" title="Lex, parse, solve and lay out"></span>
+      </div>
+      <div id="editor" class="editor-host"></div>
+      <div class="problems" id="problems">
+        <button class="problems-head" id="problems-toggle" type="button" aria-expanded="true" aria-controls="problems-list">
+          <span class="ttl">Problems</span>
+          <span class="count err" id="n-err" title="errors">0</span>
+          <span class="count warn" id="n-warn" title="warnings">0</span>
+          <span class="ok" id="ok-note">None — every object is placed exactly once</span>
+        </button>
+        <ul class="problems-list" id="problems-list"></ul>
+      </div>
+    </section>
+
+    <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panes" tabindex="0"></div>
+
+    <section class="pane sheet" aria-label="Footprint preview">
+      <div class="pane-head">
+        <div class="tabs" id="tabs" role="tablist" aria-label="Footprints in this file"></div>
+        <div class="tools">
+          <div class="seg" role="group" aria-label="Display units">
+            <button type="button" data-u="mm" aria-pressed="true">mm</button>
+            <button type="button" data-u="mil" aria-pressed="false">mil</button>
+          </div>
+          <button id="fit" class="btn ghost" type="button" title="Fit to view (or double-click the canvas)">Fit</button>
+        </div>
+      </div>
+      <div class="viewer-wrap">
+        <div id="viewer" class="viewer-host"></div>
+        <div class="legend" id="layerbar" role="group" aria-label="Layers"></div>
+      </div>
+      <div class="titleblock" id="titleblock">
+        <div><span class="k">Footprint</span><span class="v" id="tb-name">—</span></div>
+        <div><span class="k">Cursor</span><span class="v" id="tb-cursor">—</span></div>
+        <div><span class="k">Grid</span><span class="v" id="tb-grid">—</span></div>
+        <div><span class="k">Scale</span><span class="v" id="tb-scale">—</span></div>
+      </div>
+      <div class="details" id="details"></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="about" class="about" aria-labelledby="about-title">
+  <form method="dialog" class="about-close"><button class="btn ghost" type="submit" aria-label="Close">Close</button></form>
+  <h2 id="about-title">How this demo works</h2>
+  <p>Everything runs in your browser: a JavaScript prototype of the <a href="https://github.com/metacollin/stomp/blob/main/SPEC.md">stomp draft spec</a>
+    tokenizes, parses (following <code>grammar.peg</code>), resolves templates and inheritance, generates pads, solves every
+    relational placement and draws each layer — on every keystroke.</p>
+  <h3>Using it</h3>
+  <ul>
+    <li><b>Type</b> on the left; the footprint redraws a moment after you pause. Errors are underlined and listed under the code.</li>
+    <li><b>Put the cursor on a statement</b> to highlight the objects it creates or moves. Placements draw their dimension right on the footprint, so <code>pad 3 is 4.56 right of pad 1</code> shows the 4.56 between the two centres.</li>
+    <li><b>Hover a pad</b> for its size, position, mask and paste; its source lines light up. <b>Click</b> it to jump to the statement that defines it.</li>
+    <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. Files with several footprints get tabs, and the preview follows the footprint your cursor is in.</li>
+    <li>In the editor: <kbd>Tab</kbd> indents, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor.</li>
+  </ul>
+  <h3>Choices the draft leaves open</h3>
+  <p>Where the spec doesn't settle a meaning, the demo picks one:</p>
+  <ul>
+    <li><b>Generated pads are sized across × along.</b> For <code>pins …</code> generators, <code>W x L</code> is width across the row by length along the lead, and each side's pads are rotated to face outward. That is how <code>default pad rect 0.6 x 2.2</code> reads in the SOIC hand-solder variant.</li>
+    <li><b>Floating layouts are anchored by the origin rule.</b> A purely relational footprint (TO-252) has nothing absolute to start from, so it is solved relative to its first object and then centred on the body.</li>
+    <li><b>One coordinate frame.</b> <code>at (x, y)</code> and graphic coordinates share one frame; <code>origin</code> re-bases the finished footprint.</li>
+    <li><b>IPC-style lands</b> use IPC-7351B fillet goals with nominal part dimensions (no part tolerances), F = 0.05 mm, P = 0.025 mm, rounded corners at 25%. Ball lands are 80% of the ball. Mask expansion defaults to 0.05 mm per side.</li>
+    <li><b>Manual courtyards replace the automatic one.</b> A <code>courtyard { … }</code> block replaces the auto outline, which is the only way a polygon courtyard makes sense.</li>
+    <li><b>Small grammar extensions.</b> <code>omit</code>/<code>only</code> accept name ranges (<code>only 1..5</code>, as the syntax zoo uses), and sizes may be written without spaces (<code>0.6x1.5</code>).</li>
+  </ul>
+  <h3>Not in this demo</h3>
+  <p>3D models are parsed and summarized but not rendered. Castellated leads draw a provisional land, pending SPEC §17.7. Nothing is exported yet.</p>
+  <h3>Layers</h3>
+  <dl class="key">
+    <div><dt><i class="sw cu"></i>Copper</dt><dd>pads, with drills and thermal vias</dd></div>
+    <div><dt><i class="sw paste"></i>Paste</dt><dd>stencil openings, including windowpanes</dd></div>
+    <div><dt><i class="sw mask"></i>Mask</dt><dd>solder-mask openings (off by default)</dd></div>
+    <div><dt><i class="sw silk"></i>Silk</dt><dd>auto outline pulled back from copper, pin-1 and polarity marks</dd></div>
+    <div><dt><i class="sw crt"></i>Courtyard</dt><dd>hull of land and body plus IPC clearance</dd></div>
+    <div><dt><i class="sw fab"></i>Fab</dt><dd>assembly outline and reference</dd></div>
+    <div><dt><i class="sw dim"></i>Constraints</dt><dd>dimensions from placement statements</dd></div>
+  </dl>
+</dialog>
+
+<script src="js/geom.js"></script>
+<script src="js/lexer.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/compile.js"></script>
+<script src="js/examples.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/view.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

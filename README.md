@@ -4,9 +4,19 @@ An external DSL for describing PCB component footprints. One `.stomp` source fil
 yields a **2D land pattern** (copper, mask, paste, silk, courtyard, assembly) and,
 when you want it, a **3D model** of the physical part.
 
-> **Status: design draft.** The syntax and grammar are specified; there is no parser
-> or generator yet. Read [`SPEC.md`](SPEC.md) for the full language, and
+> **Status: design draft.** The syntax and grammar are specified. A JavaScript prototype
+> of the whole pipeline powers the [live demo](demo/); the reference implementation is
+> still to come. Read [`SPEC.md`](SPEC.md) for the full language, and
 > [`grammar.peg`](grammar.peg) for the formal grammar.
+
+## Live demo
+
+[`demo/`](demo/) is a browser editor for stomp: type on the left and the footprint
+redraws on the right as you type. It draws copper, paste, mask, silk, courtyard and fab
+layers, and shows the dimension of whichever placement your cursor is on. Open
+`demo/index.html` in a browser; it needs no install, server or build. See
+[`demo/README.md`](demo/README.md) for details, including the semantic choices the
+prototype had to make where the draft is open.
 
 ## Why
 
@@ -57,6 +67,7 @@ generator plus a line or two of overrides — and templates (`template` / `from`
 | [`SPEC.md`](SPEC.md) | the language specification (design, semantics, statement reference) |
 | [`grammar.peg`](grammar.peg) | formal PEG grammar, sized for a PEGTL implementation |
 | [`examples/`](examples/) | 14 example footprints, from a 3-line 0402 to a USB micro-B "offset torture test"; [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) is a synthetic full-coverage parser fixture |
+| [`demo/`](demo/) | the in-browser live editor and its JavaScript prototype engine, with tests |
 
 ## Name
 

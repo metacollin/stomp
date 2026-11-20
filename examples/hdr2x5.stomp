@@ -1,0 +1,17 @@
+# 2x5 pin header — a through-hole grid with box-header numbering.
+
+footprint "HDR-2x5-2.54" {
+  description "2x5 pin header, 2.54 mm grid"
+  refdes "J"
+
+  body 12.7 x 5.08 x 8.5
+  pins grid 5 x 2 pitch 2.54 numbering zigzag start top-left
+                               # zigzag: 1 above 2, then advance a column —
+                               # the usual box/IDC header convention
+  lead pin 0.64 x 0.64
+  default pad tht circle 1.7 drill 1.02
+  pad 1 tht rect 1.7 x 1.7 drill 1.02
+  pin1 dot
+
+  origin at pad 1              # headers are usually placed pin-1-relative
+}

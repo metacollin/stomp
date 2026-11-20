@@ -1,0 +1,27 @@
+# TO-252 / DPAK — relational dimensioning showcase.
+#
+# Vendor drawings for this package are a classic offset maze: the pins are
+# dimensioned center-to-center, the tab from the pin row by its NEAR EDGE,
+# and the body from the pin row again. Enter each number exactly the way the
+# drawing measured it; never convert to a common origin by hand.
+
+footprint "TO-252" {
+  description "DPAK, 2 leads + tab"
+  refdes "Q"
+
+  pad 1 rect 1.1 x 1.6
+  pad 3 rect 1.1 x 1.6
+  pad 2 rect 5.5 x 6.2                       # the tab (drain)
+
+  pad 3 is 4.56 right of pad 1               # center-to-center across the pin row
+  pad 2 is centered between pad 1 and pad 3 horizontally
+  pad 2 inner is 1.9 above pad 1             # tab's near edge, 1.9 above pin centers
+
+  # equivalently, symmetric about the centerline:
+  #   pad 3 mirrors pad 1 across y
+  #   pitch pad 1 to pad 3 is 4.56
+
+  body 6.6 x 6.1 x 2.3
+  body bottom is 1.1 above pad 1             # body edge, also given from the pin row
+  pin1 none
+}

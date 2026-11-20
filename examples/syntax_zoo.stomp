@@ -1,0 +1,103 @@
+# syntax_zoo — NOT a real part. Four deliberately synthetic footprints that
+# exercise the constructs the natural examples don't reach, so the whole
+# grammar has runnable coverage. Doubles as a parser test fixture later.
+# Everything below is grammar-valid AND constraint-consistent (no object axis
+# is constrained twice).
+
+units mil            # file-wide default unit override; suffixes still work
+
+let big = 200
+
+# --- 1: pad shapes, mask/paste modes, every placement form ------------------
+footprint "ZOO-SHAPES" {
+  description "grammar coverage fixture; do not manufacture"
+  manufacturer "n/a"
+  mpn "n/a"
+
+  pad 1 roundrect 40 x 60 r 25%
+  pad 2 dshape 40 x 60 flat left rotate -90
+  pad 3 oval 40 x 60 mask defined
+  pad 4 rect 40 x 60 paste divide 2 x 2 gutter 8
+  pad 5 circle 30 mask none paste none
+  pad 6 rect 40 x 60 rotate 0.7854rad
+  pad 7 rect 40 x 60
+  pad 8 rect 40 x 60
+  pad 9 rect 40 x 60
+  hole Z1 slot 30 x 55
+
+  pad 1 at (0, 0)
+  pad 2 is 100 right of pad 1                       # x strong; y weak-aligns to pad 1
+  pad 3 is big below pad 2 and 50mil left of pad 2  # and-chain; suffix mid-file
+  pad 4 is 120 right of pad 3
+  align pad 4 with pad 1 horizontally               # strong y replaces the weak default
+  pad 5 is centered between pad 1 and pad 3
+  pad 7 mirrors pad 6 across x                      # pad 6 (prototype) takes +y side
+  gap pad 6 to pad 7 is 70                          # facing edges; axis from the mirror
+  align pad 6 with pad 5 vertically
+  pad 9 mirrors pad 8 across y                      # pad 8 takes the −x side
+  pitch pad 8 to pad 9 is 300
+  align pad 8 with pad 1 horizontally
+  hole Z1 is 80 above pad 1
+}
+
+# --- 2: generator clauses, overrides, graphics, generated-model tweaks ------
+footprint "ZOO-DUAL" {
+  body 200 x 300 x 60
+  pins 10 dual pitch 50 span 260 inner numbering cw pad roundrect 30 x 45 r 8
+  lead jlead 20 x 35
+  density most
+  pin1 bar
+  thermal pad 90 x 140                 # unnamed form (defaults to "EP")
+
+  pad 3 { size 34 x 52 }               # partial overrides of generated pads
+  pad 4 { width 40 }
+  pads 6..8 { mask +2 }
+  delete pad 10
+
+  pad "TP1" circle 30                  # manual pad coexisting with the generator
+  pad "TP1" is 60 left of side left outer
+
+  text ref at (0, 190) size 40
+  text value at (0, -190) size 40 layer assembly
+  silk {
+    outline body offset 6
+    arc (0, 0) r 80 from 30 to 150 width 4
+    circle (0, 120) d 12 fill
+    rect (0, -120) 60 x 20 width 4
+    polygon (90, 90) (110, 90) (100, 110) fill
+  }
+  courtyard rect 320 x 380
+  model {
+    standoff 2
+    height 55
+    body color black
+    leads color tin
+    pin1 dimple
+  }
+}
+
+# --- 3: one-sided part, castellations, `only` -------------------------------
+footprint "ZOO-CASTELLATED" {
+  description "edge module: castellations along one side"
+  body 400 x 300 x 40
+  pins 6 single bottom pitch 50
+  lead castellated d 24
+  density least
+  only 1..5                            # keep 1..5, drop position 6
+  pin1 dot
+}
+
+# --- 4: grids with per-axis pitch, layer suppression ------------------------
+footprint "ZOO-GRID" {
+  origin at (0, -25)
+  pins grid 3 x 2 pitch 50 x 80 numbering row-major start bottom-left
+  lead pin d 18
+  default pad tht circle 44 drill 24
+  pad 1 { drill 28 }                   # drill override via block form
+  pads 2..3 { mask -2 }
+  omit 5
+  silk none
+  assembly none
+  courtyard { polygon (-90, -70) (90, -70) (90, 70) (-90, 70) }
+  no model
+}

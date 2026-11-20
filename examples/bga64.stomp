@@ -1,0 +1,21 @@
+# BGA-64 — ball grid with JEDEC lettering and a depopulated corner.
+
+footprint "BGA-64" {
+  description "64-ball BGA, 0.8 mm pitch, rows A..H"
+  refdes "U"
+
+  body 8 x 8 x 1.2
+  balls 8 x 8 pitch 0.8        # grid + `lead ball` sizing + `numbering bga`
+  lead ball 0.4                # ball diameter; land would default to 80% of it…
+  default pad circle 0.35      # …but we pin the land size explicitly (NSMD)
+  omit A1, H8                  # depopulated corners
+  pin1 dot                     # A1-corner marker on silk
+
+  # region depopulation also works: omit rows D..E cols 4..5
+}
+
+# Application-specific depopulation as a variant:
+footprint "BGA-64-DEPOP" extends "BGA-64" {
+  description "BGA-64 with D4 unballed"
+  delete ball D4               # `ball` is an alias kind for grid-generated pads
+}

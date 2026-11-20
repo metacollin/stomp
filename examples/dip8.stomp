@@ -1,0 +1,13 @@
+# DIP-8 — through-hole dual, mixed units, square pin 1.
+
+footprint "DIP-8" {
+  description "8-lead PDIP, 0.3 in row spacing"
+  refdes "U"
+
+  body 6.35 x 9.2 x 3.3
+  pins 8 dual pitch 100mil span 300mil centers   # row spacing center-to-center
+  lead pin 0.46 x 0.25                           # rectangular leg cross-section
+  default pad tht oval 1.6 x 2.0 drill 0.8
+  pad 1 tht rect 1.6 x 2.0 drill 0.8             # square pad marks pin 1
+  pin1 notch
+}

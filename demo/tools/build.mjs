@@ -5,7 +5,8 @@
 //   node demo/tools/build.mjs --check         fail if demo/js/examples.js is out of date
 //   node demo/tools/build.mjs --bundle FILE   also write a single self-contained HTML page
 //         [--fragment]                        …without <html>/<head>/<body> (for hosts that add their own,
-//                                             which sandbox it: exports copy to the clipboard instead)
+//                                             which sandbox it: exports go through the host's
+//                                             `downloads` capability, or copy to the clipboard)
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,8 +61,10 @@ function bundle(fragment) {
     return `<script>\n${js}</script>`;
   });
   if (fragment) {
-    // hosts that take a fragment sandbox the page: no downloads, so export copies instead
+    // hosts that take a fragment sandbox the page: exports go through the host instead
+    // of a plain download link, so that code isn't shipped
     html = html.replace(/<script>/, '<script>window.STOMP_SANDBOXED = true;</script>\n<script>');
+    html = html.replace(/\/\* @plain-download \*\/[\s\S]*?\/\* @end-plain-download \*\/\n?/, '');
     html = html
       .replace(/<!doctype html>\s*/i, '')
       .replace(/<html[^>]*>\s*/i, '').replace(/\s*<\/html>\s*$/i, '\n')

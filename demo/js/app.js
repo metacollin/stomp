@@ -701,32 +701,59 @@
     b3.appendChild(sp);
     const name = () => (state.active || 'model').replace(/[^\w.+-]+/g, '_');
     const current = () => { const r = state.shown; return r ? modelFor(r).model : null; };
+    const flash = (b, text) => { const t = b.textContent; b.textContent = text; setTimeout(() => { b.textContent = t; }, 1600); };
     if (window.STOMP_SANDBOXED) {
-      // this page can't download files here: copy the VRML text instead
-      const b = chip('Copy VRML', null, null, 'Copy the model as VRML 2.0 (KiCad units) to paste into a .wrl file', async () => {
+      // An embedded page can't download by itself: the host's `downloads` capability
+      // saves files it allows (.zip among them), so VRML and STL go out zipped.
+      // Without it, the VRML text goes to the clipboard.
+      let dl = null;
+      const zipChip = chip('Save .zip', null, null, 'Download the model as VRML 2.0 for KiCad (.wrl, 0.1-inch units) and STL (mm), in one .zip', async () => {
+        const m = current();
+        if (!m || !m.meshes.length || !dl) return;
+        const nm = name();
+        const zip = S.model3d.toZip([
+          { name: `${nm}.wrl`, data: new TextEncoder().encode(S.model3d.toVRML(m, state.active)) },
+          { name: `${nm}.stl`, data: S.model3d.toSTL(m, state.active) },
+        ]);
+        try {
+          await dl.save({ filename: `${nm}-3d.zip`, data: new Blob([zip]) });
+        } catch (e) {
+          const code = e && e.code;
+          if (code === 'declined') return;
+          if (code === 'rate_limited') { flash(zipChip, 'Try again shortly'); return; }
+          zipChip.hidden = true; copyChip.hidden = false;      // saving isn't available here after all
+        }
+      });
+      zipChip.classList.add('export');
+      zipChip.hidden = true;
+      const copyChip = chip('Copy VRML', null, null, 'Copy the model as VRML 2.0 (KiCad units) to paste into a .wrl file', async () => {
         const m = current();
         if (!m || !m.meshes.length) return;
-        try {
-          await navigator.clipboard.writeText(S.model3d.toVRML(m, state.active));
-          b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy VRML'; }, 1600);
-        } catch (e) { b.textContent = 'Copy failed'; setTimeout(() => { b.textContent = 'Copy VRML'; }, 1600); }
+        try { await navigator.clipboard.writeText(S.model3d.toVRML(m, state.active)); flash(copyChip, 'Copied'); } catch (e) { flash(copyChip, 'Copy failed'); }
       });
-      b.classList.add('export');
-    } else {
-      const save = (data, type, ext) => {
-        const url = URL.createObjectURL(new Blob([data], { type }));
+      copyChip.classList.add('export');
+      const C = window.claude;
+      if (C && typeof C.use === 'function') {
+        C.use('downloads').then((d) => { if (d) { dl = d; zipChip.hidden = false; copyChip.hidden = true; } }).catch(() => {});
+      }
+    }
+    /* @plain-download */
+    if (!window.STOMP_SANDBOXED) {
+      const save = (data, ext) => {
+        const url = URL.createObjectURL(new Blob([data]));
         const a = document.createElement('a');
         a.href = url; a.download = `${name()}.${ext}`;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 2000);
       };
       chip('VRML', null, null, 'Download the model as VRML 2.0 for KiCad (.wrl, 0.1-inch units)', () => {
-        const m = current(); if (m && m.meshes.length) save(S.model3d.toVRML(m, state.active), 'model/vrml', 'wrl');
+        const m = current(); if (m && m.meshes.length) save(S.model3d.toVRML(m, state.active), 'wrl');
       }).classList.add('export');
       chip('STL', null, null, 'Download the model as binary STL (millimetres)', () => {
-        const m = current(); if (m && m.meshes.length) save(S.model3d.toSTL(m, state.active), 'model/stl', 'stl');
+        const m = current(); if (m && m.meshes.length) save(S.model3d.toSTL(m, state.active), 'stl');
       }).classList.add('export');
     }
+    /* @end-plain-download */
   })();
   $('about-btn').addEventListener('click', () => {
     const d = $('about');

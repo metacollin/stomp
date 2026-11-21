@@ -40,8 +40,9 @@ example in the browser's local storage, and **Reset** restores the original.
   under it has preset views, and from below the board turns see-through so you can check
   balls and terminals. The statement under the cursor tints the parts it makes, so the
   cursor on `lead 1, 3 gullwing …` lights up those two leads. **VRML** downloads a `.wrl`
-  for KiCad (0.1-inch units) and **STL** a binary STL in millimetres. Where the page can't
-  download (a sandboxed embed), **Copy VRML** copies the text instead.
+  for KiCad (0.1-inch units) and **STL** a binary STL in millimetres. Embedded in a host
+  that saves files for the page (the bundle built with `--fragment`), **Save .zip** saves
+  both in one archive; with no such host, **Copy VRML** copies the text instead.
 - A syntax error inside the footprint you're editing usually means a half-typed line. The
   preview then keeps the last version that parsed, dimmed, until the line is complete.
   Semantic errors, such as an over-constrained pad, still draw live.

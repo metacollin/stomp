@@ -236,6 +236,18 @@ test('exports: VRML in 0.1-inch units, binary STL', () => {
   const stl = M.toSTL(m, 'SOIC-8');
   assert.equal(stl.length, 84 + 50 * m.triangles);
   assert.equal(new DataView(stl.buffer).getUint32(80, true), m.triangles);
+  // both, zipped (stored), for hosts that only save .zip
+  const wrlBytes = new TextEncoder().encode(wrl);
+  const zip = M.toZip([{ name: 'SOIC-8.wrl', data: wrlBytes }, { name: 'SOIC-8.stl', data: stl }]);
+  const dv = new DataView(zip.buffer);
+  assert.equal(dv.getUint32(0, true), 0x04034b50, 'starts with a local file header');
+  const end = zip.length - 22;
+  assert.equal(dv.getUint32(end, true), 0x06054b50, 'ends with the end-of-central-directory record');
+  assert.equal(dv.getUint16(end + 10, true), 2, 'two entries');
+  const cd = dv.getUint32(end + 16, true);
+  assert.equal(dv.getUint32(cd, true), 0x02014b50, 'the central directory is where the end record says');
+  assert.equal(dv.getUint32(cd + 24, true), wrlBytes.length, 'first entry is stored at full size');
+  assert.equal(zip.length, 2 * (30 + 46) + 2 * 'SOIC-8.wrl'.length + wrlBytes.length + stl.length + 22);
 });
 
 test('the model builder never throws on mangled sources', () => {

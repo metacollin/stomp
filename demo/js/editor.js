@@ -78,11 +78,45 @@
     }
 
     // ----------------------------------------------------------- painting
+    /** Lexer tokens → non-overlapping classed spans (strings split around `{…}`). */
+    function spansOf(toks) {
+      const out = [];
+      for (const t of toks) {
+        if (t.t === 'str' && t.parts) {
+          let pos = t.s;
+          for (const p of t.parts) {
+            if (p.lit != null) continue;
+            if (p.open > pos) out.push({ s: pos, e: p.open, cls: 'tk-str' });
+            out.push({ s: p.open, e: p.open + 1, cls: 'tk-interp' });
+            let q = p.open + 1;
+            for (const c of p.all) {
+              if (c.s < q) continue;
+              if (c.s > q) out.push({ s: q, e: c.s, cls: '' });
+              out.push({ s: c.s, e: c.e, cls: tokenClass(c) });
+              q = c.e;
+            }
+            if (p.close > q) out.push({ s: q, e: p.close, cls: p.fmtS != null ? 'tk-interp' : '' });
+            out.push({ s: p.close, e: p.close + 1, cls: 'tk-interp' });
+            pos = p.close + 1;
+          }
+          if (t.e > pos) out.push({ s: pos, e: t.e, cls: 'tk-str' });
+          continue;
+        }
+        if (t.t === 'num' && t.suffix && t.num) {          // colour `mil` apart from `50`
+          const m = t.s + t.num.length;
+          out.push({ s: t.s, e: m, cls: 'tk-num' }, { s: m, e: t.e, cls: 'tk-num tk-unit' });
+          continue;
+        }
+        out.push({ s: t.s, e: t.e, cls: tokenClass(t) });
+      }
+      return out;
+    }
+
     function paint() {
       const text = ta.value;
       const lx = S.lexer.lex(text, null);
-      const toks = lx.all.filter((t) => t.t !== 'nl');
-      // boundaries from tokens and diagnostics
+      const spans = spansOf(lx.all.filter((t) => t.t !== 'nl'));
+      // boundaries from spans and diagnostics
       const ranges = showDiags ? diags.map((d) => {
         let s = d.s, e = Math.max(d.e, d.s + 1);
         if (s >= text.length) { s = Math.max(0, text.length - 1); e = text.length; }
@@ -90,10 +124,7 @@
         return { s, e: Math.min(e, text.length), cls: d.severity === 'error' ? 'sq-err' : 'sq-warn' };
       }) : [];
       const cuts = new Set([0, text.length]);
-      for (const t of toks) {
-        cuts.add(t.s); cuts.add(t.e);
-        if (t.t === 'num' && t.suffix) cuts.add(t.s + t.num.length);   // colour `mil` apart from `50`
-      }
+      for (const t of spans) { cuts.add(t.s); cuts.add(t.e); }
       for (const r of ranges) { cuts.add(r.s); cuts.add(r.e); }
       const pts = [...cuts].filter((x) => x >= 0 && x <= text.length).sort((a, b) => a - b);
       let html = '';
@@ -101,17 +132,12 @@
       for (let i = 0; i + 1 < pts.length; i++) {
         const a = pts[i], b = pts[i + 1];
         if (a === b) continue;
-        while (ti < toks.length && toks[ti].e <= a) ti++;
-        const tk = ti < toks.length && toks[ti].s <= a && toks[ti].e >= b ? toks[ti] : null;
-        let cls = tk ? tokenClass(tk) : '';
-        if (tk && tk.t === 'num' && tk.suffix) {
-          // split value / unit suffix colouring
-          const numEnd = tk.s + tk.num.length;
-          if (a >= numEnd) cls += ' tk-unit';
-        }
+        while (ti < spans.length && spans[ti].e <= a) ti++;
+        const sp = ti < spans.length && spans[ti].s <= a && spans[ti].e >= b ? spans[ti] : null;
+        let cls = sp ? sp.cls : '';
         for (const r of ranges) if (r.s < b && r.e > a) cls += ' ' + r.cls;
         const chunk = esc(text.slice(a, b));
-        html += cls ? `<span class="${cls.trim()}">${chunk}</span>` : chunk;
+        html += cls.trim() ? `<span class="${cls.trim()}">${chunk}</span>` : chunk;
       }
       // keep the <pre> as tall as the textarea when the text ends in a newline
       hl.innerHTML = html + (text.endsWith('\n') || !text ? ' ' : '') + '\n';

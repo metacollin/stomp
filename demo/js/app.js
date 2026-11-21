@@ -20,7 +20,11 @@
     'dip8.stomp': 'span 300mil centers',
     'hdr2x5.stomp': 'origin at pad 1',
     'syntax_zoo.stomp': 'gap pad 6 to pad 7 is 70',
+    'qfn_library.stomp': '  32   5    3.45',
   };
+  // Examples that open on the Library view rather than a single footprint
+  const OPEN_IN_LIBRARY = new Set(['qfn_library.stomp']);
+  const TAB_LIMIT = 5;          // more footprints than this: a dropdown instead of tabs
 
   const store = {
     load() { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } },
@@ -40,6 +44,7 @@
     hover: null,
     selected: null,
     cursor: 0,
+    view: 'fp',           // 'fp' (one footprint) | 'lib' (every footprint in the file)
   };
 
   let saveTimer = 0;
@@ -122,6 +127,7 @@
     const edited = state.buffers[ex.file];
     editor.setValue(edited != null ? edited : ex.source);
     state.active = null;
+    state.view = OPEN_IN_LIBRARY.has(ex.file) && edited == null ? 'lib' : 'fp';
     markEdited();
     compileNow();
     if (edited == null || fresh) {
@@ -162,6 +168,7 @@
     if (!out.footprints.some((f) => f.name === state.active)) state.active = fpAt(state.cursor) || (out.footprints[0] && out.footprints[0].name) || null;
     renderTabs();
     showActive();
+    applyView();
   }
 
   function fpAt(offset) {
@@ -169,8 +176,16 @@
     if (!out) return null;
     const fp = out.footprints.find((f) => offset >= f.s && offset <= f.e);
     if (fp) return fp.name;
-    const t = (out.templates || []).find((x) => offset >= x.s && offset <= x.e);
-    if (t && t.users.length) return t.users.includes(state.active) ? state.active : t.users[0];
+    // anywhere on a table row's line (e.g. in its leading spaces) counts as that row
+    const text = editor.getValue();
+    const ls = text.lastIndexOf('\n', offset - 1) + 1;
+    let le = text.indexOf('\n', offset);
+    if (le < 0) le = text.length;
+    const row = out.footprints.find((f) => f.origin && f.origin.kind === 'row' && f.s >= ls && f.s <= le);
+    if (row) return row.name;
+    // a table's header (or a template) shows one of the footprints it makes
+    const group = (out.tables || []).concat(out.templates || []).find((x) => offset >= x.s && offset <= x.e);
+    if (group && group.users.length) return group.users.includes(state.active) ? state.active : group.users[0];
     return null;
   }
 
@@ -180,6 +195,7 @@
       state.active = name;
       renderTabs();
       showActive();
+      if (state.view === 'lib') markActiveCard(true);
     }
   }
 
@@ -212,11 +228,43 @@
   }
 
   // ------------------------------------------------------------- tabs
+  function errorNames() {
+    return new Set((state.out ? state.out.diagnostics : []).filter((d) => d.severity === 'error' && d.footprint).map((d) => d.footprint));
+  }
+
   function renderTabs() {
     const tabs = $('tabs');
     const fps = state.out ? state.out.footprints : [];
-    const errs = new Set((state.out ? state.out.diagnostics : []).filter((d) => d.severity === 'error' && d.footprint).map((d) => d.footprint));
+    const errs = errorNames();
+    const many = fps.length > TAB_LIMIT;
+    const pick = $('fp-select');
+    $('view-seg').hidden = fps.length < 2;
+    $('lib-n').textContent = fps.length >= 2 ? String(fps.length) : '';
+    if (fps.length < 2 && state.view === 'lib') state.view = 'fp';
+    tabs.hidden = many || state.view === 'lib';
+    pick.hidden = !many || state.view === 'lib';
     tabs.innerHTML = '';
+    if (many) {
+      // grouped by where each footprint comes from: tables, then everything else
+      pick.innerHTML = '';
+      let group = null, groupKey = null;
+      for (const f of fps) {
+        const key = f.origin && f.origin.kind === 'row' ? `t${f.origin.tableS}` : 'other';
+        if (key !== groupKey) {
+          groupKey = key;
+          group = document.createElement('optgroup');
+          const t = key === 'other' ? null : (state.out.tables || []).find((x) => x.s === f.origin.tableS);
+          group.label = t ? `${t.head} — ${t.users.length} rows` : 'footprints';
+          pick.appendChild(group);
+        }
+        const o = document.createElement('option');
+        o.value = f.name;
+        o.textContent = (errs.has(f.name) || !f.result ? '⚠ ' : '') + f.name;
+        o.selected = f.name === state.active;
+        group.appendChild(o);
+      }
+      return;
+    }
     for (const f of fps) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -230,16 +278,135 @@
         dot.title = 'has errors';
         b.appendChild(dot);
       }
-      b.addEventListener('click', () => {
-        state.active = f.name;
-        renderTabs();
-        showActive();
-        editor.reveal(f.nameS, f.nameS, false);
-      });
+      b.addEventListener('click', () => openFootprint(f.name));
       tabs.appendChild(b);
     }
     const on = tabs.querySelector('[aria-selected="true"]');
     if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /** Show one footprint and put the editor on the statement (or table row) that makes it. */
+  function openFootprint(name) {
+    const f = state.out && state.out.footprints.find((x) => x.name === name);
+    if (!f) return;
+    state.active = name;
+    state.view = 'fp';
+    renderTabs();
+    showActive();
+    applyView();
+    editor.reveal(f.nameS, f.nameS, false);
+  }
+  $('fp-select').addEventListener('change', (e) => openFootprint(e.target.value));
+  document.querySelectorAll('#view-seg [data-view]').forEach((b) => b.addEventListener('click', () => {
+    state.view = b.dataset.view;
+    renderTabs();
+    applyView();
+    if (state.view === 'fp') showActive();
+  }));
+
+  // ------------------------------------------------------------- library
+  function applyView() {
+    const lib = state.view === 'lib';
+    document.querySelectorAll('#view-seg [data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
+    $('viewer').hidden = lib;
+    $('layerbar').hidden = lib;
+    $('titleblock').hidden = lib;
+    $('details').hidden = lib;
+    $('fit').hidden = lib;
+    $('library').hidden = !lib;
+    if (lib) renderLibrary();
+  }
+
+  const thumbs = new WeakMap();    // result → SVG markup (cached results keep their thumbnails)
+  function thumb(r) {
+    if (thumbs.has(r)) return thumbs.get(r);
+    const P = S.svgPaths;
+    const b = r.coreBox;
+    const m = Math.max(b.x1 - b.x0, b.y1 - b.y0) * 0.08 + 0.15;
+    const vb = [b.x0 - m, -(b.y1 + m), b.x1 - b.x0 + 2 * m, b.y1 - b.y0 + 2 * m].map((v) => +v.toFixed(4));
+    let svg = `<svg viewBox="${vb.join(' ')}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`;
+    if (r.body) svg += `<path class="fab" d="${P.poly(r.body.outline, true)}"></path>`;
+    for (const p of r.pads) svg += `<path class="pad" d="${P.contour(p.copper)}"></path>`;
+    for (const p of r.pads) if (p.drillShape) svg += `<path class="drill" d="${P.contour(p.drillShape)}"></path>`;
+    for (const h of r.holes) svg += `<path class="npth" d="${P.contour(h.land)}"></path>`;
+    svg += '</svg>';
+    thumbs.set(r, svg);
+    return svg;
+  }
+
+  const lazyThumbs = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      const el = en.target;
+      lazyThumbs.unobserve(el);
+      if (el._result) el.innerHTML = thumb(el._result);
+    }
+  }, { root: $('library'), rootMargin: '200px' }) : null;
+
+  function renderLibrary() {
+    const box = $('library');
+    const out = state.out;
+    const fps = out ? out.footprints : [];
+    const errs = errorNames();
+    const U = state.units;
+    const L = (v) => fmt(v);
+    const bad = fps.filter((f) => errs.has(f.name) || !f.result).length;
+    const tables = (out && out.tables) || [];
+    const parts = [`<b>${fps.length} footprint${fps.length === 1 ? '' : 's'}</b>`];
+    if (tables.length) parts.push(`${tables.reduce((n, t) => n + t.users.length, 0)} from ${tables.length} table${tables.length === 1 ? '' : 's'}`);
+    if (bad) parts.push(`<span class="bad">${bad} with errors</span>`);
+    parts.push('click one to open it');
+    let html = `<div class="lib-head">${parts.join('<span aria-hidden="true">·</span>')}</div>`;
+    let key = null;
+    const cards = [];
+    fps.forEach((f, i) => {
+      const k = f.origin && f.origin.kind === 'row' ? `t${f.origin.tableS}` : 'other';
+      if (k !== key) {
+        if (key !== null) html += '</div>';
+        key = k;
+        const t = k === 'other' ? null : tables.find((x) => x.s === f.origin.tableS);
+        const label = t ? escapeHtml(t.head) : (tables.length ? 'other footprints' : 'footprints');
+        html += `<div class="lib-sec">${t ? `<button type="button" data-goto="${t.s}" title="Go to this table">${label}</button><span class="n">${t.users.length} row${t.users.length === 1 ? '' : 's'}</span>` : `<span class="n">${label}</span>`}</div><div class="lib-grid">`;
+      }
+      const r = f.result;
+      let meta = '';
+      if (r) {
+        const dims = r.body ? (r.body.kind === 'cyl' ? `⌀${L(r.body.w)} ${U}` : `${L(r.body.w)} × ${L(r.body.l)} ${U}`) : '';
+        meta = `${r.pads.length} pad${r.pads.length === 1 ? '' : 's'}${dims ? ' · ' + dims : ''}`;
+      }
+      const cls = ['card'];
+      if (f.name === state.active) cls.push('on');
+      if (errs.has(f.name)) cls.push('bad');
+      if (!r) cls.push('none');
+      html += `<button type="button" class="${cls.join(' ')}" data-i="${i}"><span class="thumb">${r ? '' : 'not drawn'}</span><span class="cname">${escapeHtml(f.name)}</span><span class="cmeta">${meta}</span></button>`;
+      cards.push(f);
+    });
+    if (key !== null) html += '</div>';
+    if (!fps.length) html += '<p class="lib-head">Nothing yet — add a <code>footprint</code>, or a <code>footprints from TEMPLATE { … }</code> table.</p>';
+    box.innerHTML = html;
+    box.querySelectorAll('.card').forEach((el) => {
+      const f = fps[+el.dataset.i];
+      const th = el.querySelector('.thumb');
+      if (f.result) {
+        if (thumbs.has(f.result) || !lazyThumbs) th.innerHTML = thumb(f.result);
+        else { th._result = f.result; lazyThumbs.observe(th); }
+      }
+      el.addEventListener('click', () => openFootprint(f.name));
+      el.addEventListener('mouseenter', () => editor.markLines(linesOf([{ s: f.s, e: f.e }])));
+      el.addEventListener('mouseleave', () => editor.markLines([]));
+    });
+    box.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => editor.reveal(+b.dataset.goto, +b.dataset.goto, true)));
+    markActiveCard(false);
+  }
+
+  function markActiveCard(scroll) {
+    const box = $('library');
+    const fps = state.out ? state.out.footprints : [];
+    box.querySelectorAll('.card').forEach((el) => {
+      const on = fps[+el.dataset.i] && fps[+el.dataset.i].name === state.active;
+      el.classList.toggle('on', on);
+      if (on && scroll) el.scrollIntoView({ block: 'nearest' });
+    });
   }
 
   // ------------------------------------------------------------- problems
@@ -285,7 +452,11 @@
     const m = r.meta;
     const facts = [];
     const fact = (k, v) => facts.push(`<dt>${k}</dt><dd>${v}</dd>`);
-    if (r.template) fact('From', `template <b>${escapeHtml(r.template)}</b>`);
+    if (r.template) {
+      const o = fp.origin || {};
+      const where = o.kind === 'row' ? `, row ${o.row} of the table on line ${lineOf(o.tableS)}` : '';
+      fact('From', `template <b>${escapeHtml(r.template)}</b>${where ? `<span class="note">${where}</span>` : ''}`);
+    }
     if (r.extends) fact('Extends', `"${escapeHtml(r.extends)}"`);
     const smd = r.pads.filter((p) => !p.tht).length, tht = r.pads.length - smd;
     fact('Pads', `${r.pads.length}${tht && smd ? ` <span class="note">(${smd} SMD, ${tht} THT)</span>` : tht ? ' <span class="note">through-hole</span>' : ''}${r.holes.length ? ` + ${r.holes.length} NPTH` : ''}${r.generator && r.generator.omitted.length ? ` <span class="note">(omitted ${escapeHtml(r.generator.omitted.join(', '))})</span>` : ''}`);
@@ -363,6 +534,13 @@
     if (tr) { tr.classList.add('on'); if (scroll) tr.scrollIntoView({ block: 'nearest' }); }
   }
 
+  function lineOf(offset) {
+    const text = editor.getValue();
+    let n = 1;
+    for (let i = 0; i < offset && i < text.length; i++) if (text.charCodeAt(i) === 10) n++;
+    return n;
+  }
+
   function linesOf(ranges) {
     const text = editor.getValue();
     const out = new Set();
@@ -407,6 +585,7 @@
       document.querySelectorAll('.seg [data-u]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
       viewer.setUnits(state.units);
       showActive();
+      if (state.view === 'lib') renderLibrary();
       persist();
     });
   });

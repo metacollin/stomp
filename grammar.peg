@@ -31,6 +31,7 @@ file            <- EOS? (top_stmt EOS)* EOF
 top_stmt        <- units_stmt
                  / let_stmt
                  / template_decl
+                 / footprints_decl
                  / footprint_decl
 
 units_stmt      <- 'units' unit_name
@@ -39,11 +40,26 @@ template_decl   <- 'template' IDENT '(' param_list? ')' block
 param_list      <- param (',' param)*
 param           <- IDENT ('=' expr)?
 
-footprint_decl  <- 'footprint' name ( 'extends' name block
-                                    / 'from' IDENT '(' arg_list? ')' block?
-                                    / block )
+# The name may be left to the template (`name` statement, SPEC §14.2) in a call.
+footprint_decl  <- 'footprint' ( name ( 'extends' name block
+                                      / 'from' call block?
+                                      / block )
+                               / 'from' call block? )
+call            <- IDENT '(' arg_list? ')'
 arg_list        <- arg (',' arg)*
 arg             <- (IDENT '=')? expr
+
+# Tables: one footprint per row (SPEC §14.3). The header row names template
+# parameters; cells are whitespace-separated, so arithmetic needs parentheses
+# and a minus must touch its number (`-0.1`).
+footprints_decl <- 'footprints' 'from' IDENT ('(' arg_list? ')')? table
+table           <- '{' EOS? table_head EOS (table_row EOS)* '}'
+table_head      <- IDENT+
+table_row       <- cell+                     # exactly one cell per header column
+cell            <- STRING
+                 / '-'? NUMBER unit_name?    # '-' attached (lexical)
+                 / IDENT
+                 / '(' expr ')'
 
 block           <- '{' EOS? (statement EOS)* '}'
 
@@ -54,6 +70,7 @@ block           <- '{' EOS? (statement EOS)* '}'
 # ---------------------------------------------------------------------------
 
 statement       <- meta_stmt
+                 / name_stmt               # templates and `from` blocks only
                  / let_stmt
                  / origin_stmt
                  / body_stmt
@@ -89,6 +106,8 @@ meta_stmt       <- 'description'  STRING
                  / 'refdes'       STRING
                  / 'tags' name (',' name)*
 
+name_stmt       <- 'name' STRING             # names the footprint a template makes
+
 let_stmt        <- 'let' IDENT '=' expr
 
 origin_stmt     <- 'origin' ( 'at' ( point / objref )
@@ -105,6 +124,7 @@ term            <- factor (mul_op factor)*
 factor          <- '-'? ( NUMBER unit_name?   # unit suffix must be attached (lexical)
                         / IDENT               # let-name / template parameter
                         / '(' expr ')' )
+                 / STRING                     # text: usable only inside {…} interpolation
 add_op          <- '+' / '-'
 mul_op          <- '*' / '/'
 
@@ -195,10 +215,10 @@ drill_spec      <- 'drill' ( 'slot' size / expr )
 pad_prop        <- 'rotate' angle
                  / 'mask'  ( 'none' / 'defined' / signed_expr )
                  / 'paste' ( 'none'
-                           / 'divide' INT 'x' INT ( 'coverage' percent
-                                                  / 'gutter' expr )?
+                           / 'divide' count 'x' count ( 'coverage' percent
+                                                      / 'gutter' expr )?
                            / signed_expr )
-                 / 'vias' INT 'x' INT 'drill' expr 'pitch' expr
+                 / 'vias' count 'x' count 'drill' expr 'pitch' expr
 signed_expr     <- ('+' / '-') expr          # explicit sign: expansion vs contraction
 
 # Block form: full geometry, partial overrides, or both       (SPEC §10.1, §10.3)
@@ -311,7 +331,9 @@ INT             <- [0-9]+ !'.'                 # …but INT '..' is fine: the
 NUMBER          <- [0-9]+ ('.' [0-9]*)? / '.' [0-9]+
                                                # unit / '%' / 'deg' suffixes bind
                                                # only when immediately attached
-STRING          <- '"' ( '\\' ["\\] / !'"' . )* '"'
+STRING          <- '"' ( '\\' ["\\{}] / interp / !(["{] / NEWLINE) . )* '"'
+interp          <- '{' expr (':' '.' [0-9])? '}'   # SPEC §7; the expr is lexed like code,
+                                                    # with no strings or newlines inside
 
 COMMENT         <- '#' (!NEWLINE .)*
 NEWLINE         <- '\r\n' / '\n'
@@ -330,9 +352,9 @@ EOF             <- !.
 #   centers chamfer circle col-major color cols copper courtyard coverage cw
 #   cylinder d datasheet default defined deg delete density description
 #   dimple divide dot down drill dshape dual endcap extends fill flat
-#   footprint from gap going grid group gullwing gutter h height hole
+#   footprint footprints from gap going grid group gullwing gutter h height hole
 #   horizontal horizontally in inner is jlead layer lead leads least left
-#   length let line manufacturer mask mil mirrors mm model most mpn nc nm no
+#   length let line manufacturer mask mil mirrors mm model most mpn name nc nm no
 #   nominal none notch numbering of offset omit on only origin outer outline
 #   oval pad pads paste pin pin1 pins pitch polarized polygon quad r rad
 #   rect ref refdes right rotate roundrect row row-major rows scale shape

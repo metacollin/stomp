@@ -50,7 +50,12 @@
 
     <section class="pane sheet" aria-label="Footprint preview">
       <div class="pane-head">
+        <div class="seg view-seg" id="view-seg" role="group" aria-label="View" hidden>
+          <button type="button" data-view="fp" aria-pressed="true">Footprint</button>
+          <button type="button" data-view="lib" aria-pressed="false">Library <span class="lib-n" id="lib-n"></span></button>
+        </div>
         <div class="tabs" id="tabs" role="tablist" aria-label="Footprints in this file"></div>
+        <select id="fp-select" class="fp-select" aria-label="Footprint" hidden></select>
         <div class="tools">
           <div class="seg" role="group" aria-label="Display units">
             <button type="button" data-u="mm" aria-pressed="true">mm</button>
@@ -61,6 +66,7 @@
       </div>
       <div class="viewer-wrap">
         <div id="viewer" class="viewer-host"></div>
+        <div id="library" class="library" hidden></div>
         <div class="legend" id="layerbar" role="group" aria-label="Layers"></div>
       </div>
       <div class="titleblock" id="titleblock">
@@ -85,7 +91,8 @@
     <li><b>Type</b> on the left; the footprint redraws a moment after you pause. Errors are underlined and listed under the code.</li>
     <li><b>Put the cursor on a statement</b> to highlight the objects it creates or moves. Placements draw their dimension right on the footprint, so <code>pad 3 is 4.56 right of pad 1</code> shows the 4.56 between the two centres.</li>
     <li><b>Hover a pad</b> for its size, position, mask and paste; its source lines light up. <b>Click</b> it to jump to the statement that defines it.</li>
-    <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. Files with several footprints get tabs, and the preview follows the footprint your cursor is in.</li>
+    <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. The preview follows the footprint your cursor is in.</li>
+    <li><b>Libraries:</b> a template can name the footprints it makes (<code>name "QFN-{n}-…"</code>), and <code>footprints from qfn { … }</code> makes one per table row. <b>Library</b> shows every footprint in the file; put the cursor on a row to see that one. Open the <i>QFN library</i> example to try it.</li>
     <li>In the editor: <kbd>Tab</kbd> indents, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor.</li>
   </ul>
   <h3>Choices the draft leaves open</h3>
@@ -96,6 +103,7 @@
     <li><b>One coordinate frame.</b> <code>at (x, y)</code> and graphic coordinates share one frame; <code>origin</code> re-bases the finished footprint.</li>
     <li><b>IPC-style lands</b> use IPC-7351B fillet goals with nominal part dimensions (no part tolerances), F = 0.05 mm, P = 0.025 mm, rounded corners at 25%. Ball lands are 80% of the ball. Mask expansion defaults to 0.05 mm per side.</li>
     <li><b>Manual courtyards replace the automatic one.</b> A <code>courtyard { … }</code> block replaces the auto outline, which is the only way a polygon courtyard makes sense.</li>
+    <li><b>Interpolation prints numbers in their shortest form.</b> Lengths print in the file's units, and <code>{e:.2}</code> fixes the decimals.</li>
     <li><b>Small grammar extensions.</b> <code>omit</code>/<code>only</code> accept name ranges (<code>only 1..5</code>, as the syntax zoo uses), and sizes may be written without spaces (<code>0.6x1.5</code>).</li>
   </ul>
   <h3>Not in this demo</h3>

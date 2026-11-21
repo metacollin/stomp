@@ -9,6 +9,7 @@
  *   t: 'word' | 'num' | 'str' | 'p' (punctuation) | 'nl' | 'comment' | 'bad' | 'eof'
  *   word: v = text, kw = reserved?            num: v = value, text, suffix, isInt
  *   str:  v = unescaped value                 p:   v = '{' '}' '(' ')' ',' ';' ':' '=' '+' '-' '*' '/' '..'
+ *         parts = null, or (interpolated) [{ lit, s, e } | { open, close, codeS, codeE, fmt, toks, all }]
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -22,9 +23,9 @@
     'centers chamfer circle col-major color cols copper courtyard coverage cw ' +
     'cylinder d datasheet default defined deg delete density description ' +
     'dimple divide dot down drill dshape dual endcap extends fill flat ' +
-    'footprint from gap going grid group gullwing gutter h height hole ' +
+    'footprint footprints from gap going grid group gullwing gutter h height hole ' +
     'horizontal horizontally in inner is jlead layer lead leads least left ' +
-    'length let line manufacturer mask mil mirrors mm model most mpn nc nm no ' +
+    'length let line manufacturer mask mil mirrors mm model most mpn name nc nm no ' +
     'nominal none notch numbering of offset omit on only origin outer outline ' +
     'oval pad pads paste pin pin1 pins pitch polarized polygon quad r rad ' +
     'rect ref refdes right rotate roundrect row row-major rows scale shape ' +
@@ -70,16 +71,52 @@
         continue;
       }
       if (c === '"') {
-        let v = '';
+        // "text {expr} text {expr:.2}" — interpolation (SPEC §7); \" \\ \{ \} escape
+        let lit = '', litS = i + 1, parts = null;
         i++;
         let closed = false;
         while (i < n && src[i] !== '\n') {
-          if (src[i] === '\\' && (src[i + 1] === '"' || src[i + 1] === '\\')) { v += src[i + 1]; i += 2; continue; }
-          if (src[i] === '"') { closed = true; i++; break; }
-          v += src[i++];
+          const ch = src[i];
+          if (ch === '\\' && /["\\{}]/.test(src[i + 1] || '')) { lit += src[i + 1]; i += 2; continue; }
+          if (ch === '"') { closed = true; i++; break; }
+          if (ch === '{') {
+            const open = i;
+            let j = i + 1;
+            while (j < n && src[j] !== '}' && src[j] !== '"' && src[j] !== '\n') j++;
+            if (src[j] !== '}') {
+              report('unclosed `{` in a string — close it with `}`, or write a literal brace as `\\{`', open, j);
+              lit += src.slice(open, j);
+              i = j;
+              continue;
+            }
+            const inner = src.slice(open + 1, j);
+            const colon = inner.lastIndexOf(':');
+            let codeE = j, fmt = null, fmtS = null;
+            if (colon >= 0) {
+              codeE = open + 1 + colon;
+              fmtS = codeE;
+              const spec = inner.slice(colon + 1).trim();
+              if (/^\.\d$/.test(spec)) fmt = +spec.slice(1);
+              else report(`unknown format \`:${spec}\` — use \`:.N\` for N decimal places, e.g. \`{e:.2}\``, fmtS, j);
+            }
+            if (!src.slice(open + 1, codeE).trim()) {
+              report('empty `{}` in a string — put an expression inside, or write `\\{\\}` for literal braces', open, j + 1);
+            }
+            parts = parts || [];
+            if (lit) parts.push({ lit, s: litS, e: open });
+            lit = '';
+            const code = lexRange(src, open + 1, codeE, diags, line, lineStart);
+            parts.push({ open, close: j, codeS: open + 1, codeE, fmt, fmtS, toks: code.tokens, all: code.all });
+            i = j + 1;
+            litS = i;
+            continue;
+          }
+          lit += ch;
+          i++;
         }
         if (!closed) report('unterminated string — add a closing "', s, i);
-        tok('str', s, i, { v });
+        if (parts && lit) parts.push({ lit, s: litS, e: closed ? i - 1 : i });
+        tok('str', s, i, { v: parts ? null : lit, parts });
         continue;
       }
       if (isDigit(c) || (c === '.' && isDigit(src[i + 1] || ''))) {
@@ -172,6 +209,18 @@
     }
     tokens.push(eof);
     return { tokens, all, eof };
+  }
+
+  /** Lex src[a, b) (the code inside a string's `{…}`) with absolute offsets. */
+  function lexRange(src, a, b, diags, line, lineStart) {
+    const sub = [];
+    const r = lex(src.slice(a, b), sub);
+    const shift = (k) => { k.s += a; k.e += a; k.line = line; k.col = k.s - lineStart + 1; return k; };
+    for (const d of sub) { d.s += a; d.e += a; if (diags) diags.push(d); }
+    for (const k of r.all) shift(k);
+    const tokens = r.tokens.filter((k) => k.t !== 'eof' && k.t !== 'nl');
+    for (const k of tokens) if (!r.all.includes(k)) shift(k);
+    return { tokens, all: r.all.filter((k) => k.t !== 'nl') };
   }
 
   return { lex, RESERVED, UNIT_SUFFIX };

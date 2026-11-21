@@ -27,8 +27,12 @@ example in the browser's local storage, and **Reset** restores the original.
   their dimension. **Constraints** in the layer bar draws every placement at once.
 - Hover a pad for its size, position, mask and paste; the statements behind it light up
   in the editor. Click a pad, or a row of the pad table, to jump to its definition.
-- Drag to pan, scroll or pinch to zoom, double-click to fit. Files with several footprints
-  get tabs, and the preview follows whichever footprint the cursor is in.
+- Drag to pan, scroll or pinch to zoom, double-click to fit. The preview follows whichever
+  footprint the cursor is in. With more than five footprints the tabs become a dropdown
+  grouped by table.
+- **Library** shows every footprint in the file as a thumbnail gallery, grouped by the
+  table that made it. Click one to open it, or move the cursor through a table's rows to
+  step through the footprints they make.
 - A syntax error inside the footprint you're editing usually means a half-typed line. The
   preview then keeps the last version that parsed, dimmed, until the line is complete.
   Semantic errors, such as an over-constrained pad, still draw live.
@@ -44,7 +48,7 @@ The engine is a complete prototype of the draft, from `grammar.peg` to finished 
 |---|---|
 | `js/lexer.js` | tokens per the grammar's lexical layer: attached unit suffixes, `1..4` ranges, hyphenated keywords, newline rules from SPEC §4 |
 | `js/parser.js` | recursive descent following `grammar.peg`'s ordered choices, with per-statement error recovery |
-| `js/compile.js` | units and `let`; `template`/`from`/`extends`; `pins`/`balls`/side-block generators with every numbering scheme, `omit`/`only`/`delete`; IPC-style pad synthesis; the §9 constraint solver; mask, paste windowpanes, vias, auto silk/courtyard/assembly, pin-1 and polarity marks; §15 diagnostics |
+| `js/compile.js` | units and `let`; text values and `{…}` interpolation; templates as functions (`name`), `from` calls, `footprints from` tables, `extends`; `pins`/`balls`/side-block generators with every numbering scheme, `omit`/`only`/`delete`; IPC-style pad synthesis; the §9 constraint solver; mask, paste windowpanes, vias, auto silk/courtyard/assembly, pin-1 and polarity marks; §15 diagnostics; an incremental build cache |
 | `js/geom.js` | exact outlines (lines plus arcs), offsets, hulls, silk clipping |
 | `js/view.js` | SVG viewer: true-width layers, pan/zoom, hover inspection, constraint overlays |
 | `js/editor.js` | dependency-free code editor: a textarea over lexer-driven highlighting |
@@ -62,9 +66,26 @@ node demo/tools/build.mjs            # regenerate js/examples.js after editing e
 ```
 
 The suite checks hand-calculated geometry for the relational examples (TO-252, USB
-micro-B, the syntax zoo), the generators, the diagnostics and their locations, and that
-`js/examples.js` matches `examples/`. It also fuzzes the compiler with half-typed and
-mangled versions of every example.
+micro-B, the syntax zoo), the generators, interpolation and tables, the diagnostics and
+their locations, and that `js/examples.js` matches `examples/`. It also fuzzes the
+compiler with half-typed and mangled versions of every example, and checks over
+sequences of random edits that the build cache never changes a result.
+
+## Performance
+
+Footprint files are recompiled on every pause in typing, so big libraries need two
+things:
+
+- **A build cache.** Each footprint's result is cached under the text it is built from:
+  its template, its arguments and the file's `let`s. Editing one row of a table, or
+  adding one, rebuilds only that row. A table row's own position isn't part of its key,
+  so rows below an edit stay cached, and their row-local diagnostics move with them.
+- **Lazy layers.** Automatic silk, assembly and courtyard geometry, the costly part, is
+  computed when a footprint is first drawn. Anything that can report a problem still
+  runs on every compile.
+
+For a 150-row QFN table in Chromium, a cold compile takes about 165 ms, and typing in
+one row recompiles in about 6 ms. Editing the template rebuilds every row.
 
 ## Semantic decisions
 
@@ -102,6 +123,13 @@ The draft leaves some meanings open. The demo picks the following, and the page'
    assembly blocks add to theirs, as §12 describes.
 8. **Two grammar extensions.** `omit`/`only` accept name ranges (`only 1..5`, as the
    syntax zoo uses), and sizes may be written without spaces (`0.6x1.5`).
+9. **Interpolation output.** Numbers print in their shortest form, up to 6 decimals, so
+   `0.5`, `3.45` and `32` print as written. Lengths print in the file's `units`, and
+   `{x:.N}` fixes the decimals.
+10. **Where template errors go.** A problem inside a template body that only some calls
+    trigger (say a pin count that isn't a multiple of 4) is reported on those table rows
+    or calls, pointing back at the template line. A problem every call shares is
+    reported once, at the template.
 
 ## Notes on the spec from implementing it
 

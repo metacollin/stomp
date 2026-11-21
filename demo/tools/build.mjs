@@ -16,7 +16,7 @@ const exDir = join(repo, 'examples');
 
 // Picker order: relational showcases first, then generated packages, then the fixture.
 const ORDER = [
-  'to252.stomp', 'usb_microb.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'tssop20.stomp',
+  'to252.stomp', 'usb_microb.stomp', 'qfn_library.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'tssop20.stomp',
   'soic_family.stomp', 'bga64.stomp', 'dip8.stomp', 'hdr2x5.stomp', 'r0402.stomp', 'led0603.stomp',
   'cp_radial.stomp', 'syntax_zoo.stomp',
 ];

@@ -14,7 +14,8 @@ when you want it, a **3D model** of the physical part.
 [`demo/`](demo/) is a browser editor for stomp: type on the left and the footprint
 redraws on the right as you type. It draws copper, paste, mask, silk, courtyard and fab
 layers, and shows the dimension of whichever placement your cursor is on. Open
-`demo/index.html` in a browser; it needs no install, server or build. See
+`demo/index.html` in a browser; it needs no install, server or build. The *QFN library*
+example shows a table generating a library, with every footprint in a gallery. See
 [`demo/README.md`](demo/README.md) for details, including the semantic choices the
 prototype had to make where the draft is open.
 
@@ -60,13 +61,34 @@ Generated objects are ordinary named objects, so "standard package, except…" i
 generator plus a line or two of overrides — and templates (`template` / `from` /
 `extends`) handle whole families and variants.
 
+Templates are functions: they name and describe the footprints they produce by
+interpolating their parameters, and a table calls one once per row. A whole library is
+a template plus the datasheet's variation table:
+
+```stomp
+template qfn(n, D, D2, e = 0.5) {
+  name "QFN-{n}-1EP_{D}x{D}mm_P{e}mm_EP{D2}x{D2}mm"
+  body D x D x 0.9
+  pins n quad pitch e
+  lead flat e / 2 x 0.4
+  thermal pad "{n + 1}" D2 x D2
+}
+
+footprints from qfn {           # one footprint per row
+  n    D    D2
+  16   3    1.7
+  32   5    3.45
+  48   7    5.6
+}
+```
+
 ## Repository layout
 
 | path | contents |
 |---|---|
 | [`SPEC.md`](SPEC.md) | the language specification (design, semantics, statement reference) |
 | [`grammar.peg`](grammar.peg) | formal PEG grammar, sized for a PEGTL implementation |
-| [`examples/`](examples/) | 14 example footprints, from a 3-line 0402 to a USB micro-B "offset torture test"; [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) is a synthetic full-coverage parser fixture |
+| [`examples/`](examples/) | 15 example files, from a 3-line 0402 to a USB micro-B "offset torture test" and an 18-footprint QFN library; [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) is a synthetic full-coverage parser fixture |
 | [`demo/`](demo/) | the in-browser live editor and its JavaScript prototype engine, with tests |
 
 ## Name

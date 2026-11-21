@@ -38,7 +38,7 @@
     'description', 'datasheet', 'manufacturer', 'mpn', 'refdes', 'tags', 'let', 'origin', 'body', 'pins',
     'balls', 'lead', 'thermal', 'span', 'gap', 'pitch', 'density', 'omit', 'only', 'pin1', 'polarized',
     'default', 'pad', 'pads', 'hole', 'delete', 'row', 'group', 'align', 'silk', 'courtyard', 'assembly',
-    'text', 'model', 'no', 'footprint', 'template', 'units'];
+    'text', 'model', 'no', 'name', 'footprint', 'footprints', 'template', 'units'];
   const STMT_SET = new Set(STMT_WORDS);
   const INNER = {
     pad: new Set(['shape', 'size', 'width', 'length', 'drill', 'rotate', 'mask', 'paste', 'vias']),
@@ -51,7 +51,7 @@
     switch (k.t) {
       case 'nl': return 'end of line';
       case 'eof': return 'end of file';
-      case 'str': return `"${k.v}"`;
+      case 'str': return k.parts ? 'a string' : `"${k.v}"`;
       case 'num': return `\`${k.text}\``;
       default: return `\`${k.v}\``;
     }
@@ -129,7 +129,7 @@
       this.skipEOS();
       while (!this.isP('}') && this.cur.t !== 'eof') {
         const k = this.cur;
-        if (k.t === 'word' && STMT_SET.has(k.v) && !(inner && inner.has(k.v)) && (inner || k.v === 'footprint' || k.v === 'template' || k.v === 'units')) {
+        if (k.t === 'word' && STMT_SET.has(k.v) && !(inner && inner.has(k.v)) && (inner || k.v === 'footprint' || k.v === 'footprints' || k.v === 'template' || k.v === 'units')) {
           this.diags.push({
             severity: 'error', message: `missing \`}\` to close the block opened on line ${open.line}`,
             s: open.s, e: open.e, syntax: true,
@@ -209,10 +209,12 @@
         node = this.template();
       } else if (this.isWord('footprint')) {
         node = this.footprint();
+      } else if (this.isWord('footprints')) {
+        node = this.table();
       } else if (k.t === 'word' && STMT_SET.has(k.v)) {
         this.failAt(`\`${k.v}\` statements belong inside a \`footprint "NAME" { … }\` block`);
       } else {
-        this.expected('`footprint`, `template`, `let` or `units`');
+        this.expected('`footprint`, `footprints`, `template`, `let` or `units`');
       }
       node.s = s; node.e = this.prevEnd(); node.unit = node.unit && node.type === 'Units' ? node.unit : this.unit;
       return node;
@@ -254,9 +256,10 @@
 
     footprint() {
       this.expectWord('footprint');
-      const name = this.name('a footprint name');
-      const node = { type: 'Footprint', name: name.name, nameS: name.s, nameE: name.e, mode: 'block', body: null };
-      if (this.acceptWord('extends')) {
+      // `footprint from qfn(…)` may leave the naming to the template (SPEC §14)
+      const name = this.isWord('from') ? null : this.name('a footprint name, or `from TEMPLATE(…)`');
+      const node = { type: 'Footprint', name: name ? name.name : null, nameS: name ? name.s : null, nameE: name ? name.e : null, mode: 'block', body: null };
+      if (name && this.acceptWord('extends')) {
         node.mode = 'extends';
         node.parent = this.name('the parent footprint name');
         node.body = this.block(() => this.statement()).stmts;
@@ -266,18 +269,10 @@
         if (t.t !== 'word' || t.kw) this.expected('a template name');
         this.advance();
         node.template = { name: t.v, s: t.s, e: t.e };
-        this.expectP('(');
-        node.args = [];
-        if (!this.isP(')')) {
-          do {
-            const s = this.cur.s;
-            let key = null;
-            if (this.cur.t === 'word' && !this.cur.kw && this.isP('=', 1)) { key = this.advance().v; this.advance(); }
-            const x = this.expr();
-            node.args.push({ key, x, s, e: this.prevEnd() });
-          } while (this.acceptP(','));
-        }
-        this.expectP(')');
+        node.args = this.callArgs();
+        node.callS = t.s;
+        node.callE = this.prevEnd();
+        if (!name) { node.nameS = t.s; node.nameE = node.callE; }
         if (this.isP('{')) node.body = this.block(() => this.statement()).stmts;
       } else if (this.isP('{')) {
         node.body = this.block(() => this.statement()).stmts;
@@ -285,6 +280,121 @@
         this.expected('`{`, `extends` or `from` after the footprint name');
       }
       return node;
+    }
+
+    /** `( arg, key = arg, … )` */
+    callArgs() {
+      this.expectP('(');
+      const args = [];
+      if (!this.isP(')')) {
+        do {
+          const s = this.cur.s;
+          let key = null;
+          if (this.cur.t === 'word' && !this.cur.kw && this.isP('=', 1)) { key = this.advance().v; this.advance(); }
+          const x = this.expr();
+          args.push({ key, x, s, e: this.prevEnd() });
+        } while (this.acceptP(','));
+      }
+      this.expectP(')');
+      return args;
+    }
+
+    /**
+     * footprints from TEMPLATE [(fixed args)] {
+     *   COLUMN COLUMN …        header: template parameter names
+     *   cell   cell   …        one row per footprint
+     * }
+     */
+    table() {
+      this.expectWord('footprints');
+      this.expectWord('from', '(`footprints from TEMPLATE { … }`)');
+      const t = this.cur;
+      if (t.t !== 'word' || t.kw) this.expected('a template name');
+      this.advance();
+      const node = { type: 'Table', template: { name: t.v, s: t.s, e: t.e }, args: [], header: [], rows: [] };
+      if (this.isP('(')) node.args = this.callArgs();
+      node.callS = t.s;
+      node.callE = this.prevEnd();
+      const open = this.expectP('{', 'and a table: a header row of parameter names, then one row per footprint');
+      this.skipEOS();
+      node.headerS = this.cur.s;
+      while (this.cur.t === 'word') {
+        const h = this.cur;
+        if (h.kw) this.failAt(`\`${h.v}\` is a keyword, so it can't be a template parameter or head a column`);
+        this.advance();
+        node.header.push({ name: h.v, s: h.s, e: h.e });
+      }
+      if (!node.header.length) this.expected('a header row naming the template parameter each column fills');
+      node.headerE = this.prevEnd();
+      if (!this.atStmtEnd()) this.failAt(`the header row holds parameter names only — found ${describe(this.cur)}`);
+      this.skipEOS();
+      while (!this.isP('}') && this.cur.t !== 'eof') {
+        const start = this.i;
+        const rs = this.cur.s;
+        try {
+          const cells = [];
+          while (!this.atStmtEnd()) cells.push(this.cell());
+          const re = this.prevEnd();
+          if (cells.length !== node.header.length) {
+            const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+            throw new ParseError(`this row has ${plural(cells.length, 'value')} but the header names ${plural(node.header.length, 'column')}`, rs, re);
+          }
+          node.rows.push({ cells, s: rs, e: re, line: this.t[start].line });
+        } catch (err) {
+          if (!(err instanceof ParseError)) throw err;
+          this.report(err);
+          this.sync();
+          if (this.i === start) this.advance();
+        }
+        this.skipEOS();
+      }
+      if (this.cur.t === 'eof') {
+        this.diags.push({ severity: 'error', message: `missing \`}\` to close the table opened on line ${open.line}`, s: open.s, e: open.e, syntax: true });
+      } else this.advance();
+      return node;
+    }
+
+    /** One table cell: a number, a name, a "string" or a (parenthesized expression). */
+    cell() {
+      const k = this.cur;
+      if (k.t === 'str') { this.advance(); const x = { type: 'str', value: this.strNode(k), s: k.s, e: k.e }; return { x, s: k.s, e: k.e }; }
+      if (this.isP('(')) { const x = this.primary(); return { x, s: x.s, e: x.e }; }
+      if (this.isP('-')) {
+        const m = this.advance();
+        if (this.cur.t !== 'num' || this.cur.s !== m.e) {
+          this.failAt('write a negative value as `-0.5` (no space), or put arithmetic in parentheses: `(D - 0.5)`', m);
+        }
+        const x = this.primary();
+        return { x: { type: 'neg', x, s: m.s, e: x.e }, s: m.s, e: x.e };
+      }
+      if (k.t === 'num' || (k.t === 'word' && !k.kw)) { const x = this.primary(); return { x, s: x.s, e: x.e }; }
+      if (k.t === 'p' && k.v === ',') this.failAt('table cells are separated by spaces, not commas');
+      if (k.t === 'p' && ['+', '*', '/'].includes(k.v)) this.failAt('a cell holds one value — put arithmetic in parentheses: `(D - 0.5)`');
+      return this.expected('a value: a number, a name, a "string" or a (parenthesized expression)');
+    }
+
+    /** A string token as a plain string, or { interp: [text | { x, fmt, s, e }], s, e }. */
+    strNode(k) {
+      if (!k.parts) return k.v;
+      const parts = [];
+      for (const p of k.parts) {
+        if (p.lit != null) { parts.push(p.lit); continue; }
+        let x = null;
+        if (p.toks.length) {
+          try {
+            const sub = new Parser(p.toks.concat([{ t: 'eof', s: p.codeE, e: p.codeE, line: k.line, col: 0 }]), this.diags);
+            sub.unit = this.unit;
+            x = sub.expr();
+            if (sub.cur.t !== 'eof') sub.failAt(`unexpected ${describe(sub.cur)} — each \`{…}\` holds one expression`);
+          } catch (err) {
+            if (!(err instanceof ParseError)) throw err;
+            this.report(err);
+            x = null;
+          }
+        }
+        parts.push({ x, fmt: p.fmt, s: p.open, e: p.close + 1 });
+      }
+      return { interp: parts, s: k.s, e: k.e };
     }
 
     // ------------------------------------------------------------ statements
@@ -299,7 +409,15 @@
             const v = this.cur;
             if (v.t !== 'str') this.expected(`a "quoted string" after \`${k.v}\``);
             this.advance();
-            node = { type: 'Meta', key: k.v, value: v.v };
+            node = { type: 'Meta', key: k.v, value: this.strNode(v) };
+            break;
+          }
+          case 'name': {
+            this.advance();
+            const v = this.cur;
+            if (v.t !== 'str') this.expected('the footprint name as a "string", e.g. `name "QFN-{n}"`');
+            this.advance();
+            node = { type: 'Name', value: this.strNode(v), vs: v.s, ve: v.e };
             break;
           }
           case 'tags': {
@@ -778,7 +896,7 @@
 
     name(what) {
       const k = this.cur;
-      if (k.t === 'str') { this.advance(); return { name: k.v, s: k.s, e: k.e, quoted: true }; }
+      if (k.t === 'str') { this.advance(); return { name: this.strNode(k), s: k.s, e: k.e, quoted: true }; }
       if (k.t === 'num' && k.isInt) { this.advance(); return { name: String(parseInt(k.text, 10)), s: k.s, e: k.e }; }
       if (k.t === 'word' && !k.kw) { this.advance(); return { name: k.v, s: k.s, e: k.e }; }
       if (k.t === 'word' && k.kw) this.failAt(`\`${k.v}\` is a keyword — quote it to use it as a name: "${k.v}"`);
@@ -842,9 +960,9 @@
         case 'paste':
           if (this.acceptWord('none')) return { prop: 'paste', mode: 'none', s, e: this.prevEnd() };
           if (this.acceptWord('divide')) {
-            const nx = this.int();
+            const nx = this.count();
             this.expectWord('x');
-            const ny = this.int();
+            const ny = this.count();
             let coverage = null, gutter = null;
             if (this.acceptWord('coverage')) coverage = this.percent();
             else if (this.acceptWord('gutter')) gutter = this.expr();
@@ -852,9 +970,9 @@
           }
           return { prop: 'paste', mode: 'expand', value: this.signedExpr(), s, e: this.prevEnd() };
         default: {   // vias
-          const nx = this.int();
+          const nx = this.count();
           this.expectWord('x');
-          const ny = this.int();
+          const ny = this.count();
           this.expectWord('drill');
           const drill = this.expr();
           this.expectWord('pitch');
@@ -975,7 +1093,7 @@
       let which;
       if (this.acceptWord('ref')) which = { field: 'ref' };
       else if (this.acceptWord('value')) which = { field: 'value' };
-      else if (k.t === 'str') { this.advance(); which = { str: k.v }; }
+      else if (k.t === 'str') { this.advance(); which = { str: this.strNode(k) }; }
       else this.expected('`ref`, `value` or a "string"');
       this.expectWord('at');
       const at = this.point();
@@ -1014,7 +1132,7 @@
           const f = this.cur;
           if (f.t !== 'str') this.expected('a "file path" for the STEP model');
           this.advance();
-          p = { key: 'step', file: f.v, xform: {} };
+          p = { key: 'step', file: this.strNode(f), xform: {} };
           for (;;) {
             if (this.acceptWord('offset')) p.xform.offset = this.point3();
             else if (this.acceptWord('rotate')) p.xform.rotate = this.point3();
@@ -1032,7 +1150,7 @@
 
     color() {
       const k = this.cur;
-      if (k.t === 'str') { this.advance(); return k.v; }
+      if (k.t === 'str') { this.advance(); return this.strNode(k); }
       if (k.t === 'word' && !k.kw) { this.advance(); return k.v; }
       return this.expected('a color: a "#rrggbb" string or a name such as black, tin or gold');
     }
@@ -1083,6 +1201,7 @@
         return { type: 'num', v: k.v, unit: k.suffix, s: k.s, e: k.e };
       }
       if (k.t === 'word' && !k.kw) { this.advance(); return { type: 'id', name: k.v, s: k.s, e: k.e }; }
+      if (k.t === 'str') { this.advance(); return { type: 'str', value: this.strNode(k), s: k.s, e: k.e }; }
       if (this.isP('(')) {
         this.advance();
         const x = this.expr();

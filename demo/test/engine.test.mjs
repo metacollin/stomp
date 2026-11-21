@@ -189,3 +189,82 @@ test('never throws on half-typed or mangled input (fuzz smoke test)', () => {
     console.error = quiet;
   }
 });
+
+test('the incremental cache never changes the result (random edit sequences)', () => {
+  const { clearCache } = require('../js/compile.js');
+  const summary = (out) => JSON.stringify({
+    diags: out.diagnostics.map((d) => [d.severity, d.s, d.e, d.message, (d.related || []).map((r) => [r.s, r.e, r.message])]),
+    fps: out.footprints.map((f) => [f.name, f.s, f.e, f.result && {
+      pads: f.result.pads.map((p) => [p.name, +p.x.toFixed(6), +p.y.toFixed(6), p.shape.kind, p.src]),
+      silk: f.result.silk.length, crt: f.result.courtyardBox, desc: f.result.meta.description, dims: f.result.dims.map((d) => [d.s, d.e]),
+    }]),
+  });
+  let seed = 99;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    for (const f of ['qfn_library.stomp', 'soic_family.stomp', 'syntax_zoo.stomp']) {
+      clearCache();
+      let src = example(f);
+      for (let step = 0; step < 40; step++) {
+        const lines = src.split('\n');
+        const i = rnd(lines.length);
+        switch (rnd(6)) {
+          case 0: lines[i] = lines[i].replace(/\d+(\.\d+)?/, (m) => String(+m + 0.05)); break;      // nudge a number
+          case 1: lines.splice(i, 0, lines[rnd(lines.length)]); break;                              // duplicate a line
+          case 2: lines.splice(i, 1); break;                                                        // delete a line
+          case 3: lines.splice(i, 0, ''); break;                                                    // shift everything below
+          case 4: lines[i] = lines[i] + ' x'; break;                                                // break a line
+          default: lines[i] = lines[i].replace(/ x$/, ''); break;
+        }
+        src = lines.join('\n');
+        const warm = summary(compile(src));
+        const cold = summary(compile(src, { cache: false }));
+        assert.equal(warm, cold, `${f}, edit ${step}`);
+      }
+    }
+  } finally {
+    console.error = quiet;
+  }
+});
+
+test('templates as functions: names, interpolation, tables', () => {
+  const { out } = fp(example('qfn_library.stomp'));
+  assert.equal(errors(out).length + out.diagnostics.length, 0, out.diagnostics.map((d) => d.message).join('; '));
+  assert.equal(out.footprints.length, 18);
+  const byName = new Map(out.footprints.map((f) => [f.name, f]));
+  const q32 = byName.get('QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm').result;
+  assert.equal(q32.meta.description, 'QFN, 32 pins, 5 x 5 mm body, 0.50 mm pitch, 3.45 x 3.45 mm exposed pad');
+  assert.equal(q32.pads.length, 33);
+  near(pad(q32, 33).bbox.x1 - pad(q32, 33).bbox.x0, 3.45, 'thermal pad "{n + 1}" sized D2');
+  assert.ok(byName.get('QFN-68-1EP_8x8mm_P0.4mm_EP6.4x6.4mm'), 'second table, e as a column');
+  assert.ok(byName.get('QFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.65mm'), 'unnamed call named by the template');
+  const hs = byName.get('QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm_HandSolder').result;
+  near(pad(hs, 1).bbox.x1 - pad(hs, 1).bbox.x0, 1.0, 'extends a generated footprint by name');
+  assert.equal(byName.get('QFN-12-1EP_3x3mm_P0.5mm_EP1.65x1.65mm').origin.kind, 'row');
+});
+
+test('interpolation: formatting, units, escapes, text values', () => {
+  const out = compile('units mil\nlet w = 20\nlet part = "ACME-{w}"\nfootprint "X-{w}-{w * 0.0254mm}-{part}" {\n  description "{w:.2} {25.4mm} \\{x\\} {1/3}"\n  pad 1 rect w x w\n  pad 1 at (0, 0)\n}');
+  assert.deepEqual(errors(out), []);
+  assert.equal(out.footprints[0].name, 'X-20-20-ACME-20', 'lengths print in the file units');
+  assert.equal(out.footprints[0].result.meta.description, '20.00 1000 {x} 0.333333');
+  const bad = compile('footprint "A{nope}" { pad 1 rect 1 x 1; pad 1 at (0,0) }\nlet t = "s"\nfootprint "B" { pad 1 rect t x 1; pad 1 at (0,0) }');
+  assert.match(errors(bad)[0].message, /unknown name `nope`/);
+  assert.match(errors(bad)[1].message, /text \("s"\), but a length is needed/);
+});
+
+test('tables: shape errors, unknown columns, duplicates, row-level diagnostics', () => {
+  const tmpl = 'template t(n, w = 1) {\n  name "T-{n}"\n  pins n dual pitch 1.27\n  default pad rect 0.6 x w\n  span 5\n}\n';
+  const out = compile(tmpl + 'footprints from t {\n  n   q\n  8   1\n  9   1\n  8   1\n  14  1  2\n}');
+  const msgs = out.diagnostics.map((d) => `${d.line}: ${d.message}`);
+  assert.ok(msgs.some((m) => /^8: template `t` has no parameter `q`/.test(m)), msgs.join('\n'));
+  assert.ok(msgs.some((m) => /^10: `pins 9 dual` needs an even count/.test(m)), 'row-specific error on the row');
+  assert.ok(msgs.some((m) => /^11: footprint name "T-8" is already used by row 1/.test(m)), 'duplicate names');
+  assert.ok(msgs.some((m) => /^12: this row has 3 values but the header names 2 columns/.test(m)), 'row shape');
+  const once = compile(tmpl.replace('span 5', 'span zz') + 'footprints from t {\n  n\n  8\n  14\n}');
+  assert.equal(once.diagnostics.filter((d) => /unknown name `zz`/.test(d.message)).length, 1, 'a template bug is reported once');
+  assert.equal(once.diagnostics.find((d) => /zz/.test(d.message)).line, 5, '…at the template');
+  assert.match(errors(compile('template t(n) { pad 1 rect n x n; pad 1 at (0,0) }\nfootprints from t {\n  n\n  1\n}'))[0].message, /doesn't name its footprints/);
+});

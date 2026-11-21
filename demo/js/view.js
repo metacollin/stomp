@@ -406,7 +406,7 @@
         const name = String(p.name);
         const byH = Math.min(w, h) * 0.62;
         const byW = (Math.max(w, h) * 0.86) / (0.62 * Math.max(1, name.length));
-        let fs = Math.min(byH, byW, 1.4);
+        let fs = Math.min(byH, byW, 0.9);
         if (p.drillShape) fs = Math.min(fs, Math.min(w, h) * 0.32);
         if (fs * s < 7) continue;
         let x = p.x, y = p.y, onDrill = false;
@@ -607,4 +607,5 @@
   };
 
   S.createViewer = createViewer;
+  S.svgPaths = { contour: pathOf, poly: polyPath };
 })(typeof self !== 'undefined' ? self : this);

@@ -33,7 +33,7 @@ the grammar file is the authority on those.
 11. [Parametric part description](#11-parametric-part-description)
 12. [Graphic layers](#12-graphic-layers)
 13. [3D model](#13-3d-model)
-14. [Templates and inheritance](#14-templates-and-inheritance)
+14. [Templates, tables and inheritance](#14-templates-tables-and-inheritance)
 15. [Diagnostics](#15-diagnostics)
 16. [Formal grammar](#16-formal-grammar)
 17. [Open questions](#17-open-questions)
@@ -70,8 +70,9 @@ dimensions *verbatim*, without ever converting them to a common origin by hand.
 
 1. **Datasheet-direct entry.** Every number in a mechanical drawing should be
    enterable as-written: pitches (center-to-center), spans (outer-to-outer), gaps
-   (inner-to-inner), edge offsets, letter dimensions (`let e = 0.65`). If you find
-   yourself doing arithmetic while transcribing, the language has failed.
+   (inner-to-inner), edge offsets, letter dimensions (`let e = 0.65`). Variation
+   tables transcribe the same way, one row per variant ([§14.3](#143-tables-footprints-from)).
+   If you find yourself doing arithmetic while transcribing, the language has failed.
 2. **Terse for the common case, explicit for the weird case.** A JEDEC-standard
    package is 4–6 lines. An awful connector is longer but never impossible; you drop
    from generators to primitives and relations without changing files or dialects.
@@ -134,6 +135,26 @@ footprint "TO-252" {
 from the direction of the relation, so you never work out which absolute edge a
 drawing meant.
 
+A library, one footprint per row — the template names what it makes by interpolating
+its parameters, and a table calls it once per row:
+
+```stomp
+template qfn(n, D, D2, e = 0.5) {
+  name "QFN-{n}-1EP_{D}x{D}mm_P{e}mm_EP{D2}x{D2}mm"
+  body D x D x 0.9
+  pins n quad pitch e
+  lead flat e / 2 x 0.4
+  thermal pad "{n + 1}" D2 x D2
+}
+
+footprints from qfn {
+  n    D    D2
+  16   3    1.7
+  32   5    3.45
+  48   7    5.6
+}
+```
+
 ## 4. Lexical structure
 
 - **Encoding** — UTF-8. Non-ASCII is permitted only inside quoted strings and
@@ -151,7 +172,9 @@ drawing meant.
 - **Names** (of pads, holes, rows, groups, footprints, templates) — an identifier, an
   unsigned integer (`1`, `14` — the overwhelmingly common pad name), or a quoted
   string for anything else: `pad "D+"`, `footprint "SOIC-8_3.9x4.9mm_P1.27mm"`.
-  Strings use `"` with `\"` and `\\` escapes.
+- **Strings** — `"…"` with `\"`, `\\`, `\{` and `\}` escapes. A `{…}` inside any
+  string interpolates an expression ([§7](#7-values-expressions-let)), so a literal
+  brace is written `\{`. Strings end at the end of the line.
 - **Numbers** — decimal only: `1`, `0.65`, `.5`. No exponents (footprints don't need
   them). A number may carry an immediately attached suffix:
   - length units `mm` `um` `nm` `mil` `in` (e.g. `50mil`, `0.65mm`);
@@ -163,8 +186,9 @@ drawing meant.
 ## 5. Files, footprints, metadata
 
 A file contains any number of `units`/`let` file-level statements, `template`
-declarations ([§14](#14-templates-and-inheritance)), and `footprint` declarations.
-Several related footprints (variants, a family) naturally share one file.
+declarations ([§14](#14-templates-tables-and-inheritance)), `footprint` declarations,
+and `footprints` tables ([§14.3](#143-tables-footprints-from)). Several related
+footprints (variants, a family, a whole library) naturally share one file.
 
 ```stomp
 units mm                          # file default; mm is the default default
@@ -176,6 +200,8 @@ footprint "QFN-32-HS" extends "QFN-32" {   # inherit + override (§14)
 }
 
 footprint "SOIC-16" from soic(16)          # template instantiation (§14)
+
+footprints from qfn { … }                  # one footprint per table row (§14.3)
 ```
 
 Metadata statements, all optional, all string-valued except `tags`:
@@ -235,6 +261,15 @@ tags qfn, leadless, ipc
   `let` names are single-assignment. Footprint-scoped `let`s shadow file-scoped ones.
   (`A1`-style names collide with BGA ball names only lexically, never semantically —
   ball references are always prefixed: `ball A1`.)
+- **Text** — a `"string"` is a value too: `let part = "TPS7A02"`, a template argument,
+  or a table cell. Text takes no part in arithmetic; it is used inside strings, through
+  interpolation.
+- **Interpolation** — inside any string, `{expr}` is replaced by the value of the
+  expression: `name "QFN-{n}-1EP_{D}x{E}mm"`, `thermal pad "{n + 1}" …`. Plain numbers
+  print in their shortest decimal form (`0.5`, `32`, `1.65`), lengths in the file's
+  units, text as written; `{expr:.N}` prints exactly N decimals (`{e:.2}` → `0.50`).
+  Interpolation is evaluated where the string is used, so it sees template parameters
+  and footprint-scoped `let`s.
 
 ## 8. Objects and anchors
 
@@ -631,9 +666,11 @@ no model                           # suppress 3D output
 `step` replaces the generated body entirely (transform maps the file into footprint
 space, z up, origin at board surface under the footprint origin).
 
-## 14. Templates and inheritance
+## 14. Templates, tables and inheritance
 
-Families and variants without copy-paste:
+### 14.1 Templates are functions
+
+A template takes parameters and produces a footprint:
 
 ```stomp
 template soic(n, lspan = 6.0, e = 1.27, bw = 3.9) {   # params are plain identifiers;
@@ -646,7 +683,68 @@ template soic(n, lspan = 6.0, e = 1.27, bw = 3.9) {   # params are plain identif
 footprint "SOIC-8"  from soic(8)
 footprint "SOIC-16" from soic(16)
 footprint "SOIC-16W" from soic(16, lspan = 10.3, bw = 7.5)
+```
 
+Template parameters are plain identifiers bound as footprint-scoped `let`s; keywords
+cannot be parameter names. A default may refer to other parameters (`E = D`).
+Arguments are positional, named, or both (`qfn(32, 5, D2 = 3.45)`), and a parameter
+without a default must be given. A call may also carry a `{ … }` block of additional
+overrides. No control flow (conditionals/loops) in v1 — a template is a parameterized
+body, and a table ([§14.3](#143-tables-footprints-from)) is how one template makes many
+footprints.
+
+### 14.2 Naming: `name`
+
+A template can name the footprints it produces, usually by interpolating its
+parameters ([§7](#7-values-expressions-let)):
+
+```stomp
+template qfn(n, D, D2, e = 0.5, E = D, E2 = D2) {
+  name "QFN-{n}-1EP_{D}x{E}mm_P{e}mm_EP{D2}x{E2}mm"
+  description "QFN, {n} pins, {D} x {E} mm body, {e:.2} mm pitch"
+  …
+  thermal pad "{n + 1}" D2 x E2            # names interpolate too
+}
+
+footprint from qfn(32, 5, 3.45)            # named QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm
+footprint "MY-QFN" from qfn(20, 4, 2.6)    # a name in the header wins
+```
+
+`name` belongs in templates, and in a call's override block to rename that one
+footprint; an ordinary footprint is named in its header. A call with neither is an
+error. Every footprint in a file needs a distinct name, generated ones included.
+
+### 14.3 Tables: `footprints from`
+
+A table calls a template once per row. The header row names the parameter each
+column fills, and each following row is one footprint:
+
+```stomp
+footprints from qfn(e = 0.5) {   # arguments in the call apply to every row
+  n    D    D2                   # header: parameter names
+  12   3    1.65                 # a row: one footprint
+  16   3    1.7
+  32   5    3.45
+}
+```
+
+- Cells are separated by whitespace, with one row per line (or `;`), and `#` comments
+  are allowed anywhere. A cell is a number (with an optional unit suffix and an attached
+  minus: `-0.1`, `20mil`), a `let` name, a `"string"`, or a parenthesized expression
+  (`(D - 0.2)`). Arithmetic outside parentheses is an error, so a column never
+  swallows its neighbour.
+- Every row has one cell per column. Parameters not in the header take the call's
+  arguments, then their defaults; a column may not repeat an argument of the call.
+- The template names the footprints ([§14.2](#142-naming-name)) — a row has no header
+  of its own.
+- Rows are ordinary footprints: `extends` re-opens one by its generated name.
+
+Tables transcribe datasheet variation tables (JEDEC MO-220, vendor package lists) the
+way they are printed: one variant per row, the drawing's letters as columns.
+
+### 14.4 Inheritance: `extends`
+
+```stomp
 footprint "SOIC-8-HS" extends "SOIC-8" {   # inheritance: re-open and override
   description "hand-solder variant"
   default pad rect 0.6 x 2.2               # longer pads
@@ -654,13 +752,11 @@ footprint "SOIC-8-HS" extends "SOIC-8" {   # inheritance: re-open and override
 }
 ```
 
-Template parameters are plain identifiers bound as footprint-scoped `let`s; keywords
-cannot be parameter names. A `from` instantiation may also carry a `{ … }` block of
-additional overrides. `extends` re-plays the parent then applies the child's
-statements under the usual override rules (strong beats weak, later same-axis strong
-constraint on the *same* object **replaces** the inherited one rather than
-over-constraining — inheritance is the one place replacement is allowed). No
-control flow (conditionals/loops) in v1 — templates are parameterized bodies only.
+`extends` re-plays the parent then applies the child's statements under the usual
+override rules (strong beats weak, later same-axis strong constraint on the *same*
+object **replaces** the inherited one rather than over-constraining — inheritance is
+the one place replacement is allowed). The parent can be any footprint, including one
+a table generated.
 
 ## 15. Diagnostics
 
@@ -672,7 +768,9 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 - unit errors in expressions (length·length, bare ratio where length needed);
 - `nc`/count mismatches in side blocks; duplicate names; `omit` of nonexistent balls;
 - pad with no geometry after synthesis precedence (§11.3);
-- suspicious-geometry *warnings* (zero-size pad, drill ≥ pad, overlapping same-net-unknown pads) — never errors, since intentional in edge cases.
+- suspicious-geometry *warnings* (zero-size pad, drill ≥ pad, overlapping same-net-unknown pads) — never errors, since intentional in edge cases;
+- duplicate footprint names, generated ones included; a table row with the wrong number of cells; a column that names no parameter (nearest-name suggestion); a template that doesn't `name` the footprints a table or an unnamed call asks it for;
+- an error inside a template body is reported on the call or table row whose arguments cause it, and once at the template when every call has it.
 
 ## 16. Formal grammar
 
@@ -703,6 +801,12 @@ where they conflict, the grammar file wins for *syntax* and this spec wins for
 8. **Embedded checks** — a `check` statement (`check gap pad 1 to pad 2 is 0.4`)
    asserting a redundant datasheet dimension without constraining. Cheap to add,
    great for transcription confidence. ⟨leaning: yes, v1.1⟩
+9. **External tables** — `footprints from qfn table "qfn.tsv"`, reading rows from a
+   file next to the source, for vendor data that already lives in a spreadsheet.
+   Purely additive.
+10. **Interpolation formats** — `{x:.N}` covers fixed decimals, and IPC-7351 names
+    (`QFN50P500X500X90-33N`) can be built with arithmetic (`{e * 100}`). Zero padding
+    or unit conversion in the format may be wanted later.
 
 ## 18. Example index
 
@@ -721,4 +825,5 @@ where they conflict, the grammar file wins for *syntax* and this spec wins for
 | [`examples/usb_microb.stomp`](examples/usb_microb.stomp) | the gnarly one: mixed SMD/NPTH/slots, `mirrors`, chained relations, polygon pad |
 | [`examples/cp_radial.stomp`](examples/cp_radial.stomp) | cylinder body, THT, polarized, 3D overrides |
 | [`examples/soic_family.stomp`](examples/soic_family.stomp) | `template` / `from` / `extends` |
+| [`examples/qfn_library.stomp`](examples/qfn_library.stomp) | templates as functions: interpolated `name` / `description` / pad names, `footprints from` tables, an unnamed call, `extends` of a generated footprint |
 | [`examples/syntax_zoo.stomp`](examples/syntax_zoo.stomp) | synthetic sweep of everything else; future parser fixture |

@@ -64,17 +64,26 @@
   // ===================================================================== values
 
   // Value kinds: 'num' (plain literal-derived; becomes a length in the file's
-  // default unit where one is needed), 'ratio' (length ÷ length), 'len' (mm).
-  const KIND_NAME = { num: 'number', ratio: 'ratio', len: 'length' };
+  // default unit where one is needed), 'ratio' (length ÷ length), 'len' (mm),
+  // 'str' (text — only usable inside a string's `{…}`).
+  const KIND_NAME = { num: 'number', ratio: 'ratio', len: 'length', str: 'text' };
 
   function evalExpr(x, env) {
     switch (x.type) {
       case 'num': return x.unit ? { k: 'len', v: x.v * UNIT_MM[x.unit] } : { k: 'num', v: x.v };
       case 'id': return env.scope.lookup(x.name, x);
+      case 'str': return { k: 'str', v: interpolate(x.value, env) };
       case 'paren': return evalExpr(x.x, env);
-      case 'neg': { const a = evalExpr(x.x, env); return { k: a.k, v: -a.v }; }
+      case 'neg': {
+        const a = evalExpr(x.x, env);
+        if (a.k === 'str') throw new StompError('text can\'t be negated — text values are only for `{…}` in strings', x);
+        return { k: a.k, v: -a.v };
+      }
       case 'bin': {
         const a = evalExpr(x.a, env), b = evalExpr(x.b, env);
+        if (a.k === 'str' || b.k === 'str') {
+          throw new StompError('text can\'t take part in arithmetic — to build a string, write the pieces into one: "{a}-{b}"', x);
+        }
         if (x.op === '+' || x.op === '-') {
           const sg = x.op === '+' ? 1 : -1;
           if (a.k === b.k) return { k: a.k, v: a.v + sg * b.v };
@@ -98,6 +107,32 @@
     }
   }
 
+  /** A string literal: plain text, or { interp: [text | { x, fmt }] } evaluated in env. */
+  function interpolate(value, env) {
+    if (typeof value === 'string') return value;
+    let out = '';
+    for (const p of value.interp) out += typeof p === 'string' ? p : formatValue(p.x ? evalExpr(p.x, env) : null, p.fmt, env);
+    return out;
+  }
+
+  /** How a value prints inside `{…}`: text verbatim, numbers in their shortest form,
+   *  lengths in the file's units; `{x:.N}` fixes N decimal places. */
+  function formatValue(v, fmt, env) {
+    if (!v) return '';
+    if (v.k === 'str') return v.v;
+    const n = v.k === 'len' ? v.v / env.scale : v.v;
+    return formatNumber(n, fmt);
+  }
+  function formatNumber(n, fmt) {
+    if (fmt != null) {
+      const t = n.toFixed(fmt);
+      return /^-0\.?0*$/.test(t) ? t.slice(1) : t;
+    }
+    let r = +n.toFixed(6);
+    if (Object.is(r, -0)) r = 0;
+    return String(r);
+  }
+
   class Scope {
     constructor(parent) { this.parent = parent; this.defs = new Map(); }
     lookup(name, node) {
@@ -119,45 +154,205 @@
 
   // ===================================================================== compile
 
-  function compile(source) {
+  // Results of earlier compiles, keyed by everything a footprint is built from. Editing
+  // one row of a big table then re-evaluates just that row. Keys hold the source text
+  // (and, where results carry source offsets, those offsets) of the footprint, its
+  // template and the file's lets; a table row's own offset is left out, and
+  // diagnostics inside the row are shifted when replayed.
+  const CACHE = new Map();
+  const CACHE_MAX = 1500;
+
+  function compile(source, opts) {
+    const useCache = !(opts && opts.cache === false);
     const diags = [];
     const lx = Lexer.lex(source, diags);
     const ast = Parser.parse(lx.tokens, diags);
     const file = buildFile(ast, diags);
-    const footprints = [];
-    for (const decl of ast.items) {
-      if (decl.type !== 'Footprint') continue;
-      let result = null;
-      try {
-        result = new FootprintBuilder(decl, file, diags, source).build();
-      } catch (err) {
-        if (err instanceof StompError) {
-          diags.push({ severity: 'error', message: err.message, s: err.node ? err.node.s : decl.s, e: err.node ? err.node.e : decl.e });
-        } else {
-          diags.push({ severity: 'error', message: `internal error while evaluating "${decl.name}": ${err && err.message}`, s: decl.nameS, e: decl.nameE });
-          if (typeof console !== 'undefined') console.error(err);
-        }
+
+    // every footprint declaration, with each table row as a `from` call [§14]
+    const decls = [];
+    const tables = [];
+    for (const it of ast.items) {
+      if (it.type === 'Footprint') decls.push(it);
+      else if (it.type === 'Table') {
+        const rows = rowDecls(it);
+        decls.push(...rows);
+        tables.push({ node: it, rows });
+        if (!it.rows.length) diags.push({ severity: 'warning', message: 'this table has no rows yet', s: it.callS, e: it.callE });
       }
-      footprints.push({ name: decl.name, s: decl.s, e: decl.e, nameS: decl.nameS, nameE: decl.nameE, mode: decl.mode, result, deps: depRanges(decl, file) });
     }
-    const templates = ast.items.filter((i) => i.type === 'Template').map((t) => ({
-      name: t.name, s: t.s, e: t.e,
-      users: ast.items.filter((i) => i.type === 'Footprint' && i.mode === 'from' && i.template.name === t.name).map((i) => i.name),
+
+    // pass 1: name every footprint (templates may compute names), then register them
+    const letsSig = JSON.stringify(ast.items.filter((i) => i.type === 'Let').map((i) => [i.s, source.slice(i.s, i.e), i.unit]));
+    const builders = decls.map((d) => {
+      const b = new FootprintBuilder(d, file, [], source);
+      b.key = useCache ? cacheKey(d, source, file, letsSig) : null;
+      const hit = b.key && CACHE.get(b.key);
+      if (hit) {
+        CACHE.delete(b.key); CACHE.set(b.key, hit);       // keep recently used entries
+        b.cached = hit; b.name = hit.name; b.tmpl = hit.tmpl;
+      }
+      return b;
+    });
+    for (const b of builders) {
+      const d = b.decl;
+      if (b.cached) continue;
+      safely(b, () => {
+        if (d.mode !== 'extends') b.prepare();
+        b.name = b.computeName();
+      });
+      if (d.mode === 'extends') d.parentName = safely(b, () => b.nameOf(d.parent));
+      if (!b.name) {
+        // placeholders depend on position, which cache keys leave out: don't cache them
+        b.key = null;
+        b.name = d.table ? `${d.template.name} row ${d.rowIndex + 1}` : `(unnamed, line ${b.lineAt(d.s)})`;
+      }
+    }
+    const seen = new Map();
+    for (const b of builders) {
+      const d = b.decl;
+      const first = seen.get(b.name);
+      if (first) {
+        const where = first.decl.table && first.decl.table === d.table ? `row ${first.decl.rowIndex + 1} of this table` : `line ${b.lineAt(first.decl.s)}`;
+        diags.push({
+          severity: 'error', message: `footprint name "${b.name}" is already used by ${where} — names must be unique`,
+          s: d.nameS, e: d.nameE, related: [{ message: 'first used here', s: first.decl.nameS, e: first.decl.nameE }],
+        });
+        let k = 2;
+        while (seen.has(`${b.name} #${k}`)) k++;
+        b.name = `${b.name} #${k}`;
+        b.cached = null;      // a renamed duplicate is rebuilt under its new name
+      }
+      seen.set(b.name, b);
+      d.computedName = b.name;
+      if (!file.footprints.has(b.name)) file.footprints.set(b.name, d);
+    }
+
+    // pass 2: build (or replay a cached build)
+    const footprints = [];
+    for (const b of builders) {
+      const d = b.decl;
+      let result;
+      if (b.cached) {
+        result = b.cached.result;
+        diags.push(...replay(b.cached, d));
+      } else {
+        result = safely(b, () => b.build()) || null;
+        if (b.key) {
+          CACHE.set(b.key, { name: b.name, result, diags: b.diags.slice(), tmpl: b.tmpl, rowS: d.s, rowE: d.e });
+          if (CACHE.size > CACHE_MAX) CACHE.delete(CACHE.keys().next().value);
+        }
+        diags.push(...b.diags);
+        b.src = null;
+      }
+      footprints.push({
+        name: b.name, s: d.s, e: d.e, nameS: d.nameS, nameE: d.nameE, mode: d.mode, result, deps: depRanges(d, file),
+        origin: d.table ? { kind: 'row', row: d.rowIndex + 1, template: d.template.name, tableS: d.table.s }
+          : d.mode === 'from' ? { kind: 'call', template: d.template.name } : { kind: d.mode },
+      });
+    }
+    const users = (name) => builders.filter((b) => b.decl.mode === 'from' && b.decl.template.name === name).map((b) => b.name);
+    const templates = ast.items.filter((i) => i.type === 'Template').map((t) => ({ name: t.name, s: t.s, e: t.e, users: users(t.name) }));
+    const tableInfo = tables.map(({ node, rows }) => ({
+      template: node.template.name, s: node.s, e: node.e, head: source.slice(node.s, node.callE), users: rows.map((r) => r.computedName),
     }));
-    return { diagnostics: finishDiags(diags, source), footprints, templates, tokens: lx.all, ast };
+    // instantiations per template, for deciding where template diagnostics belong
+    const instCount = new Map();
+    for (const b of builders) if (b.tmpl) instCount.set(b.tmpl.name, (instCount.get(b.tmpl.name) || 0) + 1);
+    return { diagnostics: finishDiags(rehome(diags, instCount), source), footprints, templates, tables: tableInfo, tokens: lx.all, ast };
   }
 
-  /** Source ranges a footprint is built from: itself, its template, its ancestors. */
+  function safely(b, fn) {
+    const diags = b.diags;
+    try { return fn(); } catch (err) {
+      const d = b.decl;
+      if (err instanceof StompError) {
+        if (!err.silent) diags.push({ severity: 'error', message: err.message, s: err.node ? err.node.s : d.s, e: err.node ? err.node.e : d.e });
+      } else {
+        diags.push({ severity: 'error', message: `internal error while evaluating "${b.name || d.computedName || 'footprint'}": ${err && err.message}`, s: d.nameS, e: d.nameE });
+        if (typeof console !== 'undefined') console.error(err);
+      }
+      return undefined;
+    }
+  }
+
+  /** Everything a footprint's build depends on, or null when it isn't cached (extends). */
+  function cacheKey(d, source, file, letsSig) {
+    const txt = (a, b) => source.slice(a, b);
+    if (d.mode === 'from') {
+      const t = file.templates.get(d.template.name);
+      const tmpl = t ? [t.s, txt(t.s, t.e), t.unit] : ['?', d.template.name];
+      if (d.table) {
+        const tb = d.table;
+        return JSON.stringify(['row', tmpl, d.unit, d.args.map((a) => [a.key, txt(a.s, a.e)]), tb.callS, txt(tb.callS, tb.headerE), letsSig]);
+      }
+      return JSON.stringify(['call', tmpl, d.unit, d.s, txt(d.s, d.e), letsSig]);
+    }
+    if (d.mode === 'block') return JSON.stringify(['block', d.s, txt(d.s, d.e), d.unit, letsSig]);
+    return null;
+  }
+
+  /** Diagnostics of a cached build, moved along with their table row. */
+  function replay(entry, d) {
+    const delta = d.table ? d.s - entry.rowS : 0;
+    const move = (o) => {
+      if (!o || !delta || o.s < entry.rowS || o.e > entry.rowE) return o ? Object.assign({}, o) : o;
+      return Object.assign({}, o, { s: o.s + delta, e: o.e + delta });
+    };
+    return entry.diags.map((x) => Object.assign(move(x), { inst: move(x.inst), related: (x.related || []).map(move) }));
+  }
+
+  /** Each table row is a `from` call of the table's template [§14]. */
+  function rowDecls(table) {
+    return table.rows.map((row, i) => ({
+      type: 'Footprint', mode: 'from', name: null, template: table.template,
+      args: table.args.concat(row.cells.map((c, j) => ({ key: table.header[j].name, x: c.x, s: c.s, e: c.e, hdr: table.header[j] }))),
+      body: null, s: row.s, e: row.e, nameS: row.s, nameE: row.e, callS: row.s, callE: row.e,
+      unit: table.unit, table, row, rowIndex: i, missingAt: { s: table.callS, e: table.headerE },
+    }));
+  }
+
+  /**
+   * A diagnostic inside a template body is reported once at the template when every
+   * call of the template produces it (a bug in the template), and otherwise on the
+   * calls that produce it — the table row or `from` call with the bad values.
+   */
+  function rehome(diags, instCount) {
+    const out = [];
+    const groups = new Map();
+    for (const d of diags) {
+      if (!d.inst) { out.push(d); continue; }
+      const k = `${d.severity}|${d.s}|${d.e}|${d.message}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(d);
+    }
+    for (const list of groups.values()) {
+      const t = list[0].inst.tmpl;
+      const calls = new Set(list.map((d) => `${d.inst.s}:${d.inst.e}`));
+      if (calls.size >= (instCount.get(t) || 1)) { out.push(Object.assign({}, list[0], { inst: undefined })); continue; }
+      for (const d of list) {
+        out.push(Object.assign({}, d, {
+          s: d.inst.s, e: d.inst.e, inst: undefined,
+          related: [{ message: `in template ${t}`, s: d.s, e: d.e }].concat(d.related || []),
+        }));
+      }
+    }
+    return out;
+  }
+
+  /** Source ranges a footprint is built from: itself, its table header, its template, its ancestors. */
   function depRanges(decl, file, seen) {
     const out = [{ s: decl.s, e: decl.e }];
     const chain = seen || new Set();
-    if (chain.has(decl.name)) return out;
-    chain.add(decl.name);
+    const key = decl.computedName || decl.name;
+    if (chain.has(key)) return out;
+    chain.add(key);
+    if (decl.table) out.push({ s: decl.table.s, e: decl.table.headerE });
     if (decl.mode === 'from') {
       const t = file.templates.get(decl.template.name);
       if (t) out.push({ s: t.s, e: t.e });
     } else if (decl.mode === 'extends') {
-      const p = file.footprints.get(decl.parent.name);
+      const p = decl.parentName != null ? file.footprints.get(decl.parentName) : null;
       if (p) out.push(...depRanges(p, file, chain));
     }
     return out;
@@ -175,11 +370,9 @@
       } else if (it.type === 'Template') {
         if (templates.has(it.name)) diags.push({ severity: 'error', message: `template \`${it.name}\` is defined twice`, s: it.nameS, e: it.nameE });
         else templates.set(it.name, it);
-      } else if (it.type === 'Footprint') {
-        if (footprints.has(it.name)) diags.push({ severity: 'error', message: `footprint "${it.name}" is defined twice`, s: it.nameS, e: it.nameE });
-        else footprints.set(it.name, it);
       }
     }
+    // footprints are registered by compile() once their (possibly computed) names are known
     return { lets, templates, footprints };
   }
 
@@ -217,7 +410,7 @@
       this.file = file;
       this.diags = diags;
       this.src = source;
-      this.name = decl.name;
+      this.name = typeof decl.name === 'string' ? decl.name : null;   // computed names arrive from compile()
       this.scope = new Scope(file.lets);
     }
 
@@ -225,10 +418,17 @@
     report(sev, msg, node, related) {
       const n = node || this.decl;
       if (sev === 'error') this.errorCount = (this.errorCount || 0) + 1;
-      this.diags.push({
+      const d = {
         severity: sev, message: msg, s: n.s, e: n.e, footprint: this.name,
         related: (related || []).filter((r) => r && r.node).map((r) => ({ message: r.message, s: r.node.s, e: r.node.e })),
-      });
+      };
+      // inside the template body of a `from` call: remember the call (see rehome())
+      const t = this.tmpl;
+      if (t && n.s != null && n.s >= t.s && n.e <= t.e) {
+        const c = this.decl.callS != null ? [this.decl.callS, this.decl.callE] : [this.decl.nameS, this.decl.nameE];
+        d.inst = { s: c[0], e: c[1], tmpl: t.name };
+      }
+      this.diags.push(d);
     }
     err(msg, node, related) { this.report('error', msg, node, related); }
     warn(msg, node, related) { this.report('warning', msg, node, related); }
@@ -256,6 +456,7 @@
       const v = this.val(x, stmt);
       if (v.k === 'len') return v.v;
       if (v.k === 'num') return v.v * UNIT_MM[(stmt && stmt.unit) || 'mm'];
+      if (v.k === 'str') throw new StompError(`this is text ("${v.v}"), but a length is needed here`, x);
       throw new StompError('a ratio (length ÷ length) can\'t be used as a length', x);
     }
     plen(x, stmt, what) {
@@ -268,15 +469,82 @@
       if (c.v != null) return c.v;
       const v = this.val({ type: 'id', name: c.id, s: c.s, e: c.e }, stmt);
       if (v.k === 'len') throw new StompError(`\`${c.id}\` is a length, but a count is needed here`, c);
+      if (v.k === 'str') throw new StompError(`\`${c.id}\` is text ("${v.v}"), but a count is needed here`, c);
       if (!Number.isInteger(Math.round(v.v * 1e9) / 1e9) || v.v < 0) throw new StompError(`a count must be a whole number (\`${c.id}\` = ${v.v})`, c);
       return Math.round(v.v);
     }
 
     // ================================================================ build
-    build() {
+    /** Flatten templates/parents, bind parameters, define lets, resolve interpolated strings. */
+    prepare() {
+      if (this.prepared) return;
+      this.prepared = true;
       const flat = this.flatten(this.decl, []);
+      this.ownLevel = flat.max;
       this.bindParams(flat.params);
       this.items = flat.items;
+      this.defineLets();
+      this.items = this.items.map((it) => ({ s: this.resolveStmt(it.s), level: it.level }));
+    }
+
+    /** The footprint's name: its header, else the template's `name` statement [§14]. */
+    computeName() {
+      const d = this.decl;
+      if (d.name != null) return this.nameOf({ name: d.name, s: d.nameS, e: d.nameE }, d.unit);
+      if (d.mode !== 'from') return null;
+      let best = null;
+      for (const it of this.items || []) if (it.s.type === 'Name' && (!best || it.level >= best.level)) best = it;
+      if (!best) {
+        const t = d.template.name;
+        this.err(d.table
+          ? `template \`${t}\` doesn't name its footprints, so these rows have no names — add \`name "…"\` to the template, e.g. \`name "${t.toUpperCase()}-{…}"\``
+          : `this footprint has no name — add one (\`footprint "NAME" from ${t}(…)\`) or give template \`${t}\` a \`name "…"\` statement`,
+        d.table ? { s: d.table.callS, e: d.table.callE } : { s: d.callS, e: d.callE });
+        return null;
+      }
+      return typeof best.s.value === 'string' ? best.s.value : null;
+    }
+
+    /** A name node (plain or interpolated) as text, evaluated in this footprint's scope. */
+    nameOf(n, unit) {
+      if (!n) return null;
+      if (typeof n.name === 'string') return n.name;
+      return interpolate(n.name, { scope: this.scope, scale: UNIT_MM[unit || this.decl.unit || 'mm'] });
+    }
+
+    /** Copy-on-write: replace every interpolated string in a statement with its text. */
+    resolveStmt(stmt) {
+      const env = this.env(stmt);
+      const EXPR = new Set(['num', 'id', 'str', 'neg', 'paren', 'bin']);
+      const walk = (n) => {
+        if (n === null || typeof n !== 'object') return n;
+        if (Array.isArray(n.interp)) {
+          try { return interpolate(n, env); } catch (e) {
+            if (!(e instanceof StompError)) throw e;
+            this.err(e.message, e.node || n);
+            return '?';
+          }
+        }
+        if (Array.isArray(n)) {
+          let out = null;
+          n.forEach((x, i) => { const y = walk(x); if (y !== x) { out = out || n.slice(); out[i] = y; } });
+          return out || n;
+        }
+        if (EXPR.has(n.type)) return n;     // expressions evaluate their strings lazily
+        let out = null;
+        for (const k of Object.keys(n)) {
+          const v = n[k];
+          if (v === null || typeof v !== 'object') continue;
+          const w = walk(v);
+          if (w !== v) { out = out || Object.assign({}, n); out[k] = w; }
+        }
+        return out || n;
+      };
+      return walk(stmt);
+    }
+
+    build() {
+      this.prepare();
       this.gather();
       this.generate();
       this.makeObjects();
@@ -289,11 +557,12 @@
 
     // ---------------------------------------------------------- flatten [§14]
     flatten(decl, chain) {
-      if (chain.includes(decl.name)) {
-        this.err(`inheritance cycle: ${chain.concat(decl.name).map((n) => `"${n}"`).join(' → ')}`, { s: decl.nameS, e: decl.nameE });
+      const key = decl.computedName || (typeof decl.name === 'string' ? decl.name : `@${decl.s}`);
+      if (chain.includes(key)) {
+        this.err(`inheritance cycle: ${chain.concat(key).map((n) => `"${n}"`).join(' → ')}`, { s: decl.nameS, e: decl.nameE });
         return { items: [], params: [], max: 0 };
       }
-      const next = chain.concat(decl.name);
+      const next = chain.concat(key);
       const body = (decl.body || []);
       if (decl.mode === 'from') {
         const t = this.file.templates.get(decl.template.name);
@@ -302,6 +571,7 @@
           this.err(`unknown template \`${decl.template.name}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, decl.template);
           return { items: body.map((s) => ({ s, level: 1 })), params: [], max: 1 };
         }
+        if (!this.tmpl) this.tmpl = { s: t.s, e: t.e, name: t.name };
         return {
           items: t.body.map((s) => ({ s, level: 0 })).concat(body.map((s) => ({ s, level: 1 }))),
           params: [{ template: t, decl }],
@@ -309,10 +579,11 @@
         };
       }
       if (decl.mode === 'extends') {
-        const p = this.file.footprints.get(decl.parent.name);
+        const pname = decl.parentName != null ? decl.parentName : this.nameOf(decl.parent);
+        const p = pname != null ? this.file.footprints.get(pname) : null;
         if (!p) {
-          const hint = Parser.suggest(decl.parent.name, [...this.file.footprints.keys()]);
-          this.err(`unknown parent footprint "${decl.parent.name}"${hint ? ` — did you mean "${hint}"?` : ''}`, decl.parent);
+          const hint = Parser.suggest(String(pname), [...this.file.footprints.keys()]);
+          this.err(`unknown parent footprint "${pname}"${hint ? ` — did you mean "${hint}"?` : ''}`, decl.parent);
           return { items: body.map((s) => ({ s, level: 0 })), params: [], max: 0 };
         }
         const base = this.flatten(p, next);
@@ -331,16 +602,34 @@
         for (const a of decl.args.filter((x) => x.key)) {
           if (!t.params.some((p) => p.name === a.key)) {
             const hint = Parser.suggest(a.key, t.params.map((p) => p.name));
-            this.err(`template \`${t.name}\` has no parameter \`${a.key}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, a);
-          } else if (given.has(a.key)) this.err(`parameter \`${a.key}\` is given twice`, a);
+            this.err(`template \`${t.name}\` has no parameter \`${a.key}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, a.hdr || a);
+          } else if (given.has(a.key)) this.err(`parameter \`${a.key}\` is given twice${a.hdr ? ' — in the call and as a column' : ''}`, a.hdr || a);
           else given.set(a.key, a);
         }
         for (const p of t.params) {
           const a = given.get(p.name);
           if (a) this.scope.defs.set(p.name, { x: a.x, unit: decl.unit, scope: this.file.lets, level: 0 });
           else if (p.def) this.scope.defs.set(p.name, { x: p.def, unit: t.unit, scope: this.scope, level: 0 });
-          else this.err(`missing argument for template parameter \`${p.name}\``, { s: decl.template.s, e: decl.e });
+          else {
+            this.err(decl.table
+              ? `template parameter \`${p.name}\` has no value — add a \`${p.name}\` column, or give it in the call: \`footprints from ${t.name}(${p.name} = …)\``
+              : `missing argument for template parameter \`${p.name}\``, decl.missingAt || { s: decl.template.s, e: decl.e });
+          }
         }
+      }
+    }
+
+    /** Footprint-scoped lets (lazy, any order); later inheritance levels replace earlier ones. */
+    defineLets() {
+      for (const it of this.items) {
+        const s = it.s;
+        if (s.type !== 'Let') continue;
+        const prev = this.scope.defs.get(s.name);
+        if (prev && prev.level === it.level && prev.node) {
+          this.err(`\`let ${s.name}\` is already defined in this footprint — let names are single-assignment`, { s: s.nameS, e: s.nameE });
+          continue;
+        }
+        if (!prev || prev.level <= it.level) this.scope.defs.set(s.name, { x: s.x, unit: s.unit, scope: this.scope, level: it.level, node: s });
       }
     }
 
@@ -362,17 +651,6 @@
         }
         if (!prev || prev.level < it.level) { singles[key] = it; st[key] = it; }
       };
-      // footprint-scoped lets first (lazy; any order)
-      for (const it of this.items) {
-        const s = it.s;
-        if (s.type !== 'Let') continue;
-        const prev = this.scope.defs.get(s.name);
-        if (prev && prev.level === it.level && prev.node) {
-          this.err(`\`let ${s.name}\` is already defined in this footprint — let names are single-assignment`, { s: s.nameS, e: s.nameE });
-          continue;
-        }
-        if (!prev || prev.level <= it.level) this.scope.defs.set(s.name, { x: s.x, unit: s.unit, scope: this.scope, level: it.level, node: s });
-      }
       for (const it of this.items) {
         const s = it.s;
         switch (s.type) {
@@ -382,6 +660,11 @@
             if (s.target && s.target.kind === 'body') this.broken.add('#body');
             break;
           case 'Meta': st.meta[s.key] = { value: s.value, node: s }; break;
+          case 'Name':
+            if (this.decl.mode !== 'from' && it.level === this.ownLevel) {
+              this.err('`name` belongs in a template (or a `from` call\'s block) — this footprint is already named in its header', s);
+            }
+            break;
           case 'Body': single('body', it, 'body'); break;
           case 'Pins': case 'Balls': single('gen', it, s.type === 'Balls' ? 'balls' : 'pins'); break;
           case 'Lead': single('lead', it, 'lead'); break;
@@ -417,11 +700,13 @@
       this.body = null;
       if (st.body) {
         const b = st.body.s;
+        this.bodyFailed = true;
         this.guard(b, () => {
           this.body = b.cyl
             ? { kind: 'cyl', w: this.plen(b.d, b, 'body diameter'), l: 0, h: this.plen(b.h, b, 'body height'), node: b }
             : { kind: 'box', w: this.plen(b.w, b, 'body width'), l: this.plen(b.l, b, 'body length'), h: b.h ? this.plen(b.h, b, 'body height') : null, node: b };
           if (this.body.kind === 'cyl') this.body.l = this.body.w;
+          this.bodyFailed = false;
         });
       }
       // lead
@@ -486,9 +771,10 @@
         case 'paste':
           if (p.mode === 'expand') spec.paste = { mode: 'expand', v: p.value.sign * this.len(p.value.x, stmt) };
           else if (p.mode === 'divide') {
-            if (p.nx < 1 || p.ny < 1) throw new StompError('paste divide needs at least 1 x 1 windows', p);
+            const nx = this.countOf(p.nx, stmt), ny = this.countOf(p.ny, stmt);
+            if (nx < 1 || ny < 1) throw new StompError('paste divide needs at least 1 x 1 windows', p);
             spec.paste = {
-              mode: 'divide', nx: p.nx, ny: p.ny,
+              mode: 'divide', nx, ny,
               coverage: p.coverage ? p.coverage.pct / 100 : null,
               gutter: p.gutter ? this.plen(p.gutter, stmt, 'gutter') : null,
             };
@@ -498,7 +784,7 @@
           } else spec.paste = { mode: p.mode };
           break;
         case 'vias':
-          spec.vias = { nx: p.nx, ny: p.ny, drill: this.plen(p.drill, stmt, 'via drill'), pitch: this.plen(p.pitch, stmt, 'via pitch') };
+          spec.vias = { nx: this.countOf(p.nx, stmt), ny: this.countOf(p.ny, stmt), drill: this.plen(p.drill, stmt, 'via drill'), pitch: this.plen(p.pitch, stmt, 'via pitch') };
           break;
         default: break;
       }
@@ -708,6 +994,7 @@
       if (span) L = toOuter(span, T);
       else if ((f === 'flat' || f === 'endcap' || f === 'tab') && bodyAlong != null) L = bodyAlong;
       else if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centres)` };
+      else if (this.bodyFailed && (f === 'flat' || f === 'endcap' || f === 'tab')) throw SILENT(lead.node);   // follows from the body error
       else throw new StompError(`\`lead ${f}\` needs a span: \`lead ${f} … span S\` (outer edge to outer edge)`, lead.node);
       let table;
       if (f === 'gullwing') table = ctx.pitch != null && ctx.pitch <= 0.625 + 1e-9 ? IPC.gullwingFine : IPC.gullwing;
@@ -1760,8 +2047,57 @@
       if (this.body) { this.body.x -= O.x; this.body.y -= O.y; }
       // copper / mask / paste / drills
       this.L = { silk: [], courtyard: [], assembly: [], texts: [] };
+      this.manual = { silk: [], courtyard: [], assembly: [], texts: [] };
       for (const p of this.pads.values()) this.padLayers(p);
       for (const h of this.holes.values()) this.holeLayers(h);
+      // Everything that can report a problem runs now; the automatic silk, assembly
+      // and courtyard geometry waits for finishLayers(), on first use.
+      for (const [name, fn] of [['pin 1', this.pin1Info], ['graphics', this.manualLayers], ['text', this.textLayer]]) {
+        try { fn.call(this); } catch (e) {
+          if (e instanceof StompError) { if (!e.silent) this.err(e.message, e.node); continue; }
+          this.err(`internal error while drawing the ${name} layer: ${e && e.message}`, { s: this.decl.nameS, e: this.decl.nameE });
+          if (typeof console !== 'undefined') console.error(e);
+        }
+      }
+    }
+
+    /** Manual graphics, text and courtyard settings — evaluated eagerly for their diagnostics. */
+    manualLayers() {
+      for (const it of this.st.silk) if (it.s.mode === 'block') this.gfx(it.s.items, 'silk', this.manual.silk, D.silkW);
+      for (const it of this.st.assembly) if (it.s.mode === 'block') this.gfx(it.s.items, 'assembly', this.manual.assembly, D.fabW);
+      // courtyard: base (auto [clearance] | rect W x L | none) plus blocks
+      const items = this.st.courtyard;
+      let base = { mode: 'auto', clearance: null, node: null };
+      let anyBlock = false, explicitBase = false;
+      for (const it of items) {
+        if (it.s.mode === 'block') { anyBlock = true; continue; }
+        explicitBase = true;
+        base = { mode: it.s.mode, node: it.s, clearance: it.s.clearance, size: it.s.size };
+      }
+      if (anyBlock && !explicitBase) base = { mode: 'none' };   // DEMO DECISION: a manual courtyard replaces the auto one
+      if (base.mode === 'auto') {
+        let c = this.courtyardExcess != null ? this.courtyardExcess : CY_DEFAULT[this.lv];
+        if (base.clearance) c = this.guard(base.node, () => this.plen(base.clearance, base.node, 'courtyard clearance'));
+        base.c = c == null ? CY_DEFAULT[this.lv] : c;
+      } else if (base.mode === 'rect') {
+        this.guard(base.node, () => {
+          base.w = this.plen(base.size.w, base.node, 'courtyard width');
+          base.l = this.plen(base.size.l, base.node, 'courtyard length');
+        });
+      }
+      this.cyBase = base;
+      for (const it of items) if (it.s.mode === 'block') this.gfx(it.s.items, 'courtyard', this.manual.courtyard, D.crtW);
+      // polarity marks need a two-terminal part
+      if (this.polarized && this.layerBase('silk') === 'auto') {
+        const g = this.gen;
+        if (!g || g.kind !== 'two' || !this.pads.get('2')) this.warn('`polarized` marks two-terminal parts (pins 1 and 2)', this.st.polarized.s);
+      }
+    }
+
+    /** Automatic silk / assembly / courtyard (deferred: only footprints on screen need them). */
+    finishLayers() {
+      if (this.finished) return;
+      this.finished = true;
       this.keepouts = [];
       for (const p of this.pads.values()) {
         const m = p.spec.mask && p.spec.mask.mode === 'none' ? 0 : (p.spec.mask && p.spec.mask.mode === 'expand' ? Math.max(0, p.spec.mask.v) : D.mask);
@@ -1771,15 +2107,11 @@
       for (const h of this.holes.values()) {
         this.keepouts.push(G.contourToPoly(G.transformContour(G.shapeContour(h.shape, D.holeMask + D.silkClear + D.silkW / 2), 0, h.x, h.y), rad(8)));
       }
-      // each drawing layer is independent: a bug in one shouldn't lose the footprint
-      for (const [name, fn] of [['pin 1', this.pin1Info], ['silk', this.silkLayer], ['assembly', this.assemblyLayer],
-        ['courtyard', this.courtyardLayer], ['text', this.textLayer]]) {
-        try { fn.call(this); } catch (e) {
-          if (e instanceof StompError) { if (!e.silent) this.err(e.message, e.node); continue; }
-          this.err(`internal error while drawing the ${name} layer: ${e && e.message}`, { s: this.decl.nameS, e: this.decl.nameE });
-          if (typeof console !== 'undefined') console.error(e);
-        }
+      for (const fn of [this.silkLayer, this.assemblyLayer, this.courtyardLayer]) {
+        try { fn.call(this); } catch (e) { if (typeof console !== 'undefined') console.error(e); }
       }
+      // manual items and footprint-level text come after the automatic ones
+      for (const k of ['silk', 'assembly', 'courtyard']) this.L[k].push(...this.manual[k]);
     }
 
     landBox() {
@@ -1889,10 +2221,10 @@
       const seq = ['bl', 'br', 'tr', 'tl'];
       const pts = [];
       seq.forEach((k, i) => {
-        if (mods && mods.chamfer && mods.chamfer.corner === k) {
+        if (mods && mods.chamfer && mods.chamfer.corner === k && mods.chamfer.c > 0) {
           const prev = C[seq[(i + 3) % 4]], next = C[seq[(i + 1) % 4]], cur = C[k];
           const cc = mods.chamfer.c;
-          const tow = (q) => { const d = G.dist(cur, q); return [cur[0] + ((q[0] - cur[0]) / d) * cc, cur[1] + ((q[1] - cur[1]) / d) * cc]; };
+          const tow = (q) => { const d = G.dist(cur, q); return d < 1e-12 ? cur : [cur[0] + ((q[0] - cur[0]) / d) * cc, cur[1] + ((q[1] - cur[1]) / d) * cc]; };
           pts.push(tow(prev), tow(next));
         } else pts.push(C[k]);
         if (mods && mods.notch) {
@@ -1959,7 +2291,6 @@
         if (p1 && (style === 'dot' || (style === 'chamfer' && !(b && b.kind === 'box')))) this.pin1Dot(out);
         if (p1 && style === 'chamfer' && b && b.kind === 'box' && !this.chamferSize(corner)) this.pin1Dot(out);
       }
-      for (const it of this.st.silk) if (it.s.mode === 'block') this.gfx(it.s.items, 'silk', out, D.silkW);
     }
 
     pin1End(corner) {
@@ -2027,10 +2358,7 @@
       const g = this.gen;
       const p2 = this.pads.get('2');
       const p1 = this.pads.get('1');
-      if (!g || g.kind !== 'two' || !p2) {
-        this.warn('`polarized` marks two-terminal parts (pins 1 and 2)', this.st.polarized.s);
-        return;
-      }
+      if (!g || g.kind !== 'two' || !p2) return;   // reported by manualLayers()
       const b = this.body;
       const cx = b ? b.x : (p1 ? (p1.x + p2.x) / 2 : 0), cy = b ? b.y : (p1 ? (p1.y + p2.y) / 2 : 0);
       const horiz = Math.abs(p2.x - cx) >= Math.abs(p2.y - cy);
@@ -2099,25 +2427,13 @@
           }
         }
       }
-      for (const it of this.st.assembly) if (it.s.mode === 'block') this.gfx(it.s.items, 'assembly', out, D.fabW);
     }
 
     courtyardLayer() {
       const out = this.L.courtyard;
-      const items = this.st.courtyard;
-      let base = { mode: 'auto', clearance: null, node: null };
-      let anyBlock = false, explicitBase = false;
-      for (const it of items) {
-        const s = it.s;
-        if (s.mode === 'block') { anyBlock = true; continue; }
-        explicitBase = true;
-        base = { mode: s.mode, node: s, clearance: s.clearance, size: s.size };
-      }
-      if (anyBlock && !explicitBase) base = { mode: 'none' };   // DEMO DECISION: a manual courtyard replaces the auto one
+      const base = this.cyBase || { mode: 'none' };
       if (base.mode === 'auto') {
-        let c = this.courtyardExcess != null ? this.courtyardExcess : CY_DEFAULT[this.lv];
-        if (base.clearance) c = this.guard(base.node, () => this.plen(base.clearance, base.node, 'courtyard clearance'));
-        if (c == null) c = CY_DEFAULT[this.lv];
+        const c = base.c;
         const pts = [];
         for (const p of this.pads.values()) pts.push(...G.contourToPoly(p.copper, rad(10)));
         for (const h of this.holes.values()) pts.push(...G.contourToPoly(h.land, rad(10)));
@@ -2130,15 +2446,12 @@
           out.push({ type: 'line', pts: snapped.concat([snapped[0]]), w: D.crtW, auto: true });
           this.courtyardClearance = c;
         }
-      } else if (base.mode === 'rect') {
-        this.guard(base.node, () => {
-          const w = this.plen(base.size.w, base.node, 'courtyard width'), l = this.plen(base.size.l, base.node, 'courtyard length');
-          const c = this.body ? [this.body.x, this.body.y] : this.shift([0, 0]);
-          const pts = [[c[0] - w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] + l / 2], [c[0] - w / 2, c[1] + l / 2]];
-          out.push({ type: 'line', pts: pts.concat([pts[0]]), w: D.crtW, src: base.node });
-        });
+      } else if (base.mode === 'rect' && base.w != null && base.l != null) {
+        const w = base.w, l = base.l;
+        const c = this.body ? [this.body.x, this.body.y] : this.shift([0, 0]);
+        const pts = [[c[0] - w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] + l / 2], [c[0] - w / 2, c[1] + l / 2]];
+        out.push({ type: 'line', pts: pts.concat([pts[0]]), w: D.crtW, src: base.node });
       }
-      for (const it of items) if (it.s.mode === 'block') this.gfx(it.s.items, 'courtyard', out, D.crtW);
     }
 
     layerBase(layer) {
@@ -2203,33 +2516,37 @@
       const str = field === 'ref' ? this.refLabel() : field === 'value' ? this.name : t.which.str;
       const layer = t.layer || layerDefault || (field === 'value' ? 'assembly' : 'silk');
       const item = { type: 'text', at, size, str, src: t, field: field || null };
-      if (layer === 'silk') this.L.silk.push(item);
-      else if (layer === 'assembly') this.L.assembly.push(item);
-      else if (layer === 'copper' || layer === 'mask') (this.L.texts).push(Object.assign(item, { layer }));
+      if (layer === 'silk') this.manual.silk.push(item);
+      else if (layer === 'assembly') this.manual.assembly.push(item);
+      else if (layer === 'copper' || layer === 'mask') this.L.texts.push(Object.assign(item, { layer }));
       else outDefault.push(item);
     }
 
     textLayer() {
-      for (const it of this.st.texts) this.guard(it.s, () => this.textItem(it.s, null, this.L.silk));
+      for (const it of this.st.texts) this.guard(it.s, () => this.textItem(it.s, null, this.manual.silk));
     }
 
     // ---------------------------------------------------------- checks [§15]
     checks() {
       const unplacedUnits = this.unplaced;
       const pads = [...this.pads.values()].filter((p) => !p.spec.missing && !unplacedUnits.has(p.unit.id));
-      const polys = pads.map((p) => ({ p, poly: G.contourToPoly(p.copper, rad(10)), bb: G.contourBBox(p.copper) }));
-      let reported = 0;
-      for (let i = 0; i < polys.length && reported < 12; i++) {
-        for (let j = i + 1; j < polys.length && reported < 12; j++) {
-          const A = polys[i], B = polys[j];
+      const items = pads.map((p, i) => ({ p, i, bb: G.contourBBox(p.copper), poly: null }));
+      const poly = (it) => it.poly || (it.poly = G.contourToPoly(it.p.copper, rad(10)));
+      const sorted = items.slice().sort((a, b) => a.bb.x0 - b.bb.x0);
+      const hits = [];
+      for (let i = 0; i < sorted.length; i++) {
+        const A = sorted[i];
+        for (let j = i + 1; j < sorted.length && sorted[j].bb.x0 <= A.bb.x1; j++) {
+          const B = sorted[j];
           if (!G.boxOverlap(A.bb, B.bb)) continue;
-          if (G.polysOverlap(A.poly, B.poly)) {
-            reported++;
-            const node = B.p.src[B.p.src.length - 1] || this.decl;
-            this.warn(`pads ${A.p.name} and ${B.p.name} overlap — intentional only if they share a net`, node);
-            A.p.overlap = B.p.overlap = true;
-          }
+          if (G.polysOverlap(poly(A), poly(B))) hits.push(A.i < B.i ? [A, B] : [B, A]);
         }
+      }
+      hits.sort((a, b) => a[0].i - b[0].i || a[1].i - b[1].i);
+      for (const [A, B] of hits.slice(0, 12)) {
+        const node = B.p.src[B.p.src.length - 1] || this.decl;
+        this.warn(`pads ${A.p.name} and ${B.p.name} overlap — intentional only if they share a net`, node);
+        A.p.overlap = B.p.overlap = true;
       }
       // unused group / sanity
       if (!this.pads.size && !this.holes.size && !this.errorCount && !this.broken.size) this.warn(`footprint "${this.name}" has no pads`, { s: this.decl.nameS, e: this.decl.nameE });
@@ -2317,38 +2634,53 @@
       } : null;
       const meta = {};
       for (const k of Object.keys(this.st.meta)) meta[k] = this.st.meta[k].value;
-      const all = [...pads, ...holes];
-      let bb = G.emptyBox();
-      for (const o of all) bb = G.unionBox(bb, o.bbox);
-      if (b) for (const p of bodyOut.outline) G.addPt(bb, p);
-      for (const layer of ['silk', 'courtyard', 'assembly']) {
-        for (const it of this.L[layer]) {
-          if (it.pts) it.pts.forEach((p) => G.addPt(bb, p));
-          if (it.c) { G.addPt(bb, [it.c[0] - it.r, it.c[1] - it.r]); G.addPt(bb, [it.c[0] + it.r, it.c[1] + it.r]); }
-          if (it.at) G.addPt(bb, it.at);
-        }
-      }
-      if (!G.boxValid(bb)) bb = { x0: -1, y0: -1, x1: 1, y1: 1 };
-      const courtyardBox = (() => {
-        let c = G.emptyBox();
-        for (const it of this.L.courtyard) if (it.pts) it.pts.forEach((p) => G.addPt(c, p));
-        return G.boxValid(c) ? c : null;
-      })();
+      // extents of pads, holes and body: cheap, and enough for a thumbnail
+      let core = G.emptyBox();
+      for (const o of [...pads, ...holes]) core = G.unionBox(core, o.bbox);
+      if (b) for (const p of bodyOut.outline) G.addPt(core, p);
+      if (!G.boxValid(core)) core = { x0: -1, y0: -1, x1: 1, y1: 1 };
       const model = this.modelInfo();
-      return {
-        name: this.name, meta, density: this.density, pads, holes, body: bodyOut,
-        silk: this.L.silk, courtyard: this.L.courtyard, assembly: this.L.assembly, extraTexts: this.L.texts,
-        dims, bbox: bb, courtyardBox, origin: { x: 0, y: 0 }, originShift: this.O,
+      const res = {
+        name: this.name, meta, density: this.density, pads, holes, body: bodyOut, coreBox: core,
+        extraTexts: this.L.texts, dims, origin: { x: 0, y: 0 }, originShift: this.O,
         pin1: this.pin1 ? { x: this.pin1.x, y: this.pin1.y, style: this.pin1Style } : null,
         generator: this.gen ? {
           kind: this.gen.kind, count: this.gen.positions.length, omitted: (this.gen.omitted || []).map((p) => p.name),
           spacing: Object.fromEntries(Object.entries(this.gen.spacing || {}).map(([k, v]) => [k, { C: v.C, how: v.how }])),
           src: ranges([this.gen.node]),
         } : null,
-        ipcNote: this.ipcNote || null, courtyardClearance: this.courtyardClearance,
-        floating: this.floatingAxes, originNote: this.originNote, model, extends: this.decl.mode === 'extends' ? this.decl.parent.name : null,
+        ipcNote: this.ipcNote || null,
+        floating: this.floatingAxes, originNote: this.originNote, model, extends: this.decl.mode === 'extends' ? this.decl.parentName : null,
         template: this.decl.mode === 'from' ? this.decl.template.name : null,
       };
+      // silk, assembly and courtyard are computed on first access (see finishLayers)
+      let full = null;
+      const finish = () => {
+        if (full) return full;
+        this.finishLayers();
+        let bb = { x0: core.x0, y0: core.y0, x1: core.x1, y1: core.y1 };
+        for (const layer of ['silk', 'courtyard', 'assembly']) {
+          for (const it of this.L[layer]) {
+            if (it.pts) it.pts.forEach((p) => G.addPt(bb, p));
+            if (it.c) { G.addPt(bb, [it.c[0] - it.r, it.c[1] - it.r]); G.addPt(bb, [it.c[0] + it.r, it.c[1] + it.r]); }
+            if (it.at) G.addPt(bb, it.at);
+          }
+        }
+        let cy = G.emptyBox();
+        for (const it of this.L.courtyard) if (it.pts) it.pts.forEach((p) => G.addPt(cy, p));
+        full = { bbox: bb, courtyardBox: G.boxValid(cy) ? cy : null, courtyardClearance: this.courtyardClearance };
+        return full;
+      };
+      const lazy = (get) => ({ get, enumerable: true });
+      Object.defineProperties(res, {
+        silk: lazy(() => { finish(); return this.L.silk; }),
+        assembly: lazy(() => { finish(); return this.L.assembly; }),
+        courtyard: lazy(() => { finish(); return this.L.courtyard; }),
+        bbox: lazy(() => finish().bbox),
+        courtyardBox: lazy(() => finish().courtyardBox),
+        courtyardClearance: lazy(() => finish().courtyardClearance),
+      });
+      return res;
     }
 
     modelInfo() {
@@ -2498,5 +2830,5 @@
     return best;
   }
 
-  return { compile, UNIT_MM, IPC, D, jedecRow, expandRange };
+  return { compile, clearCache: () => CACHE.clear(), UNIT_MM, IPC, D, jedecRow, expandRange, formatNumber };
 });

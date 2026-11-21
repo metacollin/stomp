@@ -4,6 +4,8 @@ A browser demo of stomp. Write stomp on the left, and the land pattern on the ri
 redraws as you type: copper, paste, mask, drills, silk, courtyard and fab layers, with
 pad numbers. Put the cursor on a placement statement and its dimension is drawn on the
 footprint. `pad 3 is 4.56 right of pad 1` shows the 4.56 between the two pad centres.
+Switch to **3D** and the same source shows the part's generated model, sitting on a
+board with its copper, silk and courtyard.
 
 Everything runs client-side in plain JavaScript with no dependencies and no build step.
 The page works opened straight from disk.
@@ -33,6 +35,13 @@ example in the browser's local storage, and **Reset** restores the original.
 - **Library** shows every footprint in the file as a thumbnail gallery, grouped by the
   table that made it. Click one to open it, or move the cursor through a table's rows to
   step through the footprints they make.
+- **3D** shows the model the body, pins and lead form describe (SPEC §13). Drag to orbit,
+  shift-drag or right-drag to pan, scroll or pinch to zoom, double-click to reset; the bar
+  under it has preset views, and from below the board turns see-through so you can check
+  balls and terminals. The statement under the cursor tints the parts it makes, so the
+  cursor on `lead 1, 3 gullwing …` lights up those two leads. **VRML** downloads a `.wrl`
+  for KiCad (0.1-inch units) and **STL** a binary STL in millimetres. Where the page can't
+  download (a sandboxed embed), **Copy VRML** copies the text instead.
 - A syntax error inside the footprint you're editing usually means a half-typed line. The
   preview then keeps the last version that parsed, dimmed, until the line is complete.
   Semantic errors, such as an over-constrained pad, still draw live.
@@ -48,20 +57,23 @@ The engine is a complete prototype of the draft, from `grammar.peg` to finished 
 |---|---|
 | `js/lexer.js` | tokens per the grammar's lexical layer: attached unit suffixes, `1..4` ranges, hyphenated keywords, newline rules from SPEC §4 |
 | `js/parser.js` | recursive descent following `grammar.peg`'s ordered choices, with per-statement error recovery |
-| `js/compile.js` | units and `let`; text values and `{…}` interpolation; templates as functions (`name`), `from` calls, `footprints from` tables, `extends`; `pins`/`balls`/side-block generators with every numbering scheme, `omit`/`only`/`delete`; IPC-style pad synthesis; the §9 constraint solver; mask, paste windowpanes, vias, auto silk/courtyard/assembly, pin-1 and polarity marks; §15 diagnostics; an incremental build cache |
-| `js/geom.js` | exact outlines (lines plus arcs), offsets, hulls, silk clipping |
+| `js/compile.js` | units and `let`; text values and `{…}` interpolation; templates as functions (`name`), `from` calls, `footprints from` tables, `extends`; `pins`/`balls`/side-block generators with every numbering scheme, `omit`/`only`/`delete`; IPC-style pad synthesis, per-pin leads; the §9 constraint solver; mask, paste windowpanes, vias, auto silk/courtyard/assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; §15 diagnostics; an incremental build cache |
+| `js/model3d.js` | the 3D model (SPEC §13): a body per lead form (molded with draft, sawn, chip, MELF, BGA, DIP, header, can, axial, module), swept gull-wing and J leads, terminals, balls, pins and wires, pin-1 and polarity marks, extra solids; the board under it; VRML and STL export |
+| `js/geom.js` | exact outlines (lines plus arcs), offsets, hulls, silk clipping, triangulation |
 | `js/view.js` | SVG viewer: true-width layers, pan/zoom, hover inspection, constraint overlays |
+| `js/view3d.js` | WebGL viewer: one merged buffer, camera-fixed lighting with shiny metals, orbit/pan/zoom, preset views, highlight by source range |
 | `js/editor.js` | dependency-free code editor: a textarea over lexer-driven highlighting |
 | `js/app.js` | wiring, examples, persistence |
 | `js/examples.js` | **generated** from `examples/*.stomp` by `tools/build.mjs` |
 
-Not covered: 3D models are parsed and summarized but not rendered, castellated leads draw
-a provisional land (SPEC §17.7), and nothing is exported yet.
+Not covered: `step` files aren't loaded (a footprint that names one shows its generated
+stand-in), castellated leads draw a provisional land (SPEC §17.7), and the footprint
+itself isn't exported yet; the 3D model is.
 
 ## Tests
 
 ```sh
-node --test demo/test/*.test.mjs     # engine tests: geometry, numbering, diagnostics, fuzzing
+node --test demo/test/*.test.mjs     # engine and 3D tests: geometry, numbering, diagnostics, fuzzing
 node demo/tools/build.mjs            # regenerate js/examples.js after editing examples/
 ```
 
@@ -69,7 +81,11 @@ The suite checks hand-calculated geometry for the relational examples (TO-252, U
 micro-B, the syntax zoo), the generators, interpolation and tables, the diagnostics and
 their locations, and that `js/examples.js` matches `examples/`. It also fuzzes the
 compiler with half-typed and mangled versions of every example, and checks over
-sequences of random edits that the build cache never changes a result.
+sequences of random edits that the build cache never changes a result. The 3D tests
+check each example's model is finite and consistently wound, measure the generated parts
+(gull-wing toes at the span, terminals flush with the body, balls collapsed to the
+standoff, leads 3 mm below the board), per-pin leads and their lands, the `model` block
+and its diagnostics, and both export formats, and fuzz the model builder too.
 
 ## Performance
 
@@ -131,6 +147,27 @@ The draft leaves some meanings open. The demo picks the following, and the page'
     or calls, pointing back at the template line. A problem every call shares is
     reported once, at the template.
 
+11. **The body's height is the seated height** (JEDEC *A*), from the board to the top
+    of the part, and the body sits on its standoff (*A1*). Each lead form picks a
+    standoff and a body: 0.1 mm under a molded gull-wing body, 0.02 under a sawn
+    leadless block, three quarters of the ball under a BGA (SPEC §13.1 has the table).
+    Lead thickness follows the pitch: 0.15 mm below 1 mm, 0.2 up to 2 mm, 0.3 above.
+12. **A gull-wing's foot is shortened if the bend needs the room.** SOIC-8 gives
+    `lead gullwing 0.41 x 1.04 span 6.0`, and 1.04 is the whole lead beyond the 3.9 mm
+    body. Taken as the foot alone, it would leave no room to bend down, so the model's
+    foot is 0.79 mm and the rest is the bend. The lands still use the full 1.04.
+13. **Per-pin leads.** `lead 4 gullwing 3.0 x 0.9` re-derives pin 4's land from its own
+    lead, on the same span, wherever that pin's land was derived at all. In land mode,
+    where explicit pads keep their sizes, per-pin leads only add leads to the model.
+14. **A cylinder body lies down when its pins can't leave its bottom:** always for
+    endcaps (a MELF), and for wire leads that sit outside the circle (an axial part).
+    It is then a rectangle in 2D, its length along the pins and its diameter across.
+15. **The polarity stripe follows the part family:** the cathode of a diode or LED and
+    the negative lead of a can are pin 2, but a chip capacitor's band marks pin 1, as
+    tantalums are marked (SPEC §17.12).
+16. **Model blocks merge down `extends`.** A child's `model { standoff 0.2 }` changes
+    one setting and keeps the parent's solids; `no model` ends the model at that level.
+
 ## Notes on the spec from implementing it
 
 - **TO-252 needed one more line.** Under §9.2, `body bottom is 1.1 above pad 1` also
@@ -149,3 +186,10 @@ The draft leaves some meanings open. The demo picks the following, and the page'
   pin 9. If the intent was "60 left of the row's outer edge", the anchor would be `inner`.
 - ZOO-SHAPES has overlapping pads (5/7 and 4/9). The demo reports them as §15
   suspicious-geometry warnings.
+- §11.3's `lead tab … (becomes highest-numbered pin unless named)` reads as an extra
+  pin, but `lead` describes the pins a generator already made. The demo treats a general
+  `lead tab` like a flat terminal, and a per-pin `lead 2 tab` as a slab under pad 2,
+  which is how the DPAK example models its drain tab.
+- The old `model` block had only `pin1 dimple|stripe`. A DIP's notch and a QFN's laser
+  dot need their own names, so the block now takes `dimple`, `dot`, `notch`, `stripe`
+  and `none`, and defaults from the footprint's `pin1` where it can.

@@ -407,8 +407,53 @@
     return pts;
   }
 
+  /**
+   * Ear-clipping triangulation of a simple polygon (either winding). Returns index
+   * triples into pts, counter-clockwise. Collinear and duplicate points are skipped.
+   */
+  function triangulate(pts) {
+    const n = pts.length;
+    if (n < 3) return [];
+    const ccw = polyArea(pts) >= 0;
+    const idx = [];
+    for (let i = 0; i < n; i++) idx.push(ccw ? i : n - 1 - i);
+    const area2 = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const scale = Math.max(1e-9, ...pts.map((p) => Math.abs(p[0]) + Math.abs(p[1])));
+    const eps = 1e-12 * scale * scale;
+    // inclusive: a reflex vertex on the candidate diagonal blocks the ear too
+    const same = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) <= 1e-12 * scale;
+    const inside = (p, a, b, c) => !same(p, a) && !same(p, b) && !same(p, c)
+      && area2(a, b, p) >= -eps && area2(b, c, p) >= -eps && area2(c, a, p) >= -eps;
+    const tris = [];
+    let guard = 0;
+    while (idx.length > 3 && guard++ < 20000) {
+      let cut = false;
+      for (let i = 0; i < idx.length; i++) {
+        const m = idx.length;
+        const i0 = idx[(i + m - 1) % m], i1 = idx[i], i2 = idx[(i + 1) % m];
+        const a = pts[i0], b = pts[i1], c = pts[i2];
+        const ar = area2(a, b, c);
+        if (Math.abs(ar) <= eps) { idx.splice(i, 1); cut = true; break; }   // collinear / duplicate
+        if (ar < 0) continue;                                              // reflex
+        let ear = true;
+        for (const j of idx) {
+          if (j === i0 || j === i1 || j === i2) continue;
+          if (inside(pts[j], a, b, c)) { ear = false; break; }
+        }
+        if (!ear) continue;
+        tris.push([i0, i1, i2]);
+        idx.splice(i, 1);
+        cut = true;
+        break;
+      }
+      if (!cut) break;   // not a simple polygon; keep what we have
+    }
+    if (idx.length === 3 && Math.abs(area2(pts[idx[0]], pts[idx[1]], pts[idx[2]])) > eps) tris.push([idx[0], idx[1], idx[2]]);
+    return tris;
+  }
+
   return {
-    EPS, TAU, deg,
+    EPS, TAU, deg, triangulate,
     line, arc, rrectContour, circleContour, polyContour, transformContour, contourBBox,
     contourToPoly, contourToPath, polyToPath, shapeContour, mirrorShape, dshapeRadius,
     polyArea, polyCentroid, ensureCCW, offsetPolygon, convexHull, pointInPoly, segCross,

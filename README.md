@@ -13,11 +13,12 @@ when you want it, a **3D model** of the physical part.
 
 [`demo/`](demo/) is a browser editor for stomp: type on the left and the footprint
 redraws on the right as you type. It draws copper, paste, mask, silk, courtyard and fab
-layers, and shows the dimension of whichever placement your cursor is on. Open
-`demo/index.html` in a browser; it needs no install, server or build. The *QFN library*
-example shows a table generating a library, with every footprint in a gallery. See
-[`demo/README.md`](demo/README.md) for details, including the semantic choices the
-prototype had to make where the draft is open.
+layers, and shows the dimension of whichever placement your cursor is on. Switch the
+preview to **3D** to see the part's generated model on a board, and export it as VRML
+or STL. Open `demo/index.html` in a browser; it needs no install, server or build. The
+*QFN library* example shows a table generating a library, with every footprint in a
+gallery. See [`demo/README.md`](demo/README.md) for details, including the semantic
+choices the prototype had to make where the draft is open.
 
 ## Why
 
@@ -82,13 +83,32 @@ footprints from qfn {           # one footprint per row
 }
 ```
 
+The same few lines describe the part in 3D. The body, the pin layout and the lead form
+are enough to model it: gull-wing leads bend down from the parting line to the span,
+leadless terminals sit flush under a sawn block, balls hang under a BGA substrate, and a
+through-hole wire bends down through the board. A `model` block adjusts the rest, and
+one pin can differ from the others:
+
+```stomp
+footprint "SOT-223" {
+  body 6.5 x 3.5 x 1.8
+  pins {
+    bottom: 1, 2, 3 pitch 2.3
+    top: 4
+  }
+  lead gullwing 0.7 x 0.9 span 7.0
+  lead 4 gullwing 3.0 x 0.9          # the wide tab lead: its land follows too
+  model { leads thickness 0.3 }      # optional: standoff, height, draft, colors, extra solids
+}
+```
+
 ## Repository layout
 
 | path | contents |
 |---|---|
 | [`SPEC.md`](SPEC.md) | the language specification (design, semantics, statement reference) |
 | [`grammar.peg`](grammar.peg) | formal PEG grammar, sized for a PEGTL implementation |
-| [`examples/`](examples/) | 15 example files, from a 3-line 0402 to a USB micro-B "offset torture test" and an 18-footprint QFN library; [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) is a synthetic full-coverage parser fixture |
+| [`examples/`](examples/) | 18 example files, from a 3-line 0402 to a USB micro-B "offset torture test" and an 18-footprint QFN library; [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) is a synthetic full-coverage parser fixture |
 | [`demo/`](demo/) | the in-browser live editor and its JavaScript prototype engine, with tests |
 
 ## Name

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>stomp live</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Write stomp footprint code and watch the land pattern update as you type.">
+<meta name="description" content="Write stomp footprint code and watch the land pattern and its 3D model update as you type.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -57,6 +57,10 @@
         <div class="tabs" id="tabs" role="tablist" aria-label="Footprints in this file"></div>
         <select id="fp-select" class="fp-select" aria-label="Footprint" hidden></select>
         <div class="tools">
+          <div class="seg dim-seg" id="dim-seg" role="group" aria-label="Drawing or 3D model">
+            <button type="button" data-dim="2d" aria-pressed="true" title="The land pattern">2D</button>
+            <button type="button" data-dim="3d" aria-pressed="false" title="The 3D model on a board">3D</button>
+          </div>
           <div class="seg" role="group" aria-label="Display units">
             <button type="button" data-u="mm" aria-pressed="true">mm</button>
             <button type="button" data-u="mil" aria-pressed="false">mil</button>
@@ -66,14 +70,16 @@
       </div>
       <div class="viewer-wrap">
         <div id="viewer" class="viewer-host"></div>
+        <div id="viewer3d" class="viewer-host v3d-host" hidden></div>
         <div id="library" class="library" hidden></div>
         <div class="legend" id="layerbar" role="group" aria-label="Layers"></div>
+        <div class="legend bar3d" id="bar3d" role="group" aria-label="3D view" hidden></div>
       </div>
       <div class="titleblock" id="titleblock">
         <div><span class="k">Footprint</span><span class="v" id="tb-name">—</span></div>
-        <div><span class="k">Cursor</span><span class="v" id="tb-cursor">—</span></div>
-        <div><span class="k">Grid</span><span class="v" id="tb-grid">—</span></div>
-        <div><span class="k">Scale</span><span class="v" id="tb-scale">—</span></div>
+        <div><span class="k" id="tb-k2">Cursor</span><span class="v" id="tb-cursor">—</span></div>
+        <div><span class="k" id="tb-k3">Grid</span><span class="v" id="tb-grid">—</span></div>
+        <div><span class="k" id="tb-k4">Scale</span><span class="v" id="tb-scale">—</span></div>
       </div>
       <div class="details" id="details"></div>
     </section>
@@ -92,6 +98,7 @@
     <li><b>Put the cursor on a statement</b> to highlight the objects it creates or moves. Placements draw their dimension right on the footprint, so <code>pad 3 is 4.56 right of pad 1</code> shows the 4.56 between the two centres.</li>
     <li><b>Hover a pad</b> for its size, position, mask and paste; its source lines light up. <b>Click</b> it to jump to the statement that defines it.</li>
     <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. The preview follows the footprint your cursor is in.</li>
+    <li><b>3D:</b> switch the preview to <b>3D</b> to see the part on a board. The body, the pins and the lead form already describe it: <code>lead gullwing …</code> bends gull-wing leads down to the span, <code>lead ball</code> puts balls under a substrate, <code>lead endcap</code> caps a chip. A <code>model { … }</code> block adjusts standoff, height, draft, colors and the pin-1 mark, or adds boxes and cylinders; <code>lead 4 gullwing 3.0 x 0.9</code> gives one pin its own lead (and land). Export the model as VRML for KiCad, or STL.</li>
     <li><b>Libraries:</b> a template can name the footprints it makes (<code>name "QFN-{n}-…"</code>), and <code>footprints from qfn { … }</code> makes one per table row. <b>Library</b> shows every footprint in the file; put the cursor on a row to see that one. Open the <i>QFN library</i> example to try it.</li>
     <li>In the editor: <kbd>Tab</kbd> indents, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor.</li>
   </ul>
@@ -104,10 +111,11 @@
     <li><b>IPC-style lands</b> use IPC-7351B fillet goals with nominal part dimensions (no part tolerances), F = 0.05 mm, P = 0.025 mm, rounded corners at 25%. Ball lands are 80% of the ball. Mask expansion defaults to 0.05 mm per side.</li>
     <li><b>Manual courtyards replace the automatic one.</b> A <code>courtyard { … }</code> block replaces the auto outline, which is the only way a polygon courtyard makes sense.</li>
     <li><b>Interpolation prints numbers in their shortest form.</b> Lengths print in the file's units, and <code>{e:.2}</code> fixes the decimals.</li>
+    <li><b>The body's height is the seated height</b> (JEDEC <i>A</i>): the top of the part above the board. The body sits on its standoff (<i>A1</i>), which each lead form defaults: 0.1 mm for gull-wings, 0.02 for leadless parts, three quarters of the ball for a BGA.</li>
     <li><b>Small grammar extensions.</b> <code>omit</code>/<code>only</code> accept name ranges (<code>only 1..5</code>, as the syntax zoo uses), and sizes may be written without spaces (<code>0.6x1.5</code>).</li>
   </ul>
   <h3>Not in this demo</h3>
-  <p>3D models are parsed and summarized but not rendered. Castellated leads draw a provisional land, pending SPEC §17.7. Nothing is exported yet.</p>
+  <p><code>step</code> files aren't loaded: a footprint that names one shows its generated stand-in. Castellated leads draw a provisional land, pending SPEC §17.7. The footprint itself isn't exported yet; the 3D model is.</p>
   <h3>Layers</h3>
   <dl class="key">
     <div><dt><i class="sw cu"></i>Copper</dt><dd>pads, with drills and thermal vias</dd></div>
@@ -127,6 +135,8 @@
 <script src="js/examples.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/view.js"></script>
+<script src="js/model3d.js"></script>
+<script src="js/view3d.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

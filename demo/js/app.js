@@ -21,9 +21,14 @@
     'hdr2x5.stomp': 'origin at pad 1',
     'syntax_zoo.stomp': 'gap pad 6 to pad 7 is 70',
     'qfn_library.stomp': '  32   5    3.45',
+    'sot223.stomp': 'lead 4 gullwing',
+    'do41.stomp': 'body cylinder',
+    'crystal3225.stomp': 'box 2.9',
   };
   // Examples that open on the Library view rather than a single footprint
   const OPEN_IN_LIBRARY = new Set(['qfn_library.stomp']);
+  // Examples about the 3D model, which open on it
+  const OPEN_IN_3D = new Set(['sot223.stomp', 'do41.stomp', 'crystal3225.stomp']);
   const TAB_LIMIT = 5;          // more footprints than this: a dropdown instead of tabs
 
   const store = {
@@ -45,6 +50,9 @@
     selected: null,
     cursor: 0,
     view: 'fp',           // 'fp' (one footprint) | 'lib' (every footprint in the file)
+    dim: saved.dim === '3d' ? '3d' : '2d',      // the drawing, or the 3D model on a board
+    board3d: saved.board3d !== false,
+    crt3d: saved.crt3d !== false,
   };
 
   let saveTimer = 0;
@@ -52,6 +60,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => store.save({
       file: state.file, buffers: state.buffers, units: state.units, layers: viewer.layers(),
+      dim: state.dim, board3d: state.board3d, crt3d: state.crt3d,
       split: document.querySelector('.panes').style.getPropertyValue('--src-w') || null,
     }), 250);
   }
@@ -90,9 +99,11 @@
       highlightRow(ob, true);
     },
     onCursor(p) {
+      if (state.dim === '3d') return;
       $('tb-cursor').textContent = p ? `${fmt(p[0])}, ${fmt(p[1])} ${state.units}` : '—';
     },
     onCamera(cam) {
+      if (state.dim === '3d') return;
       const ratio = cam.s / (96 / 25.4);   // screen pixels per mm vs. a 96-dpi "real size"
       $('tb-scale').textContent = ratio >= 1 ? `≈ ${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)} : 1` : `≈ 1 : ${(1 / ratio).toFixed(1)}`;
       const g = viewer && viewer.gridStep ? viewer.gridStep() : null;
@@ -101,6 +112,33 @@
   });
 
   function fmt(v) { return S.fmtLen(v, state.units); }
+
+  // 3D: the model on a board, built when first shown and cached with its result
+  const darkMode = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const view3 = S.createViewer3D($('viewer3d'), {
+    dark: () => !!(darkMode && darkMode.matches),
+    onCamera(c) {
+      if (state.dim !== '3d') return;
+      const a = ((Math.round(c.az) % 360) + 360) % 360, e = Math.round(c.el);
+      $('tb-scale').textContent = e >= 89 ? 'from above' : e <= -89 ? 'from below' : `${a}° round, ${Math.abs(e)}° ${e >= 0 ? 'above' : 'below'}`;
+    },
+  });
+  if (darkMode && darkMode.addEventListener) darkMode.addEventListener('change', () => view3.redraw());
+  const models = new WeakMap();
+  function modelFor(r) {
+    let m = models.get(r);
+    if (!m) {
+      try {
+        const model = S.model3d.build(r);
+        m = { model, board: S.model3d.board(r, model) };
+      } catch (err) {
+        console.error(err);
+        m = { model: { meshes: [], notes: ['the 3D model could not be built: ' + err.message], bbox: null }, board: null };
+      }
+      models.set(r, m);
+    }
+    return m;
+  }
 
   // ------------------------------------------------------------- examples
   const sel = $('example');
@@ -128,6 +166,7 @@
     editor.setValue(edited != null ? edited : ex.source);
     state.active = null;
     state.view = OPEN_IN_LIBRARY.has(ex.file) && edited == null ? 'lib' : 'fp';
+    if (OPEN_IN_3D.has(ex.file) && (edited == null || fresh)) state.dim = '3d';
     markEdited();
     compileNow();
     if (edited == null || fresh) {
@@ -167,8 +206,8 @@
     renderProblems(out.diagnostics);
     if (!out.footprints.some((f) => f.name === state.active)) state.active = fpAt(state.cursor) || (out.footprints[0] && out.footprints[0].name) || null;
     renderTabs();
-    showActive();
     applyView();
+    showActive();
   }
 
   function fpAt(offset) {
@@ -207,6 +246,7 @@
     let e = text.indexOf('\n', b);
     if (e < 0) e = text.length;
     viewer.setFocus([{ s, e }]);
+    view3.setFocus([{ s, e }]);
   }
 
   function showActive() {
@@ -220,11 +260,21 @@
     else if (fp && state.lastGood.has(fp.name)) { shown = state.lastGood.get(fp.name); stale = true; }
     else if (fp) shown = fp.result;
     host.classList.toggle('stale', stale);
+    $('viewer3d').classList.toggle('stale', stale);
     viewer.render(shown);
     state.shown = shown;
     $('tb-name').textContent = fp ? fp.name : '—';
+    if (state.dim === '3d' && state.view === 'fp') show3d(fp, shown);
     renderDetails(fp, shown);
     updateFocus();
+  }
+
+  function show3d(fp, r) {
+    if (!r) { view3.show(null, null, fp ? fp.name : null); $('tb-cursor').textContent = '—'; $('tb-grid').textContent = '—'; return; }
+    const { model, board } = modelFor(r);
+    view3.show(model, board, fp ? fp.name : null);
+    $('tb-cursor').textContent = model.none ? 'none' : (model.short || '—');
+    $('tb-grid').textContent = model.style && !model.none ? `${fmt(model.top != null ? model.top : model.H)} / ${fmt(model.standoff)} ${state.units}` : '—';
   }
 
   // ------------------------------------------------------------- tabs
@@ -307,15 +357,31 @@
   // ------------------------------------------------------------- library
   function applyView() {
     const lib = state.view === 'lib';
+    const d3 = state.dim === '3d';
     document.querySelectorAll('#view-seg [data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
-    $('viewer').hidden = lib;
-    $('layerbar').hidden = lib;
+    document.querySelectorAll('#dim-seg [data-dim]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dim === state.dim)));
+    $('viewer').hidden = lib || d3;
+    $('viewer3d').hidden = lib || !d3;
+    $('layerbar').hidden = lib || d3;
+    $('bar3d').hidden = lib || !d3;
+    $('tb-k2').textContent = d3 ? 'Model' : 'Cursor';
+    $('tb-k3').textContent = d3 ? 'Height / standoff' : 'Grid';
+    $('tb-k4').textContent = d3 ? 'View' : 'Scale';
     $('titleblock').hidden = lib;
     $('details').hidden = lib;
     $('fit').hidden = lib;
+    $('dim-seg').hidden = lib;
     $('library').hidden = !lib;
     if (lib) renderLibrary();
   }
+  document.querySelectorAll('#dim-seg [data-dim]').forEach((b) => b.addEventListener('click', () => {
+    if (state.dim === b.dataset.dim) return;
+    state.dim = b.dataset.dim;
+    applyView();
+    showActive();
+    if (state.dim === '2d') { $('tb-cursor').textContent = '—'; viewer.fit(); }   // the 2D readouts come back
+    persist();
+  }));
 
   const thumbs = new WeakMap();    // result → SVG markup (cached results keep their thumbnails)
   function thumb(r) {
@@ -461,7 +527,9 @@
     const smd = r.pads.filter((p) => !p.tht).length, tht = r.pads.length - smd;
     fact('Pads', `${r.pads.length}${tht && smd ? ` <span class="note">(${smd} SMD, ${tht} THT)</span>` : tht ? ' <span class="note">through-hole</span>' : ''}${r.holes.length ? ` + ${r.holes.length} NPTH` : ''}${r.generator && r.generator.omitted.length ? ` <span class="note">(omitted ${escapeHtml(r.generator.omitted.join(', '))})</span>` : ''}`);
     if (r.body) {
-      fact('Body', r.body.kind === 'cyl' ? `⌀${L(r.body.w)}${r.body.h ? ' × ' + L(r.body.h) : ''} ${U} <span class="note">cylinder</span>` : `${L(r.body.w)} × ${L(r.body.l)}${r.body.h ? ' × ' + L(r.body.h) : ''} ${U}`);
+      const b = r.body;
+      fact('Body', b.axial ? `⌀${L(b.d)} × ${L(b.axial === 'x' ? b.w : b.l)} ${U} <span class="note">cylinder, lying along its leads</span>`
+        : b.kind === 'cyl' ? `⌀${L(b.w)}${b.h ? ' × ' + L(b.h) : ''} ${U} <span class="note">cylinder</span>` : `${L(b.w)} × ${L(b.l)}${b.h ? ' × ' + L(b.h) : ''} ${U}`);
     }
     if (r.courtyardBox) {
       const c = r.courtyardBox;
@@ -482,16 +550,20 @@
     if (md) {
       let t;
       if (md.none) t = 'none (<code>no model</code>)';
-      else if (md.props.step) t = `STEP file <code>${escapeHtml(md.props.step)}</code>`;
-      else if (md.generated) {
+      else if (!r.body && !(md.solids && md.solids.length)) t = '<span class="note">none — add a <code>body</code> to generate one</span>';
+      else {
+        const { model } = modelFor(r);
         const bits = [];
-        if (md.props.standoff != null) bits.push(`standoff ${L(md.props.standoff)}`);
-        if (md.props.height != null) bits.push(`height ${L(md.props.height)}`);
-        if (md.props.bodyColor) bits.push(`body ${escapeHtml(md.props.bodyColor)}`);
-        if (md.props.leadsColor) bits.push(`leads ${escapeHtml(md.props.leadsColor)}`);
-        if (md.props.pin1) bits.push(`pin 1 ${md.props.pin1}`);
-        t = `generated from the body${bits.length ? ` <span class="note">(${bits.join(', ')})</span>` : ''} <span class="note">— not rendered in this demo</span>`;
-      } else t = '<span class="note">none — add a <code>body</code> to generate one</span>';
+        if (model.style) bits.push(`${L(model.top != null ? model.top : model.H)} ${U} tall, standoff ${L(model.standoff)}`);
+        const P = md.props;
+        if (P.draft != null) bits.push(`draft ${+P.draft.toFixed(2)}°`);
+        if (P.bodyColor) bits.push(`body ${escapeHtml(P.bodyColor.name)}`);
+        if (P.leadsColor) bits.push(`leads ${escapeHtml(P.leadsColor.name)}`);
+        if (P.thickness != null) bits.push(`leads ${L(P.thickness)} thick`);
+        t = `${escapeHtml(model.summary || 'generated')}${bits.length ? ` <span class="note">(${bits.join(', ')})</span>` : ''}`;
+        if (md.step) t += `<br><span class="note">names <code>${escapeHtml(md.step.file)}</code>, which isn't loaded here: the 3D view shows the generated stand-in</span>`;
+        if (state.dim !== '3d') t += ` <button type="button" class="linkish" data-show3d>show in 3D</button>`;
+      }
       fact('3D model', t);
     }
     const rows = r.pads.map((p, i) => {
@@ -515,6 +587,8 @@
         <h3>Pads <span class="note">(${U})</span></h3>
         <table class="padtable"><thead><tr><th>Pad</th><th>Shape</th><th>Size x × y</th><th class="num">X</th><th class="num">Y</th><th>Drill</th></tr></thead><tbody>${rows}</tbody></table>
       </div>`;
+    const s3 = box.querySelector('[data-show3d]');
+    if (s3) s3.addEventListener('click', () => { const b3 = document.querySelector('#dim-seg [data-dim="3d"]'); if (b3) b3.click(); });
     box.querySelectorAll('.padtable tbody tr').forEach((tr) => {
       const p = r.pads[+tr.dataset.i];
       tr.addEventListener('click', () => { const d = p.def || p.src[0]; if (d) editor.reveal(d.s, d.s, true); });
@@ -590,7 +664,70 @@
     });
   });
   viewer.setUnits(state.units);
-  $('fit').addEventListener('click', () => viewer.fit());
+  $('fit').addEventListener('click', () => (state.dim === '3d' ? view3.fit() : viewer.fit()));
+
+  // 3D bar: board and courtyard, preset views, export
+  (function bar3d() {
+    const b3 = $('bar3d');
+    const chip = (label, on, sw, title, click) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      if (on != null) b.setAttribute('aria-pressed', String(on));
+      b.innerHTML = (sw ? `<i class="sw ${sw}"></i>` : '') + label;
+      if (title) b.title = title;
+      b.addEventListener('click', () => click(b));
+      b3.appendChild(b);
+      return b;
+    };
+    view3.setBoard(state.board3d);
+    view3.setCourtyard(state.crt3d);
+    chip('Board', state.board3d, 'board', 'The board under the part: mask, copper and silk', (b) => {
+      state.board3d = !state.board3d; b.setAttribute('aria-pressed', String(state.board3d)); view3.setBoard(state.board3d); persist();
+    });
+    chip('Courtyard', state.crt3d, 'crt', 'The courtyard outline on the board', (b) => {
+      state.crt3d = !state.crt3d; b.setAttribute('aria-pressed', String(state.crt3d)); view3.setCourtyard(state.crt3d); persist();
+    });
+    const sep = document.createElement('span');
+    sep.className = 'bar-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    b3.appendChild(sep);
+    for (const [k, label, title] of [['iso', 'Iso', 'From above, at an angle'], ['top', 'Top', 'Straight down, as the 2D drawing'], ['front', 'Front', 'From the front (−y), level with the board'],
+      ['side', 'Side', 'From the right (+x), level with the board'], ['bottom', 'Bottom', 'From below: the board turns see-through']]) {
+      chip(label, null, null, title, () => view3.view(k));
+    }
+    const sp = document.createElement('span');
+    sp.className = 'bar-fill';
+    b3.appendChild(sp);
+    const name = () => (state.active || 'model').replace(/[^\w.+-]+/g, '_');
+    const current = () => { const r = state.shown; return r ? modelFor(r).model : null; };
+    if (window.STOMP_SANDBOXED) {
+      // this page can't download files here: copy the VRML text instead
+      const b = chip('Copy VRML', null, null, 'Copy the model as VRML 2.0 (KiCad units) to paste into a .wrl file', async () => {
+        const m = current();
+        if (!m || !m.meshes.length) return;
+        try {
+          await navigator.clipboard.writeText(S.model3d.toVRML(m, state.active));
+          b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy VRML'; }, 1600);
+        } catch (e) { b.textContent = 'Copy failed'; setTimeout(() => { b.textContent = 'Copy VRML'; }, 1600); }
+      });
+      b.classList.add('export');
+    } else {
+      const save = (data, type, ext) => {
+        const url = URL.createObjectURL(new Blob([data], { type }));
+        const a = document.createElement('a');
+        a.href = url; a.download = `${name()}.${ext}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      };
+      chip('VRML', null, null, 'Download the model as VRML 2.0 for KiCad (.wrl, 0.1-inch units)', () => {
+        const m = current(); if (m && m.meshes.length) save(S.model3d.toVRML(m, state.active), 'model/vrml', 'wrl');
+      }).classList.add('export');
+      chip('STL', null, null, 'Download the model as binary STL (millimetres)', () => {
+        const m = current(); if (m && m.meshes.length) save(S.model3d.toSTL(m, state.active), 'model/stl', 'stl');
+      }).classList.add('export');
+    }
+  })();
   $('about-btn').addEventListener('click', () => {
     const d = $('about');
     if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');

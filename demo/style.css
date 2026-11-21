@@ -19,6 +19,8 @@
 
   /* drawing sheet */
   --cv-bg: #fbfcf9;
+  --v3d-top: #f8faf6;
+  --v3d-bottom: #dde4da;
   --cv-grid: #edf0ea;
   --cv-grid-major: #dbe1d7;
   --cv-axis: #b3beb1;
@@ -78,6 +80,10 @@
     --ok: #6fd39a;
     --focus: #6cc5ff;
     --cv-bg: #0b1412;
+  --v3d-top: #1c2824;
+  --v3d-bottom: #090f0d;
+    --v3d-top: #1c2824;
+    --v3d-bottom: #090f0d;
     --cv-grid: #13201c;
     --cv-grid-major: #1b2c27;
     --cv-axis: #2c433b;
@@ -401,6 +407,29 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
   overflow: hidden; text-overflow: ellipsis;
 }
 .vw-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }
+
+/* 3D view: a WebGL canvas over a soft studio backdrop */
+.v3d-host { background: radial-gradient(130% 95% at 50% 0%, var(--v3d-top) 0%, var(--v3d-bottom) 100%); }
+.v3d-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; outline: none; }
+.v3d-canvas:active { cursor: grabbing; }
+.v3d-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.v3d-host.stale .v3d-canvas { opacity: 0.5; }
+.v3d-note {
+  position: absolute; top: 10px; left: 10px; z-index: 3; max-width: min(520px, calc(100% - 20px));
+  background: var(--panel); border: 1px solid var(--rule-strong); border-radius: 8px; padding: 6px 10px;
+  font: 12px/1.45 var(--font-ui); color: var(--muted);
+}
+.v3d-note[hidden] { display: none; }
+.v3d-note p { margin: 0; }
+.v3d-note p + p { margin-top: 4px; }
+.v3d-note code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); }
+.v3d-hint {
+  position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 999px; pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 82%, transparent); font: 11px/1.4 var(--font-ui); color: var(--muted);
+}
+@media (pointer: coarse), (max-width: 520px) { .v3d-hint { display: none; } }
+.v3d-host.stale::after { z-index: 4; }
+.v3d-nogl .v3d-hint { display: none; }
 .vw-tip b { display: block; font: 600 13px/1.35 var(--font-mono); }
 .vw-tip i { display: block; font-style: normal; color: var(--accent); font-size: 11.5px; margin-bottom: 2px; }
 .vw-tip i em { color: var(--err); font-style: normal; }
@@ -461,6 +490,13 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .sw.fab { border: 1.5px solid var(--fab); }
 .sw.lbl { background: none; font: 600 9px/10px var(--font-mono); color: var(--accent); width: auto; }
 .sw.dim { border-top: 1.5px solid var(--dim); height: 0; width: 12px; border-radius: 0; }
+.sw.board { background: #1d5a39; border-radius: 2px; }
+.bar3d { align-items: center; }
+.bar3d .bar-sep { width: 1px; align-self: stretch; background: var(--rule); margin: 2px 2px; }
+.bar3d .bar-fill { flex: 1 1 auto; }
+.bar3d .chip:not([aria-pressed]) { padding: 3px 10px; color: var(--ink); }
+.bar3d .chip.export { font-family: var(--font-mono); font-size: 11.5px; }
+.linkish { border: 0; background: none; padding: 0; font: inherit; color: var(--focus); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .sw.grid { background-image: linear-gradient(var(--cv-grid-major) 1px, transparent 1px), linear-gradient(90deg, var(--cv-grid-major) 1px, transparent 1px); background-size: 4px 4px; border: 1px solid var(--cv-grid-major); }
 
 .titleblock {

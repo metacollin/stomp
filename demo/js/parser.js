@@ -43,7 +43,7 @@
   const INNER = {
     pad: new Set(['shape', 'size', 'width', 'length', 'drill', 'rotate', 'mask', 'paste', 'vias']),
     gfx: new Set(['outline', 'line', 'arc', 'circle', 'rect', 'polygon', 'text']),
-    model: new Set(['standoff', 'height', 'body', 'leads', 'pin1', 'step']),
+    model: new Set(['standoff', 'height', 'draft', 'body', 'leads', 'pin1', 'box', 'cylinder', 'step']),
     sides: new Set(['left', 'right', 'top', 'bottom']),
   };
 
@@ -642,9 +642,20 @@
 
     lead() {
       this.expectWord('lead');
-      const f = this.cur;
-      if (f.t !== 'word' || !LEAD_FORMS.has(f.v)) {
-        this.expected('a lead form: gullwing, jlead, flat, endcap, ball, pin, wire, tab or castellated');
+      let f = this.cur;
+      let names = null;
+      if (!(f.t === 'word' && LEAD_FORMS.has(f.v))) {
+        // per-pin: `lead 4 gullwing …`, `lead 1, 3 none` (SPEC §11.3)
+        if ((f.t === 'num' && f.isInt && !f.suffix) || f.t === 'str' || (f.t === 'word' && !f.kw)) {
+          names = this.selList();
+          if (this.acceptWord('none')) return { type: 'Lead', names, none: true };
+          f = this.cur;
+          if (f.t !== 'word' || !LEAD_FORMS.has(f.v)) {
+            this.expected('a lead form for these pins (gullwing, jlead, flat, endcap, ball, pin, wire, tab, castellated) or `none`');
+          }
+        } else {
+          this.expected('a lead form: gullwing, jlead, flat, endcap, ball, pin, wire, tab or castellated');
+        }
       }
       this.advance();
       let dims = null;
@@ -659,7 +670,7 @@
         const x = this.expr();
         span = { x, qual: this.spanQual(), s: k.s, e: this.prevEnd() };
       }
-      return { type: 'Lead', form: f.v, dims, span };
+      return { type: 'Lead', form: f.v, dims, span, names };
     }
 
     thermal() {
@@ -1120,14 +1131,23 @@
         let p;
         if (this.acceptWord('standoff')) p = { key: 'standoff', x: this.expr() };
         else if (this.acceptWord('height')) p = { key: 'height', x: this.expr() };
-        else if (this.acceptWord('body') || this.acceptWord('leads')) {
-          this.expectWord('color');
-          p = { key: k.v + 'Color', color: this.color() };
+        else if (this.acceptWord('draft')) p = { key: 'draft', angle: this.angle() };
+        else if (this.acceptWord('body')) {
+          this.expectWord('color', 'after `body` (`body color …`)');
+          p = { key: 'bodyColor', color: this.color() };
+        } else if (this.acceptWord('leads')) {
+          if (this.acceptWord('color')) p = { key: 'leadsColor', color: this.color() };
+          else if (this.acceptWord('thickness')) p = { key: 'thickness', x: this.expr() };
+          else if (this.acceptWord('below')) p = { key: 'below', x: this.expr() };
+          else if (this.acceptWord('above')) p = { key: 'above', x: this.expr() };
+          else return this.expected('`color`, `thickness`, `below` or `above` after `leads`');
         } else if (this.acceptWord('pin1')) {
           const v = this.cur;
-          if (v.t !== 'word' || (v.v !== 'dimple' && v.v !== 'stripe')) this.expected('`dimple` or `stripe`');
+          if (v.t !== 'word' || !['dimple', 'dot', 'notch', 'stripe', 'none'].includes(v.v)) this.expected('a pin-1 mark: `dimple`, `dot`, `notch`, `stripe` or `none`');
           this.advance();
           p = { key: 'pin1', v: v.v };
+        } else if (this.isWord('box') || this.isWord('cylinder')) {
+          p = this.solid();
         } else if (this.acceptWord('step')) {
           const f = this.cur;
           if (f.t !== 'str') this.expected('a "file path" for the STEP model');
@@ -1140,7 +1160,7 @@
             else break;
           }
         } else {
-          return this.expected('a model property: standoff, height, body color, leads color, pin1 or step');
+          return this.expected('a model property: standoff, height, draft, body color, leads …, pin1, box, cylinder or step');
         }
         p.s = s; p.e = this.prevEnd();
         return p;
@@ -1148,10 +1168,50 @@
       return { type: 'Model', props };
     }
 
+    /** `box W x L x H …` / `cylinder d D h H …` with `at`, `on body`, `rotate`, `color`. */
+    solid() {
+      const k = this.advance();
+      let p;
+      if (k.v === 'box') {
+        const w = this.expr();
+        this.expectWord('x', '(a box is `W x L x H`)');
+        const l = this.expr();
+        this.expectWord('x', '(a box is `W x L x H`)');
+        const h = this.expr();
+        p = { key: 'solid', kind: 'box', w, l, h };
+      } else {
+        this.expectWord('d', 'after `cylinder` (`cylinder d D h H`)');
+        const d = this.expr();
+        this.expectWord('h', '(a cylinder is `d D h H`)');
+        const h = this.expr();
+        p = { key: 'solid', kind: 'cyl', d, h };
+      }
+      for (;;) {
+        const c = this.cur;
+        if (this.acceptWord('at')) {
+          if (p.at) this.failAt('`at` is given twice', c);
+          const open = this.expectP('(', '(a point `(x, y)` or `(x, y, z)`)');
+          const x = this.expr();
+          this.expectP(',', 'between the coordinates');
+          const y = this.expr();
+          const z = this.acceptP(',') ? this.expr() : null;
+          const close = this.expectP(')');
+          p.at = { x, y, z, s: open.s, e: close.e };
+        } else if (this.acceptWord('on')) {
+          this.expectWord('body', 'after `on` (`on body`)');
+          p.onBody = true;
+        } else if (this.acceptWord('rotate')) p.rotate = this.point3();
+        else if (this.acceptWord('color')) p.color = this.color();
+        else break;
+      }
+      return p;
+    }
+
     color() {
       const k = this.cur;
       if (k.t === 'str') { this.advance(); return this.strNode(k); }
-      if (k.t === 'word' && !k.kw) { this.advance(); return k.v; }
+      // any word: some color names (`copper`) are also keywords; compile checks the name
+      if (k.t === 'word' && !STMT_SET.has(k.v)) { this.advance(); return k.v; }
       return this.expected('a color: a "#rrggbb" string or a name such as black, tin or gold');
     }
 

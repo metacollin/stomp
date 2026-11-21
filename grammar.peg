@@ -261,9 +261,12 @@ sides_block     <- '{' EOS? (side_entry EOS)* '}'
 side_entry      <- side_word ':' position (',' position)* ('pitch' expr)?
 position        <- 'nc' / name
 
-lead_stmt       <- 'lead' lead_form lead_dims? ('span' expr span_qual?)?
+lead_stmt       <- 'lead' sel_list? lead_form lead_dims? ('span' expr span_qual?)?
+                 / 'lead' sel_list 'none'                  # per-pin: no 3D lead (SPEC §11.3)
 lead_form       <- 'gullwing' / 'jlead' / 'flat' / 'endcap' / 'ball'
                  / 'pin' / 'wire' / 'tab' / 'castellated'
+# With a sel_list the lead belongs to those pins only. A lead form is a keyword and a
+# pin name never is, so the two readings never compete.
 lead_dims       <- 'd' expr                              # round: diameter
                  / size                                  # W x L
                  / expr                                  # single dim (endcap len, ball dia)
@@ -311,13 +314,26 @@ model_stmt      <- 'no' 'model'
                  / 'model' '{' EOS? (model_prop EOS)* '}'
 model_prop      <- 'standoff' expr
                  / 'height' expr
+                 / 'draft' angle                         # molded-body side draft
                  / 'body'  'color' color
-                 / 'leads' 'color' color
-                 / 'pin1' ('dimple' / 'stripe')
+                 / 'leads' ( 'color' color
+                           / 'thickness' expr
+                           / 'below' expr                # through-hole: length below board
+                           / 'above' expr )              # grid pins: rise above housing
+                 / 'pin1' ('dimple' / 'dot' / 'notch' / 'stripe' / 'none')
+                 / solid
                  / 'step' STRING step_xform*
+solid           <- ( 'box' expr 'x' expr 'x' expr        # W x L x H
+                   / 'cylinder' 'd' expr 'h' expr )       # upright
+                   solid_opt*
+solid_opt       <- 'at' (point3 / point)                 # centre; z = the solid's bottom
+                 / 'on' 'body'                           # rest on the body top
+                 / 'rotate' point3                       # degrees, about the centre
+                 / 'color' color
 step_xform      <- 'offset' point3 / 'rotate' point3 / 'scale' expr
 color           <- STRING                                # "#20232a"
-                 / IDENT                                 # named: black, tin, gold, …
+                 / IDENT                                 # named: black, tin, gold, … (SPEC §13.2)
+                 / 'copper'                              # the one color name that is also a keyword
 
 # ===========================================================================
 # LEXICAL LAYER
@@ -348,19 +364,20 @@ EOF             <- !.
 # hyphenated entries can never collide with IDENTs (no '-' in IDENT) and are
 # listed only for completeness:
 #   above across align and arc assembly at auto ball balls bar below between
-#   bga body bottom bottom-left bottom-right castellated ccw center centered
-#   centers chamfer circle col-major color cols copper courtyard coverage cw
-#   cylinder d datasheet default defined deg delete density description
-#   dimple divide dot down drill dshape dual endcap extends fill flat
-#   footprint footprints from gap going grid group gullwing gutter h height hole
-#   horizontal horizontally in inner is jlead layer lead leads least left
-#   length let line manufacturer mask mil mirrors mm model most mpn name nc nm no
-#   nominal none notch numbering of offset omit on only origin outer outline
-#   oval pad pads paste pin pin1 pins pitch polarized polygon quad r rad
-#   rect ref refdes right rotate roundrect row row-major rows scale shape
-#   side silk single size slot span standoff start step stripe tab tags
-#   template text thermal tht to top top-left top-right um units up value
-#   vertical vertically vias wire with width x y zigzag
+#   bga body bottom bottom-left bottom-right box castellated ccw center
+#   centered centers chamfer circle col-major color cols copper courtyard
+#   coverage cw cylinder d datasheet default defined deg delete density
+#   description dimple divide dot down draft drill dshape dual endcap extends
+#   fill flat footprint footprints from gap going grid group gullwing gutter
+#   h height hole horizontal horizontally in inner is jlead layer lead leads
+#   least left length let line manufacturer mask mil mirrors mm model most
+#   mpn name nc nm no nominal none notch numbering of offset omit on only
+#   origin outer outline oval pad pads paste pin pin1 pins pitch polarized
+#   polygon quad r rad rect ref refdes right rotate roundrect row row-major
+#   rows scale shape side silk single size slot span standoff start step
+#   stripe tab tags template text thermal thickness tht to top top-left
+#   top-right um units up value vertical vertically vias width wire with x y
+#   zigzag
 #
 # Notes:
 #  - 'x', 'd', 'h', 'r' are reserved (size separator / diameter / height /

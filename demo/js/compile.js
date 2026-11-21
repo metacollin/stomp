@@ -54,6 +54,14 @@
   const THT = { allowance: [0.25, 0.20, 0.15], ring: [0.40, 0.30, 0.20] };
   const CY_DEFAULT = [0.5, 0.25, 0.1];
   const BALL_LAND = 0.8;
+  // 3D colors (SPEC §13.2); metals render shiny
+  const COLORS = {
+    black: '#1d1e21', gray: '#6f7378', grey: '#6f7378', white: '#ecebe6', red: '#b3352c', green: '#2f7a3e',
+    blue: '#2c5aa6', yellow: '#e0bd3a', orange: '#d8772c', brown: '#6b4b31', tan: '#c49c6d', ceramic: '#e2dbc9',
+    tin: '#c6cad0', silver: '#d4d7db', gold: '#d6af57', copper: '#c67a4d', aluminum: '#cdd0d4', aluminium: '#cdd0d4',
+  };
+  const METALS = new Set(['tin', 'silver', 'gold', 'copper', 'aluminum', 'aluminium']);
+  const COLOR_NAMES = 'black, gray, white, red, green, blue, yellow, orange, brown, tan, ceramic, tin, silver, gold, copper, aluminum';
   const JEDEC_ROWS = 'ABCDEFGHJKLMNPRTUVWY';
 
   class StompError extends Error {
@@ -640,7 +648,7 @@
         meta: {}, body: null, gen: null, lead: null, density: null, pin1: null, polarized: null,
         defaultPad: null, origin: null, bareSpan: null, barePitch: null, model: null,
         omits: [], onlys: [], padStmts: [], padsStmts: [], holes: [], deletes: [], rows: [], groups: [],
-        places: [], thermals: [], texts: [], silk: [], assembly: [], courtyard: [],
+        places: [], thermals: [], texts: [], silk: [], assembly: [], courtyard: [], pinLeads: [], models: [],
       };
       const singles = {};
       const single = (key, it, label) => {
@@ -667,7 +675,10 @@
             break;
           case 'Body': single('body', it, 'body'); break;
           case 'Pins': case 'Balls': single('gen', it, s.type === 'Balls' ? 'balls' : 'pins'); break;
-          case 'Lead': single('lead', it, 'lead'); break;
+          case 'Lead':
+            if (s.names) st.pinLeads.push(it);
+            else single('lead', it, 'lead');
+            break;
           case 'Density': single('density', it, 'density'); break;
           case 'Pin1': single('pin1', it, 'pin1'); break;
           case 'Polarized': st.polarized = it; break;
@@ -677,7 +688,13 @@
             if (s.word === 'pitch') single('barePitch', it, 'pitch');
             else single('bareSpan', it, 'span/gap');
             break;
-          case 'Model': single('model', it, 'model'); break;
+          case 'Model': {
+            // model blocks merge down an extends chain (SPEC §13.4); twice at one level is an error
+            const twin = st.models.find((m) => m.level === it.level);
+            if (twin) this.err(`\`${s.none ? 'no model' : 'model'}\` is given twice in this footprint (first on line ${this.lineAt(twin.s.s)})`, s, [{ message: 'first given here', node: twin.s }]);
+            else st.models.push(it);
+            break;
+          }
           case 'Omit': st.omits.push(it); break;
           case 'Only': st.onlys.push(it); break;
           case 'Pad': st.padStmts.push(it); break;
@@ -714,21 +731,38 @@
       if (st.lead) {
         const n = st.lead.s;
         this.guard(n, () => {
-          const L = { form: n.form, node: n };
-          if (n.dims) {
-            if (n.dims.d) L.d = this.plen(n.dims.d, n, 'lead diameter');
-            else if (n.dims.w) { L.w = this.plen(n.dims.w, n, 'lead width'); L.l = this.plen(n.dims.l, n, 'lead length'); }
-            else L.v = this.plen(n.dims.v, n, 'lead size');
-          }
-          if (n.span) L.span = { v: this.plen(n.span.x, n, 'span'), qual: n.span.qual || 'outer', node: n.span };
-          this.lead = L;
+          this.lead = this.leadFrom(n);
           if (n.form === 'castellated') this.warn('castellated leads are provisional (SPEC §17.7): the demo draws a plain edge land', n);
+        });
+      }
+      // per-pin leads (SPEC §11.3): a later statement wins for a pin it names again
+      this.pinLeads = new Map();
+      for (const it of st.pinLeads.slice().sort((a, b) => a.level - b.level || a.s.s - b.s.s)) {
+        const n = it.s;
+        this.guard(n, () => {
+          const L = n.none ? { form: 'none', node: n } : this.leadFrom(n);
+          L.perPin = true;
+          for (const sel of n.names) {
+            const names = sel.range ? expandRange(sel.range[0], sel.range[1], sel) : [sel.name.name];
+            for (const nm of names) this.pinLeads.set(String(nm), { lead: L, sel });
+          }
         });
       }
       // default pad
       this.defaultSpec = null;
       if (st.defaultPad) this.defaultSpec = this.guard(st.defaultPad.s, () => this.specFromGeom(st.defaultPad.s.geom, st.defaultPad.s));
       if (st.polarized) this.polarized = true;
+    }
+
+    leadFrom(n) {
+      const L = { form: n.form, node: n };
+      if (n.dims) {
+        if (n.dims.d) L.d = this.plen(n.dims.d, n, 'lead diameter');
+        else if (n.dims.w) { L.w = this.plen(n.dims.w, n, 'lead width'); L.l = this.plen(n.dims.l, n, 'lead length'); }
+        else L.v = this.plen(n.dims.v, n, 'lead size');
+      }
+      if (n.span) L.span = { v: this.plen(n.span.x, n, 'span'), qual: n.span.qual || 'outer', node: n.span };
+      return L;
     }
 
     // ---------------------------------------------------------- pad specs [§10]
@@ -862,6 +896,11 @@
       const scheme = C.numbering ? C.numbering.v : null;
       const start = C.start ? C.start.v : 'top-left';
       const gen = this.gen = { node, kind: null, positions: [], sides: {}, pin1: null, proto, protoSrc: clauseSpec ? C.pad : (this.defaultSpec ? this.st.defaultPad.s : null) };
+      // a MELF lies along its two pins, which also sizes its endcap lands (decideAxial for wires)
+      if (this.body && this.body.kind === 'cyl' && lead && lead.form === 'endcap' && node.type === 'Pins' && node.form === 'count') {
+        const arr = node.arrangement || 'horizontal';
+        if (arr === 'horizontal' || arr === 'vertical') this.makeAxial(arr === 'vertical' ? 'y' : 'x');
+      }
 
       if (node.type === 'Balls' || node.form === 'grid') {
         const nx = this.countOf(node.nx, node), ny = this.countOf(node.ny, node);
@@ -871,8 +910,8 @@
         const isBalls = node.type === 'Balls';
         gen.kind = isBalls ? 'balls' : 'grid';
         if (isBalls && lead && lead.form !== 'ball') this.warn('`balls` implies `lead ball`, but the lead form here is `' + lead.form + '`', lead.node);
-        let gridProto = proto;
-        if (!gridProto) gridProto = this.ipcGridSpec(isBalls, node);
+        let gridProto = proto, derived = null;
+        if (!gridProto) { gridProto = this.ipcGridSpec(isBalls, node); derived = lead && lead.form === 'ball' ? 'ball' : 'tht'; }
         const sch = scheme || (isBalls ? 'bga' : 'zigzag');
         if (sch === 'ccw' || sch === 'cw') throw new StompError(`\`numbering ${sch}\` walks the package perimeter; grids use zigzag, row-major, col-major or bga`, C.numbering);
         const names = numberGrid(nx, ny, sch, start, px, py);
@@ -881,6 +920,7 @@
             gen.positions.push({
               name: names.name(c, r), x: (c - (nx - 1) / 2) * (px || 0), y: ((ny - 1) / 2 - r) * (py || 0),
               side: null, rot: 0, col: c, row: r, rowKey: names.rowKey(r), colKey: names.colKey(c), order: names.order(c, r), proto: gridProto,
+              derived, pitch: Math.min(px || Infinity, py || Infinity) < Infinity ? Math.min(px || Infinity, py || Infinity) : null,
             });
           }
         }
@@ -901,6 +941,68 @@
         seen.set(p.name, p);
       }
       this.depopulate();
+      this.applyPinLeads();
+      this.decideAxial();
+    }
+
+    /** Per-pin leads (SPEC §11.3): the pin's land is re-derived from its own lead where it was derived at all. */
+    applyPinLeads() {
+      const gen = this.gen;
+      if (!this.pinLeads.size) return;
+      const SIDE_FORMS = new Set(['gullwing', 'jlead', 'flat', 'endcap', 'tab']);
+      for (const pos of gen.positions) {
+        const pl = this.pinLeads.get(pos.name);
+        if (!pl) continue;
+        const L = pl.lead;
+        if (L.form === 'none' || !pos.derived) continue;
+        this.guard(L.node, () => {
+          const sp = pos.axis ? gen.spacing[pos.axis] : null;
+          if (pos.derived === 'ipc' && sp && sp.ipc && SIDE_FORMS.has(L.form)) {
+            let W = L.w, T = L.l;
+            if (L.form === 'endcap' && W == null && (L.v != null || L.d != null)) { T = L.v != null ? L.v : L.d; W = sp.ipc.W; }
+            if (W == null || T == null) return;   // no size: keep the land, the 3D lead is sized from it
+            const span = L.span ? toOuter(L.span, T) : sp.ipc.L;
+            const ipc = this.ipcLand(sp.ipc.table, span, T, W);
+            pos.proto = this.ipcSpec(ipc);
+            const c = (ipc.Z + ipc.G) / 4;
+            if (pos.side === 'left') pos.x = -c; else if (pos.side === 'right') pos.x = c;
+            else if (pos.side === 'bottom') pos.y = -c; else pos.y = c;
+            pos.leadSpan = span;
+          } else if (pos.derived === 'tht' && (L.form === 'pin' || L.form === 'wire') && (L.d != null || L.w != null || L.v != null)) {
+            pos.proto = this.thtSpec(L);
+          } else if (pos.derived === 'ball' && L.form === 'ball' && (L.v != null || L.d != null)) {
+            const d = L.v != null ? L.v : L.d;
+            pos.proto = { shape: { kind: 'circle', d: ceilTo(d * BALL_LAND, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true };
+          }
+        });
+      }
+    }
+
+    /**
+     * A cylinder body lies along the pins when they can't come out of its bottom: a MELF
+     * (endcaps) always, and wire leads that sit outside the circle (an axial part).
+     * In 2D it is then the rectangle it covers: length h along the pins, diameter d across.
+     */
+    decideAxial() {
+      const b = this.body, gen = this.gen, lead = this.lead;
+      if (!b || b.kind !== 'cyl' || !gen || !lead || gen.kind !== 'two' || gen.positions.length !== 2) return;
+      const [p, q] = gen.positions;
+      const axis = Math.abs(p.x - q.x) >= Math.abs(p.y - q.y) ? 'x' : 'y';
+      const outside = gen.positions.every((g) => Math.hypot(g.x, g.y) > b.w / 2 + 1e-9);
+      if (!(lead.form === 'endcap' || (lead.form === 'wire' && outside))) return;
+      this.makeAxial(axis);
+    }
+
+    makeAxial(axis) {
+      const b = this.body;
+      if (b.axial) return;
+      const d = b.w, len = b.h;
+      b.axial = axis;
+      b.d = d;
+      b.kind = 'box';
+      b.cylinder = true;
+      if (axis === 'x') { b.w = len; b.l = d; } else { b.w = d; b.l = len; }
+      b.h = d;
     }
 
     ipcGridSpec(isBalls, node) {
@@ -1002,14 +1104,21 @@
       else if (f === 'endcap') table = (bodyAlong != null && bodyAlong < 1.6 - 1e-9) ? IPC.chipSmall : IPC.chip;
       else table = IPC.flat;
       const lv = this.lv;
+      const ipc = this.ipcLand(table, L, T, W);
+      const Z = ipc.Z, Gm = ipc.G, X = ipc.X;
+      this.courtyardExcess = table.cy[lv];
+      this.ipcNote = `${table.name}, density ${this.density}: Z = ${fmtMM(Z)}, G = ${fmtMM(Gm)}, X = ${fmtMM(X)} (toe ${fmtMM(table.toe[lv])}, heel ${fmtMM(table.heel[lv])}, side ${fmtMM(table.side[lv])})`;
+      return { C: (Z + Gm) / 2, ipc, how: `IPC land from lead span ${fmtMM(L)}` };
+    }
+
+    /** IPC-7351 land for one lead: outer span L, foot T, width W (all mm). */
+    ipcLand(table, L, T, W) {
+      const lv = this.lv;
       const Z = ceilTo(L + 2 * table.toe[lv] + D.tol, 0.01);
       let Gm = floorTo(L - 2 * T - 2 * table.heel[lv] - D.tol, 0.01);
       if (Gm < 0) Gm = 0;
       const X = ceilTo(W + 2 * table.side[lv] + D.tol, 0.01);
-      const ipc = { Z, G: Gm, X, len: (Z - Gm) / 2, table, L, T, W };
-      this.courtyardExcess = table.cy[lv];
-      this.ipcNote = `${table.name}, density ${this.density}: Z = ${fmtMM(Z)}, G = ${fmtMM(Gm)}, X = ${fmtMM(X)} (toe ${fmtMM(table.toe[lv])}, heel ${fmtMM(table.heel[lv])}, side ${fmtMM(table.side[lv])})`;
-      return { C: (Z + Gm) / 2, ipc, how: `IPC land from lead span ${fmtMM(L)}` };
+      return { Z, G: Gm, X, len: (Z - Gm) / 2, table, L, T, W };
     }
 
     ipcSpec(ipc) {
@@ -1122,13 +1231,14 @@
         const sp = spacing[axis];
         if (!Number.isFinite(sp.C)) throw new StompError('the pad rows\' spacing came out undefined — check the span and pad sizes', node);
         const line = (e.side === 'left' || e.side === 'bottom' ? -1 : 1) * sp.C / 2;
-        let pr = proto;
-        if (!pr && sp.ipc) pr = this.ipcSpec(sp.ipc);
+        let pr = proto, derived = null;
+        if (!pr && sp.ipc) { pr = this.ipcSpec(sp.ipc); derived = 'ipc'; }
         if (!pr && sp.castellated != null) {
           const d = sp.castellated;
           pr = { shape: { kind: 'rect', w: ceilTo(d + 0.4, 0.01), l: ceilTo(d + 0.8, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true, castellated: d };
+          derived = 'cast';
         }
-        if (!pr && this.lead && (this.lead.form === 'pin' || this.lead.form === 'wire')) pr = this.thtSpec(this.lead);
+        if (!pr && this.lead && (this.lead.form === 'pin' || this.lead.form === 'wire')) { pr = this.thtSpec(this.lead); derived = 'tht'; }
         const k = e.slots.length;
         const P = e.pitch || 0;
         e.slots.forEach((slot, i) => {
@@ -1145,7 +1255,7 @@
           if (sp.castellated != null) shift = 0.2;   // nudge edge lands outward
           if (e.side === 'left') x -= shift; if (e.side === 'right') x += shift;
           if (e.side === 'bottom') y -= shift; if (e.side === 'top') y += shift;
-          gen.positions.push({ name: slot.name, x, y, side: e.side, rot: ROT[e.side], walk: i, proto: pr, node: slot.node });
+          gen.positions.push({ name: slot.name, x, y, side: e.side, rot: ROT[e.side], walk: i, proto: pr, node: slot.node, derived, axis, pitch: e.pitch || null });
         });
       }
       if (single && entries[0].slots.length && !gen.positions.length) throw new StompError('every position is `nc`', node);
@@ -1333,6 +1443,14 @@
         else this.err(`\`delete\` removes pads and holes, not ${kind === 'side' ? 'sides' : kind + 's'}`, r);
       }
       for (const row of this.rows.values()) row.members = row.members.filter((p) => this.pads.get(p.name) === p);
+      // per-pin leads must name a pad (SPEC §11.3)
+      for (const [nm, pl] of this.pinLeads) {
+        const p = this.pads.get(nm);
+        if (p) { p.src.push(pl.lead.node); continue; }
+        const omitted = this.gen && (this.gen.omitted || []).some((q) => q.name === nm);
+        if (omitted) this.err(`pin ${quoteName(nm)} is omitted, so it has no lead to describe`, pl.sel);
+        else this.unknown({ kind: 'pad', name: nm, s: pl.sel.s, e: pl.sel.e }, pl.sel);
+      }
       // bulk overrides
       for (const it of st.padsStmts) {
         const s = it.s;
@@ -2286,7 +2404,9 @@
         if (this.polarized) this.polarityMarks(auto, out);
         // clip against copper keep-outs
         for (const pl of auto) {
-          for (const piece of G.clipPolylineOutside(pl.pts, this.keepouts, pl.closed)) out.push({ type: 'line', pts: piece, w, auto: true });
+          for (const piece of G.clipPolylineOutside(pl.pts, this.keepouts, pl.closed)) {
+            if (G.pathLength(piece) >= 2 * w) out.push({ type: 'line', pts: piece, w, auto: true });   // no specks
+          }
         }
         if (p1 && (style === 'dot' || (style === 'chamfer' && !(b && b.kind === 'box')))) this.pin1Dot(out);
         if (p1 && style === 'chamfer' && b && b.kind === 'box' && !this.chamferSize(corner)) this.pin1Dot(out);
@@ -2629,7 +2749,7 @@
       }
       const b = this.body;
       const bodyOut = b ? {
-        kind: b.kind, w: b.w, l: b.l, h: b.h, x: b.x, y: b.y,
+        kind: b.kind, w: b.w, l: b.l, h: b.h, x: b.x, y: b.y, axial: b.axial || null, d: b.d != null ? b.d : (b.kind === 'cyl' ? b.w : null),
         outline: this.bodyOutline(0, null), src: ranges([b.node].concat(this.cons.filter((c) => this.bodyUnit && c.unit === this.bodyUnit.id && c.strength === 'strong').map((c) => c.node))),
       } : null;
       const meta = {};
@@ -2640,12 +2760,18 @@
       if (b) for (const p of bodyOut.outline) G.addPt(core, p);
       if (!G.boxValid(core)) core = { x0: -1, y0: -1, x1: 1, y1: 1 };
       const model = this.modelInfo();
+      let leads3d = [];
+      try { leads3d = this.leads3d(); } catch (e) { if (!(e instanceof StompError)) throw e; }
+      const L0 = this.lead;
       const res = {
+        leads: leads3d, polarized: !!this.polarized,
+        lead: L0 ? { form: L0.form, w: L0.w != null ? L0.w : null, l: L0.l != null ? L0.l : null, d: L0.d != null ? L0.d : null, v: L0.v != null ? L0.v : null, src: ranges([L0.node]) } : null,
         name: this.name, meta, density: this.density, pads, holes, body: bodyOut, coreBox: core,
         extraTexts: this.L.texts, dims, origin: { x: 0, y: 0 }, originShift: this.O,
-        pin1: this.pin1 ? { x: this.pin1.x, y: this.pin1.y, style: this.pin1Style } : null,
+        pin1: this.pin1 ? { x: this.pin1.x, y: this.pin1.y, style: this.pin1Style, explicit: !!this.st.pin1, pad: this.pin1.pad ? this.pin1.pad.name : null } : null,
         generator: this.gen ? {
           kind: this.gen.kind, count: this.gen.positions.length, omitted: (this.gen.omitted || []).map((p) => p.name),
+          pitch: (this.gen.positions.find((p) => p.pitch) || {}).pitch || null, grid: this.gen.grid ? { nx: this.gen.grid.nx, ny: this.gen.grid.ny } : null,
           spacing: Object.fromEntries(Object.entries(this.gen.spacing || {}).map(([k, v]) => [k, { C: v.C, how: v.how }])),
           src: ranges([this.gen.node]),
         } : null,
@@ -2683,22 +2809,158 @@
       return res;
     }
 
+    /** The merged `model` blocks (SPEC §13.2–13.4), resolved to numbers and colors. */
     modelInfo() {
-      const m = this.st.model;
-      if (m && m.s.none) return { none: true };
-      const info = { none: false, props: {} };
-      if (m) {
-        for (const p of m.s.props) {
+      const models = this.st.models.slice().sort((a, b) => a.level - b.level);
+      const info = { none: false, props: {}, solids: [], step: null, src: [] };
+      const LABEL = {
+        standoff: 'standoff', height: 'height', draft: 'draft', bodyColor: 'body color', leadsColor: 'leads color',
+        thickness: 'leads thickness', below: 'leads below', above: 'leads above', pin1: 'pin1', step: 'step',
+      };
+      let nodes = [];
+      for (const it of models) {
+        const m = it.s;
+        if (m.none) { Object.assign(info, { none: true, props: {}, solids: [], step: null }); nodes = [m]; continue; }
+        info.none = false;
+        nodes.push(m);
+        const seen = new Map();
+        for (const p of m.props) {
+          if (p.key !== 'solid') {
+            const prev = seen.get(p.key);
+            if (prev) this.warn(`\`${LABEL[p.key]}\` is given twice in this model block — the later one wins`, p, [{ message: 'first given here', node: prev }]);
+            seen.set(p.key, p);
+          }
           this.guard(p, () => {
-            if (p.key === 'standoff' || p.key === 'height') info.props[p.key] = this.len(p.x, m.s);
-            else if (p.key === 'bodyColor' || p.key === 'leadsColor') info.props[p.key] = p.color;
-            else if (p.key === 'pin1') info.props.pin1 = p.v;
-            else if (p.key === 'step') info.props.step = p.file;
+            const nonNeg = (what) => { const v = this.len(p.x, p); if (v < 0) throw new StompError(`${what} must not be negative (got ${fmtMM(v)})`, p.x); return v; };
+            const pos = (what) => { const v = this.len(p.x, p); if (!(v > 0)) throw new StompError(`${what} must be more than zero (got ${fmtMM(v)})`, p.x); return v; };
+            switch (p.key) {
+              case 'standoff': info.props.standoff = nonNeg('the standoff'); break;
+              case 'height': info.props.height = pos('the model height'); break;
+              case 'thickness': info.props.thickness = pos('the lead thickness'); break;
+              case 'below': info.props.below = nonNeg('`leads below`'); break;
+              case 'above': info.props.above = nonNeg('`leads above`'); break;
+              case 'draft': {
+                const a = p.angle.deg;
+                if (!(a >= 0 && a < 45)) throw new StompError(`a draft is between 0 and 45 degrees (got ${a})`, p.angle);
+                info.props.draft = a;
+                break;
+              }
+              case 'bodyColor': info.props.bodyColor = this.colorOf(p.color, p); break;
+              case 'leadsColor': info.props.leadsColor = this.colorOf(p.color, p); break;
+              case 'pin1': info.props.pin1 = p.v; break;
+              case 'step': {
+                const x = p.xform;
+                const P3 = (q) => (q ? [this.len(q.x, p), this.len(q.y, p), this.len(q.z, p)] : null);
+                const A3 = (q) => (q ? [this.deg(q.x, p), this.deg(q.y, p), this.deg(q.z, p)] : null);
+                info.step = { file: p.file, offset: P3(x.offset), rotate: A3(x.rotate), scale: x.scale ? this.num(x.scale, p) : 1 };
+                break;
+              }
+              case 'solid': info.solids.push(this.solidOf(p)); break;
+              default: break;
+            }
           });
         }
       }
-      info.generated = !!(this.body && !info.props.step);
+      // properties that only some leads can use (SPEC §15)
+      const forms = new Set();
+      if (this.lead) forms.add(this.lead.form);
+      for (const pl of this.pinLeads.values()) forms.add(pl.lead.form);
+      const prop = (key) => { for (let i = nodes.length - 1; i >= 0; i--) { const q = (nodes[i].props || []).find((x) => x.key === key); if (q) return q; } return null; };
+      if (info.props.below != null && !forms.has('pin') && !forms.has('wire')) this.warn('`leads below` sets how far through-hole leads reach under the board; these leads are surface-mount', prop('below'));
+      if (info.props.above != null && !(forms.has('pin') && this.gen && this.gen.kind !== 'dual')) this.warn('`leads above` is for straight through-hole pins (headers), which rise above their housing', prop('above'));
+      info.src = nodes.filter((n) => n.s != null).map((n) => ({ s: n.s, e: n.e }));
+      info.generated = !info.none && !info.step && !!this.body;
+      info.props.pin1 = info.props.pin1 || null;
       return info;
+    }
+
+    deg(x, stmt) {
+      const v = this.val(x, stmt);
+      if (v.k !== 'num') throw new StompError('an angle in degrees is needed here (a plain number)', x);
+      return v.v;
+    }
+    num(x, stmt) {
+      const v = this.val(x, stmt);
+      if (v.k !== 'num') throw new StompError('a plain number is needed here', x);
+      return v.v;
+    }
+
+    /** `#rrggbb` or a color name → { hex, metal, name }. */
+    colorOf(c, node) {
+      const text = typeof c === 'string' ? c.trim() : '';
+      if (/^#/.test(text)) {
+        if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(text)) throw new StompError(`\`${text}\` isn't a color — write it as "#rrggbb"`, node);
+        const h = text.length === 4 ? '#' + text.slice(1).split('').map((ch) => ch + ch).join('') : text;
+        return { hex: h.toLowerCase(), metal: false, name: text };
+      }
+      const k = text.toLowerCase();
+      if (COLORS[k]) return { hex: COLORS[k], metal: METALS.has(k), name: k };
+      const hint = Parser.suggest(k, Object.keys(COLORS));
+      throw new StompError(`unknown color \`${text}\`${hint ? ` — did you mean \`${hint}\`?` : ''} (names: ${COLOR_NAMES}; or "#rrggbb")`, node);
+    }
+
+    /** A `box` / `cylinder` solid in final footprint coordinates (SPEC §13.3). */
+    solidOf(p) {
+      const L = (x, what) => this.plen(x, p, what);
+      const out = { kind: p.kind, onBody: !!p.onBody, color: p.color != null ? this.colorOf(p.color, p) : null, src: [{ s: p.s, e: p.e }] };
+      if (p.kind === 'box') { out.w = L(p.w, 'box width'); out.l = L(p.l, 'box length'); out.h = L(p.h, 'box height'); }
+      else { out.d = L(p.d, 'cylinder diameter'); out.h = L(p.h, 'cylinder height'); }
+      const b = this.body;
+      if (p.at) {
+        out.x = this.len(p.at.x, p) - this.O.x;
+        out.y = this.len(p.at.y, p) - this.O.y;
+        out.z = p.at.z ? this.len(p.at.z, p) : null;
+        if (out.z != null && p.onBody) this.warn('`on body` and a z coordinate both set the height — the z wins', p.at);
+      } else {
+        out.x = b ? b.x : 0;
+        out.y = b ? b.y : 0;
+        out.z = null;
+      }
+      if (p.onBody && !b) throw new StompError('`on body` needs a `body` to rest on', p);
+      out.rotate = p.rotate ? [this.deg(p.rotate.x, p), this.deg(p.rotate.y, p), this.deg(p.rotate.z, p)] : null;
+      return out;
+    }
+
+    /** One entry per pad that has a 3D lead, in final coordinates (SPEC §13.1). */
+    leads3d() {
+      const out = [];
+      const O = this.O, b = this.body, gen = this.gen;
+      const SIGN = { left: -1, right: 1, bottom: -1, top: 1 };
+      const AXIS = { left: 'x', right: 'x', bottom: 'y', top: 'y' };
+      for (const p of this.pads.values()) {
+        if (p.thermal) continue;
+        const pl = this.pinLeads.get(p.name);
+        const L = pl ? pl.lead : (p.generated ? this.lead : null);
+        if (!L || L.form === 'none' || p.x == null || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+        const g = p.gen && !p.gen.thermal ? p.gen : null;
+        let side = g ? g.side : null;
+        if (!side && !g && b && L.form !== 'ball' && L.form !== 'pin' && L.form !== 'wire') {
+          // land mode: the side of the body the pad lies beyond
+          const dx = (p.x - b.x) / Math.max(b.w / 2, 1e-6), dy = (p.y - b.y) / Math.max(b.l / 2, 1e-6);
+          side = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'bottom' : 'top');
+        }
+        const ax = side ? AXIS[side] : null;
+        const bbW = p.bb ? p.bb.x.hi - p.bb.x.lo : 0, bbL = p.bb ? p.bb.y.hi - p.bb.y.lo : 0;
+        const across = ax === 'x' ? bbL : bbW, along = ax === 'x' ? bbW : bbL;
+        const drill = p.spec && p.spec.drill ? (p.spec.drill.d != null ? p.spec.drill.d : Math.min(p.spec.drill.w || 0, p.spec.drill.l || 0)) : null;
+        const d = {
+          pad: p.name, form: L.form, w: L.w != null ? L.w : null, l: L.l != null ? L.l : null, d: L.d != null ? L.d : null, v: L.v != null ? L.v : null,
+          x: p.x, y: p.y, side, generated: !!g, perPin: !!pl, pitch: g && g.pitch ? g.pitch : null,
+          padAcross: across || null, padAlong: along || null, drill, castellated: p.spec && p.spec.castellated != null ? p.spec.castellated : null,
+          toe: null, src: L.node && L.node.s != null ? [{ s: L.node.s, e: L.node.e }] : [],
+        };
+        let span = null;
+        const T = L.l != null ? L.l : L.v != null ? L.v : 0;
+        if (L.span) span = toOuter(L.span, T);
+        else if (g && g.leadSpan != null) span = g.leadSpan;
+        else if (g && g.axis && gen.spacing && gen.spacing[g.axis] && gen.spacing[g.axis].ipc) span = gen.spacing[g.axis].ipc.L;
+        if (span != null && side) {
+          const c0 = g ? -O[ax] : (b ? b[ax] : p[ax]);
+          d.toe = c0 + SIGN[side] * span / 2;
+        }
+        out.push(d);
+      }
+      return out;
     }
   }
 

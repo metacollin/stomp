@@ -4,7 +4,8 @@
 //   node demo/tools/build.mjs                 regenerate demo/js/examples.js from examples/*.stomp
 //   node demo/tools/build.mjs --check         fail if demo/js/examples.js is out of date
 //   node demo/tools/build.mjs --bundle FILE   also write a single self-contained HTML page
-//         [--fragment]                        …without <html>/<head>/<body> (for hosts that add their own)
+//         [--fragment]                        …without <html>/<head>/<body> (for hosts that add their own,
+//                                             which sandbox it: exports copy to the clipboard instead)
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,9 +17,9 @@ const exDir = join(repo, 'examples');
 
 // Picker order: relational showcases first, then generated packages, then the fixture.
 const ORDER = [
-  'to252.stomp', 'usb_microb.stomp', 'qfn_library.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'tssop20.stomp',
-  'soic_family.stomp', 'bga64.stomp', 'dip8.stomp', 'hdr2x5.stomp', 'r0402.stomp', 'led0603.stomp',
-  'cp_radial.stomp', 'syntax_zoo.stomp',
+  'to252.stomp', 'usb_microb.stomp', 'qfn_library.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'sot223.stomp',
+  'tssop20.stomp', 'soic_family.stomp', 'bga64.stomp', 'dip8.stomp', 'hdr2x5.stomp', 'r0402.stomp', 'led0603.stomp',
+  'cp_radial.stomp', 'do41.stomp', 'crystal3225.stomp', 'syntax_zoo.stomp',
 ];
 
 function exampleList() {
@@ -59,6 +60,8 @@ function bundle(fragment) {
     return `<script>\n${js}</script>`;
   });
   if (fragment) {
+    // hosts that take a fragment sandbox the page: no downloads, so export copies instead
+    html = html.replace(/<script>/, '<script>window.STOMP_SANDBOXED = true;</script>\n<script>');
     html = html
       .replace(/<!doctype html>\s*/i, '')
       .replace(/<html[^>]*>\s*/i, '').replace(/\s*<\/html>\s*$/i, '\n')

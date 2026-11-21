@@ -579,6 +579,21 @@ lead tab 5.5 x 6.2                   # DPAK-style tab (becomes highest-numbered 
 lead castellated d 0.6               # half-hole edge castellations
 ```
 
+A pin whose lead differs from the rest gets its own `lead` statement, naming it:
+
+```stomp
+lead gullwing 0.7 x 0.9 span 7.0     # SOT-223: pins 1-3…
+lead 4 gullwing 3.0 x 0.9            # …and the wide tab lead, pin 4
+lead 2 none                          # a pin cut off at the body: no 3D lead
+```
+
+The named pins take this lead instead of the general one. Where a pin's land is
+derived from its lead, it is derived from this one, measured on the same span, so pin
+4's land comes out wider without a `pad 4 { … }` override. A per-pin lead without a size
+takes its size from the pin's land. In land mode (explicit pads, no general `lead`),
+per-pin leads put leads on those pads for the 3D model ([§13](#13-3d-model)) and leave
+the pads alone: `lead 1, 3 gullwing 0.75 x 1.0` on a DPAK.
+
 `span` qualifiers, wherever a symmetric across-the-package distance appears (`lead …
 span`, bare `span`, `pins … span`): **`outer`** (default — lead span as datasheets
 draw it), **`inner`**, **`centers`**. Bare statements `span 5.4 centers` / `gap 4.0`
@@ -646,25 +661,104 @@ text value at (0, -1.2) size 0.8 layer assembly
 
 ## 13. 3D model
 
-With a `body` and a `lead`, the 3D model is generated automatically: molded box or
-cylinder body, correct lead geometry per lead form (gullwing bend profile, balls,
-endcaps, pins extended below board), IPC-ish default standoff, sensible default
-materials (black body, tin leads). Overrides:
+A footprint with a `body` has a 3D model without another line: the body, the pins and
+the lead form already describe the part. A `model { … }` block adjusts what the
+description can't say and adds anything else; `no model` turns it off.
+
+### 13.1 The generated model
+
+The model shares the footprint's x and y ([§6](#6-coordinate-system-and-units)), with z
+up from the board surface: z = 0 is the top of the board. The body's H is the seated
+height, JEDEC *A*, the top of the part above the board, and the body's bottom sits at
+the standoff, JEDEC *A1*. A body without an H is drawn as a flat plate.
+
+The lead form picks the rest:
+
+| lead | body | leads | standoff | pin-1 mark |
+|---|---|---|---|---|
+| `gullwing` | molded, 8° draft, parting line at mid-body | leave the parting line, bend down to a foot on the board; toes at the span | 0.1 | dimple |
+| `jlead` | molded, 8° draft | leave the parting line, run down the body side and curl under it | 0.5 | dimple |
+| `flat` | sawn block | terminals flush with the body's bottom and edge (or at the span); exposed pads under the body | 0.02 | dot |
+| `endcap` | chip; a cylinder body is a MELF, lying along the pins | metal caps over each end, T long | 0 | — |
+| `ball` | laminate substrate and mold cap | balls d wide, collapsed to the standoff | 0.75 d | dot |
+| `pin`, `dual` | molded DIP | shoulders down to the board, then the lead through it | 0.5 | dimple |
+| `pin`, other | housing one pitch tall when H is over two pitches, else H | straight pins from below the board to H | 0 | — |
+| `wire` | cylinder: a can, or an axial body when the pins lie outside it | wires down through the board; axial wires leave the body's ends | 0.5 / 0 | — |
+| `castellated` | module board, plus a shield can when H > 1.2 | plated half-holes in the board edge | 0 | dot |
+| `tab` | — | a metal slab under its pad | — | — |
+| no `lead` | plain block | — | 0 | as `pin1` |
+
+- **Leads** are tin. Gull-wings are 0.15 thick below a 1 mm pitch, 0.2 up to 2 mm and
+  0.3 above; J-leads 0.2, or 0.25 from a 1.27 mm pitch; flat terminals 0.2. Grid pins
+  are gold. Through-hole leads reach 3 mm below the board. A gull-wing's foot is the
+  lead's foot length, shortened if the bend needs the room.
+- **Pin 1.** The mark goes on the body top at the corner nearest pin 1. `pin1 notch`
+  gives a notch at the pin-1 end, `pin1 bar` a stripe, and `pin1 none` no mark.
+- **Polarity.** A `polarized` part gets a stripe at its marked end: the cathode (pin 2)
+  of a diode or LED and the negative lead of a can, but the positive end (pin 1) of a
+  chip capacitor, which is how tantalums are marked.
+- **Colors** follow the part family, from the `refdes` letter. Chip resistors are white
+  ceramic with a black top, chip capacitors tan, inductors gray, chip LEDs white with a
+  clear lens; molded bodies are black.
+
+Omitted pins have no lead. Per-pin `lead` statements ([§11.3](#113-leads)) change one
+pin's lead, remove it (`lead 2 none`), or, in land mode, put leads on explicit pads.
+
+### 13.2 `model { … }`
+
+Every property is optional:
 
 ```stomp
 model {
-  standoff 0.05
-  height 0.85                      # overrides body height for the 3D part only
-  body color "#20232a"             # hex or named: black gray white tin gold copper …
-  leads color tin
-  pin1 dimple                      # molded pin-1 dimple; also: pin1 stripe
-  step "models/QFN32.step" offset (0,0,0) rotate (0,0,90) scale 1.0   # external override
+  standoff 0.05             # the body's bottom above the board (JEDEC A1)
+  height 0.85               # the model's height, where it isn't the body's H
+  draft 0                   # molded-body side draft (0: a straight-sided block)
+  body color "#20232a"      # "#rrggbb", or a name (below)
+  leads color gold
+  leads thickness 0.2       # lead-frame thickness (JEDEC c)
+  leads below 3.5           # through-hole leads: length below the board
+  leads above 0             # grid pins: height above the housing (0: a socket)
+  pin1 dot                  # the body mark: dimple | dot | notch | stripe | none
 }
-no model                           # suppress 3D output
 ```
 
-`step` replaces the generated body entirely (transform maps the file into footprint
-space, z up, origin at board surface under the footprint origin).
+Named colors: `black`, `gray`, `white`, `red`, `green`, `blue`, `yellow`, `orange`,
+`brown`, `tan`, `ceramic`, and the metals `tin`, `silver`, `gold`, `copper` and
+`aluminum`. Metals render shiny.
+
+### 13.3 Extra solids
+
+Anything the lead form doesn't describe is built from boxes and cylinders:
+
+```stomp
+model {
+  box 2.9 x 2.2 x 0.1 on body color tin            # a lid, centered on the body top
+  box 6.6 x 6.6 x 0.5 color black                  # a base plate on the board
+  cylinder d 0.8 h 0.2 at (1.0, 0.6) on body       # at (x, y): the solid's centre
+  cylinder d 2 h 6 at (0, 0, 1) rotate (0, 90, 0)  # at (x, y, z): z is its bottom
+}
+```
+
+`box W x L x H` and `cylinder d D h H` (upright) start centered on the body, or on the
+origin without one, resting on the board. `at (x, y)` moves the centre; a third
+coordinate sets the height of the solid's bottom, and `on body` rests it on the body
+top instead. `rotate (rx, ry, rz)` turns the solid about its centre, in degrees (about
+x, then y, then z), before it is placed. A solid takes the body's color unless it names
+one.
+
+### 13.4 External models, inheritance
+
+```stomp
+model {
+  step "models/QFN32.step" offset (0, 0, 0) rotate (0, 0, 90) scale 1.0
+}
+no model                           # no 3D output at all
+```
+
+`step` replaces the generated model; the transform maps the file into the model frame.
+Model blocks merge down an `extends` chain: a later level's settings replace earlier
+ones, and its solids add to them. `no model` at any level ends the model there, and a
+later `model { … }` starts it again.
 
 ## 14. Templates, tables and inheritance
 
@@ -771,6 +865,7 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 - suspicious-geometry *warnings* (zero-size pad, drill ≥ pad, overlapping same-net-unknown pads) — never errors, since intentional in edge cases;
 - duplicate footprint names, generated ones included; a table row with the wrong number of cells; a column that names no parameter (nearest-name suggestion); a template that doesn't `name` the footprints a table or an unnamed call asks it for;
 - an error inside a template body is reported on the call or table row whose arguments cause it, and once at the template when every call has it.
+- 3D: a per-pin `lead` naming a pin that doesn't exist or was omitted; `leads below`/`leads above` on leads that can't use them; a solid or color that can't be built; a model property given twice in one block.
 
 ## 16. Formal grammar
 
@@ -807,6 +902,12 @@ where they conflict, the grammar file wins for *syntax* and this spec wins for
 10. **Interpolation formats** — `{x:.N}` covers fixed decimals, and IPC-7351 names
     (`QFN50P500X500X90-33N`) can be built with arithmetic (`{e * 100}`). Zero padding
     or unit conversion in the format may be wanted later.
+11. **Body detail.** Molded bodies have one draft angle and square edges; real ones
+    also have a pin-1 bevel, rounded corners and ejector-pin marks. A `model` property
+    per feature would be additive, but `step` may be the right answer past a point.
+12. **Polarity conventions.** The 3D stripe follows the family's convention (§13.1),
+    which isn't always the silk's: a tantalum's band marks pin 1. Should the silk bar
+    follow it too?
 
 ## 18. Example index
 
@@ -819,11 +920,14 @@ where they conflict, the grammar file wins for *syntax* and this spec wins for
 | [`examples/qfn32.stomp`](examples/qfn32.stomp) | quad leadless, thermal pad, paste windowing, vias, `pin1 chamfer` |
 | [`examples/bga64.stomp`](examples/bga64.stomp) | ball grid, JEDEC lettering, `omit` |
 | [`examples/sot23-5.stomp`](examples/sot23-5.stomp) | explicit sides block, `nc` |
-| [`examples/to252.stomp`](examples/to252.stomp) | relational dimensioning showcase (DPAK) |
+| [`examples/to252.stomp`](examples/to252.stomp) | relational dimensioning showcase (DPAK); per-pin leads on explicit pads for the 3D model |
 | [`examples/dip8.stomp`](examples/dip8.stomp) | THT dual, oval pads, square pin 1, `pin1 notch` |
 | [`examples/hdr2x5.stomp`](examples/hdr2x5.stomp) | THT grid, zigzag numbering, selector overrides |
 | [`examples/usb_microb.stomp`](examples/usb_microb.stomp) | the gnarly one: mixed SMD/NPTH/slots, `mirrors`, chained relations, polygon pad |
-| [`examples/cp_radial.stomp`](examples/cp_radial.stomp) | cylinder body, THT, polarized, 3D overrides |
+| [`examples/cp_radial.stomp`](examples/cp_radial.stomp) | cylinder body, THT, polarized, 3D color override |
 | [`examples/soic_family.stomp`](examples/soic_family.stomp) | `template` / `from` / `extends` |
 | [`examples/qfn_library.stomp`](examples/qfn_library.stomp) | templates as functions: interpolated `name` / `description` / pad names, `footprints from` tables, an unnamed call, `extends` of a generated footprint |
+| [`examples/sot223.stomp`](examples/sot223.stomp) | per-pin lead: the wide tab lead widens its own land and 3D lead |
+| [`examples/do41.stomp`](examples/do41.stomp) | axial through-hole: a lying cylinder body, bent wires, cathode band |
+| [`examples/crystal3225.stomp`](examples/crystal3225.stomp) | extra 3D solids: a ceramic package with a metal lid |
 | [`examples/syntax_zoo.stomp`](examples/syntax_zoo.stomp) | synthetic sweep of everything else; future parser fixture |

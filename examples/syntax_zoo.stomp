@@ -1,14 +1,11 @@
-# syntax_zoo — NOT a real part. Four deliberately synthetic footprints that
-# exercise the constructs the natural examples don't reach, so the whole
-# grammar has runnable coverage. Doubles as a parser test fixture later.
-# Everything below is grammar-valid AND constraint-consistent (no object axis
-# is constrained twice).
+# Syntax zoo: not a real part. Covers the syntax the other examples don't use.
+# Every line is valid, and no position is set twice.
 
-units mil            # file-wide default unit override; suffixes still work
+units mil            # default unit for this file; suffixes still work
 
 let big = 200
 
-# --- 1: pad shapes, mask/paste modes, every placement form ------------------
+# 1. Pad shapes, mask and paste options, every kind of placement
 footprint "ZOO-SHAPES" {
   description "grammar coverage fixture; do not manufacture"
   manufacturer "n/a"
@@ -26,35 +23,35 @@ footprint "ZOO-SHAPES" {
   hole Z1 slot 30 x 55
 
   pad 1 at (0, 0)
-  pad 2 is 100 right of pad 1                       # x strong; y weak-aligns to pad 1
-  pad 3 is big below pad 2 and 50mil left of pad 2  # and-chain; suffix mid-file
+  pad 2 is 100 right of pad 1                       # sets x; y lines up with pad 1 by default
+  pad 3 is big below pad 2 and 50mil left of pad 2  # two relations with "and"; a unit suffix
   pad 4 is 120 right of pad 3
-  align pad 4 with pad 1 horizontally               # strong y replaces the weak default
+  align pad 4 with pad 1 horizontally               # replaces the default y
   pad 5 is centered between pad 1 and pad 3
-  pad 7 mirrors pad 6 across x                      # pad 6 (prototype) takes +y side
-  gap pad 6 to pad 7 is 70                          # facing edges; axis from the mirror
+  pad 7 mirrors pad 6 across x                      # pad 6 is on the +y side
+  gap pad 6 to pad 7 is 70                          # facing edges; the mirror sets the axis
   align pad 6 with pad 5 vertically
-  pad 9 mirrors pad 8 across y                      # pad 8 takes the −x side
+  pad 9 mirrors pad 8 across y                      # pad 8 is on the -x side
   pitch pad 8 to pad 9 is 300
   align pad 8 with pad 1 horizontally
   hole Z1 is 80 above pad 1
 }
 
-# --- 2: generator clauses, overrides, graphics, generated-model tweaks ------
+# 2. Generator options, overrides, graphics, model settings
 footprint "ZOO-DUAL" {
   body 200 x 300 x 60
   pins 10 dual pitch 50 span 260 inner numbering cw pad roundrect 30 x 45 r 8
   lead jlead 20 x 35
   density most
   pin1 bar
-  thermal pad 90 x 140                 # unnamed form (defaults to "EP")
+  thermal pad 90 x 140                 # unnamed, so it's called "EP"
 
-  pad 3 { size 34 x 52 }               # partial overrides of generated pads
+  pad 3 { size 34 x 52 }               # change some generated pads
   pad 4 { width 40 }
   pads 6..8 { mask +2 }
   delete pad 10
 
-  pad "TP1" circle 30                  # manual pad coexisting with the generator
+  pad "TP1" circle 30                  # a manual pad next to generated ones
   pad "TP1" is 60 left of side left outer
 
   text ref at (0, 190) size 40
@@ -67,8 +64,8 @@ footprint "ZOO-DUAL" {
     polygon (90, 90) (110, 90) (100, 110) fill
   }
   courtyard rect 320 x 380
-  lead 1 jlead 24 x 35                 # per-pin lead (3D only here: the pins clause sets the lands)
-  lead 9 none                          # …and pin 9 has none
+  lead 1 jlead 24 x 35                 # per-pin lead; 3D only, since the pins line sets the lands
+  lead 9 none                          # pin 9 has no lead
   model {
     standoff 2
     height 55
@@ -82,24 +79,24 @@ footprint "ZOO-DUAL" {
   }
 }
 
-# --- 3: one-sided part, castellations, `only` -------------------------------
+# 3. One row of pins, castellations, `only`
 footprint "ZOO-CASTELLATED" {
   description "edge module: castellations along one side"
   body 400 x 300 x 40
   pins 6 single bottom pitch 50
   lead castellated d 24
   density least
-  only 1..5                            # keep 1..5, drop position 6
+  only 1..5                            # keep 1 to 5, drop position 6
   pin1 dot
 }
 
-# --- 4: grids with per-axis pitch, layer suppression ------------------------
+# 4. Grid with a different pitch per axis, layers turned off
 footprint "ZOO-GRID" {
   origin at (0, -25)
   pins grid 3 x 2 pitch 50 x 80 numbering row-major start bottom-left
   lead pin d 18
   default pad tht circle 44 drill 24
-  pad 1 { drill 28 }                   # drill override via block form
+  pad 1 { drill 28 }                   # drill override in a block
   pads 2..3 { mask -2 }
   omit 5
   silk none
@@ -108,13 +105,13 @@ footprint "ZOO-GRID" {
   no model
 }
 
-# --- 5: through-hole model knobs ---------------------------------------------
+# 5. Through-hole model settings
 footprint "ZOO-SOCKET" {
   body 400 x 100 x 340
   pins grid 4 x 1 pitch 100
   lead pin 25 x 25
   model {
-    leads above 0                      # a socket: the pins stay inside the housing
+    leads above 0                      # a socket: pins stay inside the housing
     leads below 120
     pin1 notch
   }

@@ -1,9 +1,8 @@
-/* stomp live demo — code editor.
+/* stomp live demo: the code editor.
  *
- * A plain <textarea> laid exactly over a highlighted <pre>. The textarea owns
- * input, selection, IME and native undo; the <pre> paints tokens from the real
- * stomp lexer plus diagnostic squiggles. Both share font metrics, so the caret
- * lines up with the painted text.
+ * A plain <textarea> over a highlighted <pre>. The textarea handles input,
+ * selection, IME and undo; the <pre> draws the stomp lexer's tokens and the
+ * error squiggles. They share font metrics, so the caret lines up.
  */
 (function (root) {
   'use strict';
@@ -60,7 +59,7 @@
     let diags = [];
     let showDiags = true;
     let lineCount = 0;
-    let marks = [];          // [{line, cls}] extra line bands (e.g. hovered object's source)
+    let marks = [];          // [{line, cls}] extra line bands, such as a hovered object's source
     let escapeTab = false;
 
     const metrics = { lh: 20, cw: 8, padT: 10, padL: 14 };
@@ -77,8 +76,8 @@
       probe.remove();
     }
 
-    // ----------------------------------------------------------- painting
-    /** Lexer tokens → non-overlapping classed spans (strings split around `{…}`). */
+    // Painting
+    /** Lexer tokens to non-overlapping classed spans (strings split around {...}). */
     function spansOf(toks) {
       const out = [];
       for (const t of toks) {
@@ -102,7 +101,7 @@
           if (t.e > pos) out.push({ s: pos, e: t.e, cls: 'tk-str' });
           continue;
         }
-        if (t.t === 'num' && t.suffix && t.num) {          // colour `mil` apart from `50`
+        if (t.t === 'num' && t.suffix && t.num) {          // color `mil` apart from `50`
           const m = t.s + t.num.length;
           out.push({ s: t.s, e: m, cls: 'tk-num' }, { s: m, e: t.e, cls: 'tk-num tk-unit' });
           continue;
@@ -177,7 +176,7 @@
       bands.innerHTML = out;
     }
 
-    // ----------------------------------------------------------- editing
+    // Editing
     function insert(text, selStart, selEnd) {
       ta.focus();
       if (selStart != null) ta.setSelectionRange(selStart, selEnd);
@@ -299,7 +298,7 @@
       ta.scrollTop = 0; ta.scrollLeft = 0;
     }
 
-    // ----------------------------------------------------------- hover tips
+    // Hover tips
     ta.addEventListener('mousemove', (e) => {
       if (!showDiags || !diags.length) { tip.hidden = true; return; }
       const r = code.getBoundingClientRect();
@@ -323,7 +322,7 @@
     ta.addEventListener('mouseleave', () => { tip.hidden = true; });
     gutter.addEventListener('click', () => ta.focus());
 
-    // ----------------------------------------------------------- API
+    // API
     measure();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { measure(); paint(); });
 
@@ -354,7 +353,7 @@
         }
         cursorChanged();
       },
-      /** Tint source lines (0-based) — e.g. the statements behind a hovered pad. */
+      /** Tint source lines (0-based), such as the statements behind a hovered pad. */
       markLines(lines, cls) {
         marks = (lines || []).map((line) => ({ line, cls: cls || 'mark' }));
         paintBands();

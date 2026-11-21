@@ -1,6 +1,6 @@
-# A whole package family from one template.
-# Template parameters are plain identifiers (keywords like `span`/`pitch`
-# can't be parameter names), bound as footprint-scoped lets at instantiation.
+# SOIC family: several packages from one template.
+# Parameters are plain names (keywords like `span` or `pitch` can't be used),
+# and act like `let`s inside each footprint.
 
 template soic(n, lspan = 6.0, e = 1.27, bw = 3.9) {
   body bw x (n/2 - 1) * e + 2.0 x 1.5
@@ -17,7 +17,7 @@ footprint "SOIC-16W" from soic(16, lspan = 10.3, bw = 7.5) {
   description "wide-body 300 mil variant"
 }
 
-# Inheritance also composes with templates:
+# Inheritance works with templates too:
 footprint "SOIC-8-HS" extends "SOIC-8" {
   description "hand-solder variant"
   default pad rect 0.6 x 2.2

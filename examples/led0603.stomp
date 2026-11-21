@@ -1,4 +1,4 @@
-# LED, 0603 — polarized two-terminal with a little extra silkscreen.
+# LED, 0603: polarized two-terminal part with extra silkscreen.
 
 footprint "LED0603" {
   description "LED 0603; pin 1 = anode, pin 2 = cathode"
@@ -8,10 +8,10 @@ footprint "LED0603" {
   pins 2 horizontal
   lead endcap 0.3
   density nominal
-  polarized                    # cathode bar on silk + polarity stripe on the 3D body
+  polarized                    # cathode bar on silk, stripe on the 3D body
 
-  # gfx blocks accumulate on top of the auto silk (SPEC §12)
+  # A silk block adds to the automatic silk (SPEC 12)
   silk {
-    text ">K" at (1.9, 0) size 0.5      # cathode label to the right of the part
+    text ">K" at (1.9, 0) size 0.5      # cathode label right of the part
   }
 }

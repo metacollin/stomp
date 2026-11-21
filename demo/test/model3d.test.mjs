@@ -1,4 +1,4 @@
-// stomp live demo — 3D model tests.   Run: node --test demo/test/*.test.mjs
+// 3D model tests. Run: node --test demo/test/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -208,7 +208,7 @@ footprint "R" extends "P" {
   const cyl = box([solids[1]]);
   near(cyl.z0, 1, 'z sets the bottom of the turned cylinder');
   near(cyl.x1 - cyl.x0, 2, 'rotate (0, 90, 0) lays it along x');
-  near((cyl.x0 + cyl.x1) / 2, 5, 'at (x, y) is the centre');
+  near((cyl.x0 + cyl.x1) / 2, 5, 'at (x, y) is the center');
   const Q = M.build(out.footprints[1].result, { strict: true });
   near(box([mesh(Q, 'body')]).z0, 0.2, 'a child model block overrides one setting');
   assert.equal(Q.meshes.filter((x) => x.kind === 'solid').length, 2, '…and keeps the parent\'s solids');
@@ -247,7 +247,7 @@ test('exports: VRML in 0.1-inch units, binary STL', () => {
   const stl = M.toSTL(m, 'SOIC-8');
   assert.equal(stl.length, 84 + 50 * m.triangles);
   assert.equal(new DataView(stl.buffer).getUint32(80, true), m.triangles);
-  // both, zipped (stored), for hosts that only save .zip
+  // both in an uncompressed zip, for hosts that only save .zip
   const wrlBytes = new TextEncoder().encode(wrl);
   const zip = M.toZip([{ name: 'SOIC-8.wrl', data: wrlBytes }, { name: 'SOIC-8.stl', data: stl }]);
   const dv = new DataView(zip.buffer);

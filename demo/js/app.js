@@ -1,4 +1,4 @@
-/* stomp live demo — app controller: wires the editor, compiler and viewer. */
+/* stomp live demo: wires the editor, compiler and viewers together. */
 (function () {
   'use strict';
   const S = window.Stomp;
@@ -49,7 +49,7 @@
     hover: null,
     selected: null,
     cursor: 0,
-    view: 'fp',           // 'fp' (one footprint) | 'lib' (every footprint in the file)
+    view: 'fp',           // 'fp' (one footprint) or 'lib' (every footprint in the file)
     dim: saved.dim === '3d' ? '3d' : '2d',      // the drawing, or the 3D model on a board
     board3d: saved.board3d !== false,
     crt3d: saved.crt3d !== false,
@@ -65,7 +65,7 @@
     }), 250);
   }
 
-  // ------------------------------------------------------------- components
+  // Components
   const editor = S.createEditor($('editor'), {
     id: 'stomp-source',
     onChange(text) {
@@ -104,7 +104,7 @@
     },
     onCamera(cam) {
       if (state.dim === '3d') return;
-      const ratio = cam.s / (96 / 25.4);   // screen pixels per mm vs. a 96-dpi "real size"
+      const ratio = cam.s / (96 / 25.4);   // screen pixels per mm, against a 96-dpi "real size"
       $('tb-scale').textContent = ratio >= 1 ? `≈ ${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)} : 1` : `≈ 1 : ${(1 / ratio).toFixed(1)}`;
       const g = viewer && viewer.gridStep ? viewer.gridStep() : null;
       $('tb-grid').textContent = g ? `${fmt(g)} ${state.units}` : '—';
@@ -140,7 +140,7 @@
     return m;
   }
 
-  // ------------------------------------------------------------- examples
+  // Examples
   const sel = $('example');
   for (const ex of examples) {
     const opt = document.createElement('option');
@@ -183,11 +183,11 @@
     const ex = byFile.get(state.file);
     const edited = ex && state.buffers[state.file] != null;
     $('file-name').textContent = `examples/${state.file}${edited ? ' •' : ''}`;
-    $('file-name').title = edited ? 'Edited — Reset restores the original' : '';
+    $('file-name').title = edited ? 'Edited. Reset restores the original.' : '';
     $('reset').disabled = !edited;
   }
 
-  // ------------------------------------------------------------- compile
+  // Compile
   function compileNow() {
     clearTimeout(compileTimer);
     const text = editor.getValue();
@@ -277,7 +277,7 @@
     $('tb-grid').textContent = model.style && !model.none ? `${fmt(model.top != null ? model.top : model.H)} / ${fmt(model.standoff)} ${state.units}` : '—';
   }
 
-  // ------------------------------------------------------------- tabs
+  // Tabs
   function errorNames() {
     return new Set((state.out ? state.out.diagnostics : []).filter((d) => d.severity === 'error' && d.footprint).map((d) => d.footprint));
   }
@@ -304,7 +304,7 @@
           groupKey = key;
           group = document.createElement('optgroup');
           const t = key === 'other' ? null : (state.out.tables || []).find((x) => x.s === f.origin.tableS);
-          group.label = t ? `${t.head} — ${t.users.length} rows` : 'footprints';
+          group.label = t ? `${t.head}: ${t.users.length} rows` : 'footprints';
           pick.appendChild(group);
         }
         const o = document.createElement('option');
@@ -354,7 +354,7 @@
     if (state.view === 'fp') showActive();
   }));
 
-  // ------------------------------------------------------------- library
+  // Library
   function applyView() {
     const lib = state.view === 'lib';
     const d3 = state.dim === '3d';
@@ -383,7 +383,7 @@
     persist();
   }));
 
-  const thumbs = new WeakMap();    // result → SVG markup (cached results keep their thumbnails)
+  const thumbs = new WeakMap();    // result to SVG markup (cached results keep their thumbnails)
   function thumb(r) {
     if (thumbs.has(r)) return thumbs.get(r);
     const P = S.svgPaths;
@@ -448,7 +448,7 @@
       cards.push(f);
     });
     if (key !== null) html += '</div>';
-    if (!fps.length) html += '<p class="lib-head">Nothing yet — add a <code>footprint</code>, or a <code>footprints from TEMPLATE { … }</code> table.</p>';
+    if (!fps.length) html += '<p class="lib-head">Nothing yet. Add a <code>footprint</code>, or a <code>footprints from TEMPLATE { ... }</code> table.</p>';
     box.innerHTML = html;
     box.querySelectorAll('.card').forEach((el) => {
       const f = fps[+el.dataset.i];
@@ -475,7 +475,7 @@
     });
   }
 
-  // ------------------------------------------------------------- problems
+  // Problems
   function renderProblems(diags) {
     const list = $('problems-list');
     const nErr = diags.filter((d) => d.severity === 'error').length;
@@ -507,12 +507,12 @@
   function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   function codeify(msg) { return escapeHtml(msg).replace(/`([^`]+)`/g, '<code>$1</code>'); }
 
-  // ------------------------------------------------------------- details
+  // Details
   function renderDetails(fp, shown) {
     const box = $('details');
     const r = shown;
-    if (!fp) { box.innerHTML = '<div><h3>Footprint</h3><p class="desc">Add a <code>footprint "NAME" { … }</code> block to see it here.</p></div>'; return; }
-    if (!r) { box.innerHTML = `<div><h3>${escapeHtml(fp.name)}</h3><p class="desc">This footprint has errors that stop it from being drawn — see Problems.</p></div>`; return; }
+    if (!fp) { box.innerHTML = '<div><h3>Footprint</h3><p class="desc">Add a <code>footprint "NAME" { ... }</code> block to see it here.</p></div>'; return; }
+    if (!r) { box.innerHTML = `<div><h3>${escapeHtml(fp.name)}</h3><p class="desc">This footprint has errors that stop it from being drawn. See Problems.</p></div>`; return; }
     const U = state.units;
     const L = (v) => fmt(v);
     const m = r.meta;
@@ -537,7 +537,7 @@
     }
     if (r.generator && r.generator.spacing) {
       for (const [ax, sp] of Object.entries(r.generator.spacing)) {
-        fact(ax === 'x' ? 'Rows ↔' : 'Rows ↕', `${L(sp.C)} ${U} <span class="note">apart, centre to centre — ${escapeHtml(sp.how)}</span>`);
+        fact(ax === 'x' ? 'Rows (x)' : 'Rows (y)', `${L(sp.C)} ${U} <span class="note">apart, center to center (${escapeHtml(sp.how)})</span>`);
       }
     }
     if (r.ipcNote) fact('Lands', `<span class="note">${escapeHtml(r.ipcNote)}</span>`);
@@ -550,7 +550,7 @@
     if (md) {
       let t;
       if (md.none) t = 'none (<code>no model</code>)';
-      else if (!r.body && !(md.solids && md.solids.length)) t = '<span class="note">none — add a <code>body</code> to generate one</span>';
+      else if (!r.body && !(md.solids && md.solids.length)) t = '<span class="note">none. Add a <code>body</code> to generate one.</span>';
       else {
         const { model } = modelFor(r);
         const bits = [];
@@ -561,7 +561,7 @@
         if (P.leadsColor) bits.push(`leads ${escapeHtml(P.leadsColor.name)}`);
         if (P.thickness != null) bits.push(`leads ${L(P.thickness)} thick`);
         t = `${escapeHtml(model.summary || 'generated')}${bits.length ? ` <span class="note">(${bits.join(', ')})</span>` : ''}`;
-        if (md.step) t += `<br><span class="note">names <code>${escapeHtml(md.step.file)}</code>, which isn't loaded here: the 3D view shows the generated stand-in</span>`;
+        if (md.step) t += `<br><span class="note">uses <code>${escapeHtml(md.step.file)}</code>, which isn't loaded here, so the 3D view shows the generated model</span>`;
         if (state.dim !== '3d') t += ` <button type="button" class="linkish" data-show3d>show in 3D</button>`;
       }
       fact('3D model', t);
@@ -570,7 +570,7 @@
       const sh = p.shape;
       const rot = ((p.rot % 360) + 360) % 360;
       const square = Math.abs(rot / 90 - Math.round(rot / 90)) < 1e-9;
-      // sizes in board axes (x × y); odd angles keep the shape's own size plus the angle
+      // sizes along the board axes (x by y); odd angles show the shape's own size and the angle
       const swap = square && Math.round(rot / 90) % 2 === 1;
       const size = sh.kind === 'circle' ? `⌀${L(sh.d)}` : sh.kind === 'polygon' ? `${sh.pts.length}-gon`
         : swap ? `${L(sh.l)} × ${L(sh.w)}` : `${L(sh.w)} × ${L(sh.l)}`;
@@ -628,7 +628,7 @@
     return [...out];
   }
 
-  // ------------------------------------------------------------- toolbar
+  // Toolbar
   const LAYERS = [
     ['copper', 'Copper', 'cu'], ['paste', 'Paste', 'paste'], ['mask', 'Mask', 'mask'], ['drills', 'Drills', 'drill'],
     ['silk', 'Silk', 'silk'], ['courtyard', 'Courtyard', 'crt'], ['fab', 'Fab', 'fab'], ['labels', 'Numbers', 'lbl'],
@@ -666,11 +666,11 @@
   viewer.setUnits(state.units);
   $('fit').addEventListener('click', () => (state.dim === '3d' ? view3.fit() : viewer.fit()));
 
-  // ------------------------------------------------------------- saving files
+  // Saving files
   // Opened on its own, the page downloads files directly. Embedded by a host (the
-  // --fragment build), it can't: the host's `downloads` capability saves the types
-  // it allows, .zip among them, once the viewer agrees. With neither, exports copy
-  // text to the clipboard instead.
+  // --fragment build) it can't, but the host's `downloads` capability saves some
+  // file types, .zip among them, once the viewer agrees. With neither, exports
+  // copy text to the clipboard instead.
   const files = { plain: null, host: null, listeners: [] };
   /* @plain-download */
   files.plain = (filename, data) => {
@@ -709,9 +709,9 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, 5200);
   }
 
-  // ------------------------------------------------------------- KiCad
+  // KiCad
   // Every footprint in the file as a KiCad 9 library (.pretty), each with its 3D
-  // model embedded. Where nothing can be saved, the shown footprint is copied.
+  // model embedded. Where nothing can be saved, copy the shown footprint instead.
   const kicadBtn = $('export-kicad');
   const syncKicad = () => {
     const save = files.canSave();
@@ -849,7 +849,7 @@
     });
   })();
 
-  // ------------------------------------------------------------- go
+  // Start
   const start = saved.file && byFile.has(saved.file) ? saved.file : (byFile.has('to252.stomp') ? 'to252.stomp' : (examples[0] && examples[0].file));
   if (start) openExample(start);
   else { editor.setValue('footprint "NEW" {\n  \n}\n'); compileNow(); }

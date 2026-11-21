@@ -1,9 +1,9 @@
-/* stomp live demo — lexer (grammar.peg "LEXICAL LAYER", SPEC §4).
+/* stomp live demo: the lexer (the lexical layer of grammar.peg, SPEC 4).
  *
  * Produces two streams:
- *   tokens — significant tokens for the parser (comments dropped, insignificant
- *            newlines suppressed: inside ( … ) and after '{', ',' or an infix op)
- *   all    — every token including comments, for syntax highlighting
+ *   tokens: what the parser reads. Comments are dropped, and so are newlines that
+ *           can't end a statement (inside ( ... ) and after '{', ',' or an operator).
+ *   all:    every token, comments included, for syntax highlighting.
  *
  * Token: { t, v, s, e, line, col }
  *   t: 'word' | 'num' | 'str' | 'p' (punctuation) | 'nl' | 'comment' | 'bad' | 'eof'
@@ -37,7 +37,7 @@
   const UNIT_SUFFIX = new Set(['mm', 'um', 'nm', 'mil', 'in']);
   const ANGLE_SUFFIX = new Set(['deg', 'rad']);
   const PUNCT = new Set(['{', '}', '(', ')', ',', ';', ':', '=', '+', '-', '*', '/']);
-  // a newline right after one of these is not a statement end (SPEC §4)
+  // a newline right after one of these doesn't end a statement (SPEC 4)
   const JOINERS = new Set(['{', ',', '+', '-', '*', '/']);
 
   const isDigit = (c) => c >= '0' && c <= '9';
@@ -71,7 +71,7 @@
         continue;
       }
       if (c === '"') {
-        // "text {expr} text {expr:.2}" — interpolation (SPEC §7); \" \\ \{ \} escape
+        // interpolation: "text {expr} text {expr:.2}" (SPEC 7); \" \\ \{ \} are escapes
         let lit = '', litS = i + 1, parts = null;
         i++;
         let closed = false;
@@ -136,8 +136,8 @@
         let suffix = null;
         if (src[i] === '%') { suffix = '%'; i++; isInt = false; }
         else if (src[i] === 'x' && /[0-9.(\s-]/.test(src[i + 1] || ' ')) {
-          // `0.6x1.5`: the PEG's implicit optional whitespace lets the size
-          // separator touch the number; emit it as its own keyword token
+          // `0.6x1.5`: the size separator can touch the number, so emit it as its
+          // own keyword token
           tok('num', s, i, { v: value, text: src.slice(s, i), num: text, suffix: null, isInt });
           tok('word', i, i + 1, { v: 'x', kw: true });
           i++;
@@ -211,7 +211,7 @@
     return { tokens, all, eof };
   }
 
-  /** Lex src[a, b) (the code inside a string's `{…}`) with absolute offsets. */
+  /** Lex src[a, b) (the code inside a string's {...}) with absolute offsets. */
   function lexRange(src, a, b, diags, line, lineStart) {
     const sub = [];
     const r = lex(src.slice(a, b), sub);

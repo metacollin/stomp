@@ -1,9 +1,5 @@
-/* stomp live demo — SVG footprint viewer.
- *
- * World coordinates are millimetres, y up; the SVG viewBox is in millimetres
- * with y negated, so geometry keeps its true widths (silk 0.12 mm, courtyard
- * 0.05 mm) while grid, overlays and labels are sized in screen pixels.
- */
+/* SVG footprint viewer. The viewBox is in mm with y flipped, so lines keep their
+ * real widths. The grid, dimensions and labels are sized in screen pixels. */
 (function (root) {
   'use strict';
   const S = root.Stomp = root.Stomp || {};
@@ -13,7 +9,7 @@
 
   function f(v) { const s = (Math.abs(v) < 1e-9 ? 0 : v).toFixed(4); return s.replace(/\.?0+$/, '') || '0'; }
 
-  /** Contour → SVG path with y negated (CCW arcs become sweep 0). */
+  /** Edges to an SVG path, with y flipped (so CCW arcs get sweep 0). */
   function pathOf(edges) {
     if (!edges || !edges.length) return '';
     let d = `M${f(edges[0].a[0])} ${f(-edges[0].a[1])}`;
@@ -86,7 +82,7 @@
       units: 'mm', focus: { ranges: [], objects: new Set() }, hover: null, W: 0, H: 0,
     };
 
-    // ------------------------------------------------------------- camera
+    // Camera
     function size() {
       const r = svg.getBoundingClientRect();
       state.W = Math.max(1, r.width); state.H = Math.max(1, r.height);
@@ -95,7 +91,7 @@
       const { cx, cy, s } = state.cam;
       const w = state.W / s, h = state.H / s;
       svg.setAttribute('viewBox', `${f(cx - w / 2)} ${f(-cy - h / 2)} ${f(w)} ${f(h)}`);
-      // keep the paste hatch at a constant screen density
+      // keep the paste hatch the same size on screen
       const k = 5 / s;
       hatch.setAttribute('width', f(k)); hatch.setAttribute('height', f(k));
       hatchLine.setAttribute('y2', f(k)); hatchLine.setAttribute('stroke-width', f(1.1 / s));
@@ -200,7 +196,7 @@
       if (state.autoFit && state.res) fitBox(state.res.bbox); else applyCam();
     }).observe(host);
 
-    // ------------------------------------------------------------- hit test
+    // Hit testing
     function hitTest(clientX, clientY) {
       if (!state.res || !state.cam) return null;
       const p = toWorld(clientX, clientY);
@@ -261,7 +257,7 @@
       tip.style.transform = `translate(${Math.max(4, x)}px, ${Math.max(4, y)}px)`;
     }
 
-    // ------------------------------------------------------------- formatting
+    // Hover text
     function len(v) { return S.fmtLen(v, state.units); }
     function U() { return state.units; }
     function sizeOf(sh) {
@@ -273,7 +269,7 @@
     }
     function describe(ob) {
       if (ob.kind === 'body') {
-        return `<b>body</b><span>${ob.kind === 'cyl' ? 'cylinder ⌀' + len(ob.w) : len(ob.w) + ' × ' + len(ob.l)}${ob.h ? ' × ' + len(ob.h) : ''} ${U()}</span><span>centre (${len(ob.x)}, ${len(ob.y)}) ${U()}</span>`;
+        return `<b>body</b><span>${ob.kind === 'cyl' ? 'cylinder ⌀' + len(ob.w) : len(ob.w) + ' × ' + len(ob.l)}${ob.h ? ' × ' + len(ob.h) : ''} ${U()}</span><span>center (${len(ob.x)}, ${len(ob.y)}) ${U()}</span>`;
       }
       if (ob.kind === 'hole') {
         return `<b>hole ${esc(ob.name)}</b><span>NPTH ${sizeOf(ob.shape)} ${U()}${ob.shape.kind === 'oval' ? ' slot' : ''}</span><span>at (${len(ob.x)}, ${len(ob.y)}) ${U()}</span>`;
@@ -299,7 +295,7 @@
       return `<b>pad ${esc(ob.name)}</b>${tags.length ? `<i>${tags.join(' · ')}</i>` : ''}${rows.map((r) => `<span>${r}</span>`).join('')}`;
     }
 
-    // ------------------------------------------------------------- drawing
+    // Drawing
     function render(res) {
       const key = res ? res.name : null;
       const first = !state.cam || key !== state.lastKey;
@@ -308,7 +304,7 @@
       empty.hidden = !!res;
       if (!res) {
         for (const k of ['courtyard', 'fab', 'copper', 'drills', 'paste', 'mask', 'silk', 'hl', 'labels', 'origin', 'dims']) g[k].innerHTML = '';
-        empty.textContent = 'Nothing to draw yet — write a `footprint "NAME" { … }` block.';
+        empty.textContent = 'Nothing to draw yet. Write a `footprint "NAME" { ... }` block.';
         if (!state.cam) { size(); state.cam = { cx: 0, cy: 0, s: 40 }; applyCam(); }
         return;
       }
@@ -322,7 +318,7 @@
 
     function drawWorld() {
       const res = state.res;
-      // courtyard / fab / silk
+      // courtyard, fab and silk
       const lineItems = (items, cls) => items.map((it) => {
         if (it.type === 'line') return `<path class="${cls}" d="${polyPath(it.pts, false)}" stroke-width="${f(it.w)}"></path>`;
         if (it.type === 'poly') return `<path class="${cls} fill" d="${polyPath(it.pts, true)}"></path>`;
@@ -427,7 +423,7 @@
       g.labels.innerHTML = out;
     }
 
-    // dimension overlays ------------------------------------------------
+    // Dimensions
     function drawDims() {
       if (!state.res || !state.cam) { g.dims.innerHTML = ''; return; }
       const s = state.cam.s;
@@ -438,7 +434,7 @@
       let out = '';
       const used = { x: [], y: [] };
       placed = [];
-      // focused dimensions first, so they win label space
+      // focused dimensions go first, so their labels win
       list.sort((a, b) => (inFocus(b) ? 1 : 0) - (inFocus(a) ? 1 : 0));
       for (const d of list) {
         const cls = inFocus(d) ? 'dim on' : 'dim';
@@ -447,10 +443,10 @@
           out += `<path class="${cls} dash" d="M${f(d.a[0])} ${f(-d.a[1])}L${f(d.b[0])} ${f(-d.b[1])}"></path>`;
           const m = [(d.a[0] + d.b[0]) / 2, (d.a[1] + d.b[1]) / 2];
           out += mark(m, cls, px) + dot(d.a, cls, px) + dot(d.b, cls, px);
-          out += pill(m[0], m[1], `centred ${d.axis === 'x' ? '↔' : '↕'}`, cls, px, 0, -16);
+          out += pill(m[0], m[1], `centered ${d.axis === 'x' ? '↔' : '↕'}`, cls, px, 0, -16);
         } else if (d.kind === 'on') {
           out += `<path class="${cls} dash" d="${d.axis === 'x' ? `M${f(d.o[0])} ${f(-Math.max(d.obox.y1, d.tbox.y1) - px(12))}V${f(-Math.min(d.obox.y0, d.tbox.y0) + px(12))}` : `M${f(Math.min(d.obox.x0, d.tbox.x0) - px(12))} ${f(-d.o[1])}H${f(Math.max(d.obox.x1, d.tbox.x1) + px(12))}`}"></path>`;
-          out += pill(d.o[0], d.o[1], `centred on ${d.axis}`, cls, px, 0, -16);
+          out += pill(d.o[0], d.o[1], `centered on ${d.axis}`, cls, px, 0, -16);
         } else if (d.kind === 'align') {
           const horiz = d.axis === 'y';
           const xa = Math.min(d.tbox.x0, d.bbox.x0) - px(10), xb = Math.max(d.tbox.x1, d.bbox.x1) + px(10);
@@ -486,7 +482,7 @@
       const X = x + px(dxp || 0), Y = -y + px(dyp || 0);
       const box = { x0: X - w / 2, x1: X + w / 2, y0: Y - h / 2, y1: Y + h / 2 };
       const hit = placed.some((q) => box.x0 < q.x1 && q.x0 < box.x1 && box.y0 < q.y1 && q.y0 < box.y1);
-      if (hit && !/\bon\b/.test(cls)) return '';     // unfocused labels give way
+      if (hit && !/\bon\b/.test(cls)) return '';     // unfocused labels make room
       placed.push(box);
       return `<g class="${cls} pill"><rect x="${f(X - w / 2)}" y="${f(Y - h / 2)}" width="${f(w)}" height="${f(h)}" rx="${f(px(4))}"></rect><text x="${f(X)}" y="${f(Y)}" font-size="${f(fs)}">${esc(text)}</text></g>`;
     }
@@ -494,7 +490,7 @@
       const ax = d.axis;
       const a = d.a, b = d.b;
       const label = d.plain ? d.text : `${d.text} = ${len(d.value)} ${U()}`;
-      // dimension line sits outside both objects, stacked away from earlier ones
+      // the dimension line goes outside both objects, past any earlier ones
       let out = '';
       if (ax === 'x') {
         let yl = Math.max(d.rbox.y1, d.tbox.y1) + px(18);
@@ -537,7 +533,7 @@
       return out;
     }
 
-    // highlight ----------------------------------------------------------
+    // Highlight
     function drawHighlight() {
       if (!state.res) { g.hl.innerHTML = ''; return; }
       let out = '';
@@ -570,7 +566,7 @@
       g.silk.style.display = L.silk ? '' : 'none';
     }
 
-    // ------------------------------------------------------------- API
+    // API
     return {
       render,
       fit,
@@ -600,7 +596,7 @@
     };
   }
 
-  /** Length formatting shared by the viewer and the app. */
+  /** Formats a length. Used by the viewer and the app. */
   S.fmtLen = function (v, units) {
     const n = units === 'mil' ? +(v / 0.0254).toFixed(2) : +v.toFixed(4);
     return (Object.is(n, -0) ? 0 : n).toString().replace('-', '−');

@@ -1,4 +1,4 @@
-// stomp live demo — KiCad export tests.   Run: node --test demo/test/*.test.mjs
+// KiCad export tests. Run: node --test demo/test/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -22,9 +22,9 @@ const exportOf = (src, name) => {
   return { r: f.result, out: K.footprint(f.result, { name: f.name, model: M.build(f.result) }) };
 };
 
-// --------------------------------------------------------------- a small s-expression reader
-// KiCad's lexer: lists, bare symbols, "quoted strings" with \ escapes, and |…| runs
-// inside (data …), whose base64 is read as one string.
+// A small S-expression reader
+// Reads like KiCad's lexer: lists, bare symbols, "quoted strings" with \ escapes,
+// and the |...| runs inside (data ...), each read as one base64 string.
 function parse(text) {
   let i = 0;
   const ws = () => { while (i < text.length && /\s/.test(text[i])) i++; };
@@ -72,7 +72,7 @@ const kid = (n, head) => kids(n, head)[0];
 const str = (a) => (a && a.q != null ? a.q : a);
 
 // every bare word the exporter writes, each checked against KiCad 9's pcb.keywords
-// and embedded_files.keywords; a new one needs the same check
+// and embedded_files.keywords. Check any new word the same way.
 const KNOWN = new Set(('anchor at attr center checksum circle clearance custom data descr drill effects embedded_files embedded_fonts ' +
   'end file fill font footprint fp_circle fp_line fp_poly fp_text generator generator_version gr_poly hide layer layers model ' +
   'name no np_thru_hole offset options outline oval pad pad_prop_bga pad_prop_castellated pad_prop_heatsink primitives ' +
@@ -98,7 +98,7 @@ function decodeEmbedded(file) {
   return { frame, plain };
 }
 
-// --------------------------------------------------------------- checksum, zstd, base64
+// Checksum, zstd, base64
 test('checksum: MurmurHash3 core and KiCad\'s padded tail', () => {
   // SMHasher's verification value for MurmurHash3_x64_128
   const key = new Uint8Array(256), hashes = new Uint8Array(16 * 256);
@@ -118,7 +118,7 @@ test('checksum: MurmurHash3 core and KiCad\'s padded tail', () => {
     for (let i = 0; i < n; i++) a[i] = (i * 7 + 3) & 255;
     assert.equal(K.checksum(a), want, `length ${n}`);
   });
-  // a tail of 12-15 bytes is padded to 16 and not mixed in: KiCad's quirk, kept on purpose
+  // KiCad pads a 12-15 byte tail to 16 bytes and doesn't mix it in. We match that.
   assert.equal(K.checksum(new TextEncoder().encode('Hello, World!')), vectors[12]);
 });
 
@@ -133,7 +133,7 @@ test('zstd frames round-trip and base64 matches Node', () => {
   }
 });
 
-// --------------------------------------------------------------- footprints
+// Footprints
 test('every example exports a well-formed KiCad 9 footprint', () => {
   for (const f of readdirSync(join(repo, 'examples')).filter((x) => x.endsWith('.stomp'))) {
     for (const fp of results(example(f))) {

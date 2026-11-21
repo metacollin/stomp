@@ -1,15 +1,6 @@
-/* stomp live demo — WebGL viewer for the 3D model (SPEC §13).
- *
- *   const v = createViewer3D(host, { onCamera })
- *   v.show(model, board, key)   model/board from Stomp.model3d; key: re-fit only when it changes
- *   v.setFocus(ranges)          tint the meshes whose source overlaps these ranges
- *   v.setBoard(on) / v.setCourtyard(on) / v.view('iso'|'top'|'bottom'|'front'|'side') / v.resize()
- *
- * One shader, one draw call per scene: meshes are merged into a single buffer with
- * the color in a separate attribute, so highlighting only rewrites colors. Drag to
- * orbit, right-drag or shift-drag to pan, scroll or pinch to zoom, double-click to
- * reset. Lighting is fixed to the camera, so every view is lit from the upper left.
- */
+/* WebGL viewer for the 3D model. All meshes share one buffer and their colors sit
+ * in a second one, so a highlight only rewrites colors. The lights follow the camera,
+ * so every view is lit from the upper left. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else (root.Stomp = root.Stomp || {}).createViewer3D = factory().createViewer3D;
@@ -45,7 +36,7 @@ void main() {
   const LVS = `attribute vec3 aPos; uniform mat4 uMVP; void main() { gl_Position = uMVP * vec4(aPos, 1.0); }`;
   const LFS = `precision mediump float; uniform vec4 uColor; void main() { gl_FragColor = uColor; }`;
 
-  // ---------------------------------------------------------------- math
+  // Math
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -77,7 +68,7 @@ void main() {
     canvas.className = 'v3d-canvas';
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', '3D model. Drag to orbit, shift-drag to pan, scroll to zoom, double-click to reset; arrow keys orbit too.');
+    canvas.setAttribute('aria-label', '3D model. Drag to orbit, shift-drag to pan, scroll to zoom, double-click to reset. Arrow keys also orbit.');
     host.appendChild(canvas);
     const note = document.createElement('div');
     note.className = 'v3d-note';
@@ -134,7 +125,7 @@ void main() {
       try { initGL(); upload(); draw(); } catch (e) { console.error(e); }
     });
 
-    // ------------------------------------------------------------ scene
+    // Scene
     function upload() {
       if (!gl || st.lost) return;
       if (scene) { gl.deleteBuffer(scene.vbo); gl.deleteBuffer(scene.cbo); gl.deleteBuffer(scene.ibo); if (scene.lbo) gl.deleteBuffer(scene.lbo); }
@@ -142,7 +133,7 @@ void main() {
       const meshes = [];
       if (st.model) for (const m of st.model.meshes) meshes.push({ m, board: false });
       if (st.board) for (const m of st.board.meshes) meshes.push({ m, board: true });
-      // part first, board after, so the board can be skipped with a shorter draw
+      // part first, then board, so hiding the board just draws fewer triangles
       meshes.sort((a, b) => (a.board ? 1 : 0) - (b.board ? 1 : 0));
       let nv = 0, ni = 0;
       for (const { m } of meshes) { nv += m.pos.length / 3; ni += m.idx.length; }
@@ -203,7 +194,7 @@ void main() {
       request();
     }
 
-    // ------------------------------------------------------------ camera
+    // Camera
     function bounds() {
       const b = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity };
       const add = (q) => { if (!q) return; b.x0 = Math.min(b.x0, q.x0); b.y0 = Math.min(b.y0, q.y0); b.z0 = Math.min(b.z0, q.z0); b.x1 = Math.max(b.x1, q.x1); b.y1 = Math.max(b.y1, q.y1); b.z1 = Math.max(b.z1, q.z1); };
@@ -232,7 +223,7 @@ void main() {
       return { eye, up };
     }
 
-    // ------------------------------------------------------------ draw
+    // Drawing
     let raf = 0;
     function request() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); }
     function draw() {
@@ -243,7 +234,7 @@ void main() {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       if (!scene) return;
       const { eye, up } = camera();
-      // a tight near plane keeps 16-bit depth buffers from striping the thin decals
+      // a close near plane stops z-fighting on the thin marks with 16-bit depth buffers
       const near = Math.max(st.dist - st.radius * 2.5, st.dist * 0.08, 0.01), far = st.dist + st.radius * 4 + 5;
       const proj = perspective(30 * Math.PI / 180, W / Math.max(1, H), near, far);
       const view = lookAt(eye, st.target, up);
@@ -268,7 +259,7 @@ void main() {
       gl.uniform1f(prog.u.uAlpha, 1);
       if (scene.boardStart > 0) gl.drawElements(gl.TRIANGLES, scene.boardStart, scene.type, 0);
       if (st.showBoard && scene.count > scene.boardStart) {
-        // seen from below, the board turns translucent so the part's underside shows
+        // from below, the board turns see-through so the part's underside shows
         const below = eye[2] < 0;
         if (below) {
           gl.enable(gl.BLEND);
@@ -297,12 +288,12 @@ void main() {
       st.W = Math.max(1, Math.round(r.width)); st.H = Math.max(1, Math.round(r.height));
       canvas.width = Math.round(st.W * st.dpr); canvas.height = Math.round(st.H * st.dpr);
       canvas.style.width = st.W + 'px'; canvas.style.height = st.H + 'px';
-      if (st.autoFit && (st.model || st.board)) fit(null);   // framing follows the size until the user moves the camera
+      if (st.autoFit && (st.model || st.board)) fit(null);   // keep the part framed on resize until the user moves the camera
       request();
     }
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { if (!host.hidden) resize(); }).observe(host);
 
-    // ------------------------------------------------------------ input
+    // Input
     const ptrs = new Map();
     let drag = null;
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -367,21 +358,21 @@ void main() {
       st.target = [st.target[0] - (right[0] * dx - u[0] * dy) * k, st.target[1] - (right[1] * dx - u[1] * dy) * k, st.target[2] - (right[2] * dx - u[2] * dy) * k];
     }
 
-    // ------------------------------------------------------------ api
+    // API
     return {
       ok,
       show(model, board, key) {
         st.model = model; st.board = board;
         note.innerHTML = '';
         const notes = [];
-        if (model && model.none) notes.push('<code>no model</code> — this footprint has no 3D output');
+        if (model && model.none) notes.push('No 3D model: this footprint says <code>no model</code>.');
         for (const n of (model && model.notes) || []) notes.push(n.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/`([^`]+)`/g, '<code>$1</code>'));
-        if (!ok) notes.unshift('WebGL is not available in this browser, so the 3D view can\'t be drawn');
+        if (!ok) notes.unshift('This browser has no WebGL, so the 3D view can\'t be drawn.');
         note.innerHTML = notes.map((t) => `<p>${t}</p>`).join('');
         note.hidden = !notes.length;
         resize();
         upload();
-        // a new footprint is framed again; the viewing angle carries over
+        // frame a new footprint again but keep the viewing angle
         if (key !== st.key) { fit(st.key == null ? 'iso' : null); st.key = key; }
         request();
       },

@@ -1,31 +1,23 @@
-# =============================================================================
-# stomp — formal grammar (PEG)
-# Companion to SPEC.md. Where prose and grammar disagree, this file wins for
-# syntax, SPEC.md wins for meaning.
+# stomp grammar (PEG). SPEC.md says what things mean. If the two disagree,
+# this file wins on syntax and SPEC.md on meaning.
 #
 # Notation
-#   rule <- expression          definition
-#   'kw'                        literal token (case-sensitive)
-#   A / B                       ordered choice (PEG: first match wins, no ambiguity)
-#   A? A* A+                    optional / zero-or-more / one-or-more
-#   &A !A                       and- / not-predicate (no input consumed)
-#   [a-z]                       character class          (lexical layer only)
-#   ( )                         grouping
+#   rule <- expression    definition
+#   'kw'                  literal token (case-sensitive)
+#   A / B                 ordered choice: the first match wins
+#   A? A* A+              optional, zero or more, one or more
+#   &A !A                 lookahead: A must (or must not) follow; consumes nothing
+#   [a-z]                 character class (tokens only)
+#   ( )                   grouping
 #
-# This grammar is written at TOKEN level: rules below the "LEXICAL LAYER"
-# heading define tokens; all other rules implicitly allow inline whitespace
-# (spaces, tabs) between tokens. Newlines are significant only where EOS
-# appears — except inside ( ), and immediately after '{', ',', or an infix
-# operator, where they are treated as inline whitespace (SPEC §4).
+# The rules work on tokens, which are defined at the end under "Tokens". Spaces
+# and tabs can go between any two tokens. A newline ends a statement (EOS),
+# except inside ( ) and right after '{', ',' or an operator (SPEC 4).
 #
-# The rule order within each ordered choice is normative: it is what makes the
-# grammar deterministic without a separate disambiguation pass, and maps
-# directly onto a PEGTL implementation.
-# =============================================================================
+# The order of the choices matters: it keeps the grammar unambiguous without
+# a separate pass, and maps straight onto PEGTL.
 
-# ---------------------------------------------------------------------------
-# 1. File structure                                                  (SPEC §5)
-# ---------------------------------------------------------------------------
+# 1. File structure (SPEC 5)
 
 file            <- EOS? (top_stmt EOS)* EOF
 top_stmt        <- units_stmt
@@ -40,7 +32,7 @@ template_decl   <- 'template' IDENT '(' param_list? ')' block
 param_list      <- param (',' param)*
 param           <- IDENT ('=' expr)?
 
-# The name may be left to the template (`name` statement, SPEC §14.2) in a call.
+# With `from`, the name can come from the template's `name` statement (SPEC 14.2).
 footprint_decl  <- 'footprint' ( name ( 'extends' name block
                                       / 'from' call block?
                                       / block )
@@ -49,25 +41,22 @@ call            <- IDENT '(' arg_list? ')'
 arg_list        <- arg (',' arg)*
 arg             <- (IDENT '=')? expr
 
-# Tables: one footprint per row (SPEC §14.3). The header row names template
-# parameters; cells are whitespace-separated, so arithmetic needs parentheses
-# and a minus must touch its number (`-0.1`).
+# Tables: one footprint per row (SPEC 14.3). The header row names template
+# parameters. Cells are separated by spaces, so arithmetic needs parentheses
+# and a minus sign must touch its number (`-0.1`).
 footprints_decl <- 'footprints' 'from' IDENT ('(' arg_list? ')')? table
 table           <- '{' EOS? table_head EOS (table_row EOS)* '}'
 table_head      <- IDENT+
-table_row       <- cell+                     # exactly one cell per header column
+table_row       <- cell+                     # one cell per header column
 cell            <- STRING
-                 / '-'? NUMBER unit_name?    # '-' attached (lexical)
+                 / '-'? NUMBER unit_name?    # no space after the '-'
                  / IDENT
                  / '(' expr ')'
 
 block           <- '{' EOS? (statement EOS)* '}'
 
-# ---------------------------------------------------------------------------
-# 2. Statements (footprint body)
-#    Ordered so that every keyword-introduced statement is tried before the
-#    placement statements, which begin with a general object reference.
-# ---------------------------------------------------------------------------
+# 2. Statements in a footprint. Placements start with an object reference,
+# so every keyword statement is tried before them.
 
 statement       <- meta_stmt
                  / name_stmt               # templates and `from` blocks only
@@ -78,7 +67,7 @@ statement       <- meta_stmt
                  / balls_stmt
                  / lead_stmt
                  / thermal_stmt
-                 / measure_stmt          # span / gap / pitch (both forms)
+                 / measure_stmt          # span, gap, pitch (both forms)
                  / density_stmt
                  / omit_stmt
                  / only_stmt
@@ -97,7 +86,7 @@ statement       <- meta_stmt
                  / assembly_stmt
                  / text_stmt
                  / model_stmt
-                 / placement_stmt        # objref-initial: at / is / mirrors
+                 / placement_stmt        # starts with an object: at, is, mirrors
 
 meta_stmt       <- 'description'  STRING
                  / 'datasheet'    STRING
@@ -115,16 +104,14 @@ origin_stmt     <- 'origin' ( 'at' ( point / objref )
 
 delete_stmt     <- 'delete' objref
 
-# ---------------------------------------------------------------------------
-# 3. Values and expressions                                          (SPEC §7)
-# ---------------------------------------------------------------------------
+# 3. Values and expressions (SPEC 7)
 
 expr            <- term (add_op term)*
 term            <- factor (mul_op factor)*
-factor          <- '-'? ( NUMBER unit_name?   # unit suffix must be attached (lexical)
-                        / IDENT               # let-name / template parameter
+factor          <- '-'? ( NUMBER unit_name?   # no space before the unit
+                        / IDENT               # a let name or template parameter
                         / '(' expr ')' )
-                 / STRING                     # text: usable only inside {…} interpolation
+                 / STRING                     # text, only usable inside a string's {...}
 add_op          <- '+' / '-'
 mul_op          <- '*' / '/'
 
@@ -132,33 +119,29 @@ size            <- expr 'x' expr              # WIDTH x LENGTH; 'x' is reserved
 point           <- '(' expr ',' expr ')'
 point3          <- '(' expr ',' expr ',' expr ')'
 percent         <- NUMBER '%'
-angle           <- '-'? NUMBER ('deg' / 'rad')?   # bare number = degrees
+angle           <- '-'? NUMBER ('deg' / 'rad')?   # a bare number is degrees
 length_or_pct   <- percent / expr
 
 unit_name       <- 'mm' / 'um' / 'nm' / 'mil' / 'in'
 
-# ---------------------------------------------------------------------------
-# 4. Names, object references, anchors                               (SPEC §8)
-# ---------------------------------------------------------------------------
+# 4. Names, object references, anchors (SPEC 8)
 
-name            <- STRING / INT / IDENT       # pads: usually INT; weird pins: STRING
+name            <- STRING / INT / IDENT       # usually INT; quote odd pin names
 
-# A reference optionally carries a kind keyword and a trailing anchor.
-# 'side' references REQUIRE the keyword (left/right/top/bottom are reserved).
-# 'ball' is an alias kind for pads created by a `balls` grid.
+# A reference can have a kind keyword before it and an anchor after it.
+# Sides need the `side` keyword, since left, right, top and bottom are reserved.
+# `ball` refers to pads made by a `balls` grid.
 objref          <- 'origin'
                  / 'body' anchor?
                  / 'side' side_word anchor?
                  / kind_word name anchor?
-                 / name anchor?               # bare form, where unambiguous
+                 / name anchor?               # no kind keyword, where that's unambiguous
 kind_word       <- 'pad' / 'hole' / 'row' / 'group' / 'ball'
 side_word       <- 'left' / 'right' / 'top' / 'bottom'
 anchor          <- 'center' / 'inner' / 'outer'
                  / 'left' / 'right' / 'top' / 'bottom'
 
-# ---------------------------------------------------------------------------
-# 5. Placement and dimensioning                                      (SPEC §9)
-# ---------------------------------------------------------------------------
+# 5. Placement and dimensioning (SPEC 9)
 
 placement_stmt  <- objref ( at_tail / is_tail / mirrors_tail )
 
@@ -177,8 +160,9 @@ axis_adv        <- 'horizontally' / 'vertically'
 
 align_stmt      <- 'align' objref 'with' objref axis_adv
 
-# span/gap/pitch: measured-pair form first, then the bare generator/land form
-# (`span 5.4 centers`, `gap 0.4`, `pitch 1.27`)                 (SPEC §9.4, §11.3)
+# span, gap, pitch: first the form that measures two objects, then the bare
+# form for generated pins (`span 5.4 centers`, `gap 0.4`, `pitch 1.27`).
+# SPEC 9.4 and 11.3.
 measure_stmt    <- measure_word objref 'to' objref 'is' expr axis_adv?
                  / measure_word expr span_qual?
 measure_word    <- 'span' / 'gap' / 'pitch'
@@ -194,9 +178,7 @@ sel_list        <- sel_item (',' sel_item)*
 sel_item        <- range / name
 range           <- (INT / IDENT) '..' (INT / IDENT)
 
-# ---------------------------------------------------------------------------
-# 6. Pads and holes                                                 (SPEC §10)
-# ---------------------------------------------------------------------------
+# 6. Pads and holes (SPEC 10)
 
 default_pad_stmt<- 'default' 'pad' pad_geom
 
@@ -219,9 +201,9 @@ pad_prop        <- 'rotate' angle
                                                       / 'gutter' expr )?
                            / signed_expr )
                  / 'vias' count 'x' count 'drill' expr 'pitch' expr
-signed_expr     <- ('+' / '-') expr          # explicit sign: expansion vs contraction
+signed_expr     <- ('+' / '-') expr          # the sign is required: + grows, - shrinks
 
-# Block form: full geometry, partial overrides, or both       (SPEC §10.1, §10.3)
+# Block form: full geometry, overrides, or both (SPEC 10.1, 10.3)
 pad_block       <- '{' EOS? (pad_block_stmt EOS)* '}'
 pad_block_stmt  <- 'shape' shape_spec
                  / 'size' size
@@ -230,11 +212,9 @@ pad_block_stmt  <- 'shape' shape_spec
                  / drill_spec
                  / pad_prop
 
-hole_stmt       <- 'hole' name ( 'slot' size / expr )    # NPTH; placement separate
+hole_stmt       <- 'hole' name ( 'slot' size / expr )    # NPTH, placed by its own statement
 
-# ---------------------------------------------------------------------------
-# 7. Parametric part description                                    (SPEC §11)
-# ---------------------------------------------------------------------------
+# 7. Parametric part description (SPEC 11)
 
 body_stmt       <- 'body' ( 'cylinder' 'd' expr 'h' expr
                           / expr 'x' expr ('x' expr)? )   # W x L [x H]
@@ -246,30 +226,30 @@ arrangement     <- 'dual' / 'quad' / 'horizontal' / 'vertical'
                  / 'single' side_word
 
 balls_stmt      <- 'balls' count 'x' count pins_clause*
-count           <- INT / IDENT               # IDENT: a template parameter / let-name
+count           <- INT / IDENT               # IDENT: a template parameter or let name
 
 pins_clause     <- 'pitch' expr ('x' expr)?              # per-axis pitch for grids
                  / 'span' expr span_qual?
-                 / 'pad' pad_geom                        # per-statement default pad
+                 / 'pad' pad_geom                        # default pad for these pins
                  / 'numbering' numbering_scheme
                  / 'start' corner_word
 numbering_scheme<- 'ccw' / 'cw' / 'zigzag' / 'row-major' / 'col-major' / 'bga'
 corner_word     <- 'top-left' / 'top-right' / 'bottom-left' / 'bottom-right'
 
-# Explicit sides: entries in CCW walk order; `nc` reserves an empty position.
+# Explicit sides, listed counterclockwise. `nc` leaves a position empty.
 sides_block     <- '{' EOS? (side_entry EOS)* '}'
 side_entry      <- side_word ':' position (',' position)* ('pitch' expr)?
 position        <- 'nc' / name
 
 lead_stmt       <- 'lead' sel_list? lead_form lead_dims? ('span' expr span_qual?)?
-                 / 'lead' sel_list 'none'                  # per-pin: no 3D lead (SPEC §11.3)
+                 / 'lead' sel_list 'none'                  # these pins get no 3D lead (SPEC 11.3)
 lead_form       <- 'gullwing' / 'jlead' / 'flat' / 'endcap' / 'ball'
                  / 'pin' / 'wire' / 'tab' / 'castellated'
-# With a sel_list the lead belongs to those pins only. A lead form is a keyword and a
-# pin name never is, so the two readings never compete.
+# With a sel_list, the lead applies to those pins only. Lead forms are keywords
+# and pin names never are, so the two can't be confused.
 lead_dims       <- 'd' expr                              # round: diameter
                  / size                                  # W x L
-                 / expr                                  # single dim (endcap len, ball dia)
+                 / expr                                  # one number: endcap length or ball diameter
 
 thermal_stmt    <- 'thermal' 'pad' ( name size / size ) ( pad_block )?
 
@@ -283,9 +263,7 @@ region_or_name  <- 'rows' range ('cols' range)?
                  / 'cols' range
                  / name
 
-# ---------------------------------------------------------------------------
-# 8. Graphic layers                                                 (SPEC §12)
-# ---------------------------------------------------------------------------
+# 8. Graphic layers (SPEC 12)
 
 silk_stmt       <- 'silk'     ( 'auto' / 'none' / gfx_block )
 assembly_stmt   <- 'assembly' ( 'auto' / 'none' / gfx_block )
@@ -306,9 +284,7 @@ text_stmt       <- 'text' ('ref' / 'value' / STRING)
                    'at' point ('size' expr)? ('layer' layer_word)?
 layer_word      <- 'silk' / 'assembly' / 'copper' / 'mask'
 
-# ---------------------------------------------------------------------------
-# 9. 3D model                                                       (SPEC §13)
-# ---------------------------------------------------------------------------
+# 9. 3D model (SPEC 13)
 
 model_stmt      <- 'no' 'model'
                  / 'model' '{' EOS? (model_prop EOS)* '}'
@@ -318,51 +294,45 @@ model_prop      <- 'standoff' expr
                  / 'body'  'color' color
                  / 'leads' ( 'color' color
                            / 'thickness' expr
-                           / 'below' expr                # through-hole: length below board
-                           / 'above' expr )              # grid pins: rise above housing
+                           / 'below' expr                # through-hole: length below the board
+                           / 'above' expr )              # grid pins: height above the housing
                  / 'pin1' ('dimple' / 'dot' / 'notch' / 'stripe' / 'none')
                  / solid
                  / 'step' STRING step_xform*
 solid           <- ( 'box' expr 'x' expr 'x' expr        # W x L x H
                    / 'cylinder' 'd' expr 'h' expr )       # upright
                    solid_opt*
-solid_opt       <- 'at' (point3 / point)                 # centre; z = the solid's bottom
-                 / 'on' 'body'                           # rest on the body top
-                 / 'rotate' point3                       # degrees, about the centre
+solid_opt       <- 'at' (point3 / point)                 # center; z is the solid's bottom
+                 / 'on' 'body'                           # sits on top of the body
+                 / 'rotate' point3                       # degrees, about the center
                  / 'color' color
 step_xform      <- 'offset' point3 / 'rotate' point3 / 'scale' expr
 color           <- STRING                                # "#20232a"
-                 / IDENT                                 # named: black, tin, gold, … (SPEC §13.2)
+                 / IDENT                                 # a name: black, tin, gold, ... (SPEC 13.2)
                  / 'copper'                              # the one color name that is also a keyword
 
-# ===========================================================================
-# LEXICAL LAYER
-# ===========================================================================
-
-# Tokens. Inline whitespace between tokens is implicit in all rules above.
+# Tokens. Spaces and tabs between tokens are implied in all the rules above.
 
 IDENT           <- !keyword [A-Za-z_] [A-Za-z0-9_]*
-INT             <- [0-9]+ !'.'                 # …but INT '..' is fine: the
-                                               # not-predicate is !( '.' !'.' )
+INT             <- [0-9]+ !'.'                 # really !('.' !'.'), so INT '..'
+                                               # still lexes as a range
 NUMBER          <- [0-9]+ ('.' [0-9]*)? / '.' [0-9]+
-                                               # unit / '%' / 'deg' suffixes bind
-                                               # only when immediately attached
+                                               # a unit, '%' or 'deg' suffix only
+                                               # counts with no space before it
 STRING          <- '"' ( '\\' ["\\{}] / interp / !(["{] / NEWLINE) . )* '"'
-interp          <- '{' expr (':' '.' [0-9])? '}'   # SPEC §7; the expr is lexed like code,
-                                                    # with no strings or newlines inside
+interp          <- '{' expr (':' '.' [0-9])? '}'   # SPEC 7. The expr is lexed like code,
+                                                    # with no strings or newlines
 
 COMMENT         <- '#' (!NEWLINE .)*
 NEWLINE         <- '\r\n' / '\n'
-EOS             <- (COMMENT? NEWLINE / ';')+   # end of statement…
-                 / &'}'                        # …or a closing brace ends the last
-                 / !.                          #    statement, as does end-of-file —
-                                               #    this is what makes one-line blocks
-                                               #    like `pad 5 { width 2.0 }` legal
+EOS             <- (COMMENT? NEWLINE / ';')+   # end of statement
+                 / &'}'                        # a closing brace or the end of the
+                 / !.                          # file ends one too, which allows
+                                               # one-line blocks: `pad 5 { width 2.0 }`
 EOF             <- !.
 
-# Reserved words (may not be used as bare IDENT names; quote instead). The
-# hyphenated entries can never collide with IDENTs (no '-' in IDENT) and are
-# listed only for completeness:
+# Reserved words. They can't be bare names; quote them instead. The hyphenated
+# ones can't clash with an IDENT anyway (an IDENT has no '-'):
 #   above across align and arc assembly at auto ball balls bar below between
 #   bga body bottom bottom-left bottom-right box castellated ccw center
 #   centered centers chamfer circle col-major color cols copper courtyard
@@ -380,9 +350,9 @@ EOF             <- !.
 #   zigzag
 #
 # Notes:
-#  - 'x', 'd', 'h', 'r' are reserved (size separator / diameter / height /
-#    radius markers) and therefore unavailable as let-names (SPEC §4).
-#  - Keywords are only reserved in bare-IDENT position; any keyword is usable
-#    as an object name via quoting: pad "span".
-#  - A name INT is digits NOT followed by a single '.', so `pad 1.` cannot
-#    lex; `1..4` (range) and `1 .. 4` both work.
+#  - 'x', 'd', 'h' and 'r' are reserved (size, diameter, height, radius), so
+#    they can't be let names (SPEC 4).
+#  - Keywords are only reserved as bare names. Quote one to use it as an
+#    object name: pad "span".
+#  - An INT is digits not followed by a single '.', so `pad 1.` doesn't lex,
+#    but the ranges `1..4` and `1 .. 4` both work.

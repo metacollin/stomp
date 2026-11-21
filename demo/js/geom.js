@@ -1,9 +1,8 @@
-/* stomp live demo — 2D geometry helpers.
+/* stomp live demo: 2D geometry.
  *
- * Coordinates are millimetres, +x right, +y up (SPEC §6). Closed outlines are
- * "contours": arrays of edges, either straight lines or counter-clockwise
- * circular arcs, so bounding boxes and SVG paths stay exact while clipping and
- * hull work on tessellated polygons.
+ * Coordinates are mm, +x right, +y up (SPEC 6). Closed outlines are "contours":
+ * lists of edges, each a straight line or a counterclockwise arc, so bounding
+ * boxes and SVG paths stay exact. Clipping and hulls work on polygons made from them.
  *
  *   line: { t: 'L', a: [x, y], b: [x, y] }
  *   arc:  { t: 'A', c: [x, y], r, a0, a1, a: [x, y], b: [x, y] }   (a1 > a0, radians)
@@ -19,7 +18,7 @@
   const HALF_PI = Math.PI / 2;
   const deg = (d) => (d * Math.PI) / 180;
 
-  // ---------------------------------------------------------------- contours
+  // Contours
 
   function line(a, b) { return { t: 'L', a, b }; }
   function arc(c, r, a0, a1) {
@@ -30,7 +29,7 @@
     };
   }
 
-  /** Rectangle w×l centred on the origin with per-corner radii (CCW from bottom edge). */
+  /** A w x l rectangle centered on the origin, with a radius per corner (CCW from the bottom edge). */
   function rrectContour(w, l, rad) {
     if (!(w > EPS && l > EPS)) return [];
     const hw = w / 2, hl = l / 2;
@@ -137,9 +136,9 @@
     return closed ? d + 'Z' : d;
   }
 
-  // ----------------------------------------------------------------- shapes
-  // Pad / hole shapes, canonical: centred on the reference point, unrotated.
-  //   { kind: 'rect' | 'oval' | 'roundrect' | 'dshape' | 'circle' | 'polygon', … }
+  // Shapes
+  // Pad and hole shapes, centered on their reference point and unrotated:
+  //   { kind: 'rect' | 'oval' | 'roundrect' | 'dshape' | 'circle' | 'polygon', ... }
 
   function dshapeRadii(w, l, flat, r) {
     const z = { tl: 0, tr: 0, bl: 0, br: 0 };
@@ -182,7 +181,7 @@
     }
   }
 
-  /** Mirror a canonical shape across the y axis ('y': x → −x) or x axis ('x': y → −y). */
+  /** Mirror a shape across the y axis ('y' negates x) or the x axis ('x' negates y). */
   function mirrorShape(sh, axis) {
     if (sh.kind === 'dshape') {
       const swap = axis === 'y' ? { left: 'right', right: 'left' } : { top: 'bottom', bottom: 'top' };
@@ -195,7 +194,7 @@
     return { ...sh };
   }
 
-  // --------------------------------------------------------------- polygons
+  // Polygons
 
   function polyArea(pts) {
     let a = 0;
@@ -236,14 +235,14 @@
       const bl = Math.hypot(bis[0], bis[1]);
       if (bl < 1e-12) { out.push([p1[0] + n1[0] * d, p1[1] + n1[1] * d]); continue; }
       const cosHalf = (bis[0] * n1[0] + bis[1] * n1[1]) / bl;   // (0, 1]
-      const len = d / Math.max(cosHalf, 0.25);                  // miter limit 4×
+      const len = d / Math.max(cosHalf, 0.25);                  // miter limit: 4 times d
       out.push([p1[0] + (bis[0] / bl) * len, p1[1] + (bis[1] / bl) * len]);
     }
     return out;
   }
 
   function outwardNormal(a, b) {
-    // for a CCW polygon the outward normal of edge a→b points to the right
+    // for a CCW polygon, the outward normal of edge a-b points right
     const dx = b[0] - a[0], dy = b[1] - a[1];
     const L = Math.hypot(dx, dy) || 1;
     return [dy / L, -dx / L];
@@ -279,7 +278,7 @@
     return inside;
   }
 
-  /** Parameter t ∈ [0,1] along a→b where it crosses c→d, or null. */
+  /** Where segment a-b crosses c-d, as t in [0, 1] along a-b, or null. */
   function segCross(a, b, c, d) {
     const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]];
     const den = r[0] * s[1] - r[1] * s[0];
@@ -326,7 +325,7 @@
       }
     }
     if (cur) pieces.push(cur);
-    // a closed outline that survived around its start point: join first & last
+    // a closed outline that survived around its start point: join the first and last pieces
     if (closed && pieces.length > 1) {
       const first = pieces[0], last = pieces[pieces.length - 1];
       if (dist(last[last.length - 1], first[0]) < 1e-7) {
@@ -366,7 +365,7 @@
     return [(a[0] + b[0]) / 2 - n[0] * 1e-4, (a[1] + b[1]) / 2 - n[1] * 1e-4];
   }
 
-  // -------------------------------------------------------------- utilities
+  // Utilities
 
   function emptyBox() { return { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }; }
   function addPt(bb, p) {

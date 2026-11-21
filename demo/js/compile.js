@@ -1,19 +1,11 @@
-/* stomp live demo — evaluator: source text → solved footprint geometry.
+/* stomp live demo: the compiler.
  *
- *   compile(source) → { diagnostics, footprints: [{ name, s, e, result }], templates, tokens }
+ *   compile(source) returns { diagnostics, footprints: [{ name, s, e, result }], templates, tokens }
  *
- * Pipeline per footprint (SPEC section in brackets):
- *   flatten   `from` templates and `extends` parents into one statement list,
- *             tagging each with its inheritance level                     [§14]
- *   gather    singletons (body, lead, density, …), objects, placements    [§5–§13]
- *   generate  pins / balls / sides → named pads with weak default places  [§11]
- *   geometry  explicit > mirror > pins-pad / default pad > IPC-derived    [§10, §11.3]
- *   solve     per-axis single-assignment constraint propagation            [§9]
- *   layers    copper, mask, paste, drills, silk, courtyard, assembly       [§12]
- *
- * Semantic decisions the draft spec leaves open are marked "DEMO DECISION".
- * Internally lengths are float millimetres (the spec's int64 nm is a target
- * for the real implementation; display rounds to 1 nm).
+ * For each footprint: expand templates and parents into one list of statements,
+ * collect them, generate pads, pick each pad's geometry, solve the placements,
+ * then build the layers. Lengths are float mm (the spec plans integer nm for
+ * the real implementation).
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -30,7 +22,7 @@
   const AXES = ['x', 'y'];
   const OTHER = { x: 'y', y: 'x' };
 
-  // Stack-rule placeholders and drawing defaults (DEMO DECISION: no stack file yet)
+  // Drawing defaults. The spec has no stack file yet, so these are fixed.
   const D = {
     mask: 0.05,             // solder-mask expansion per side
     maskDefinedOverlap: 0.05, // copper beyond the mask opening on `mask defined` pads
@@ -38,7 +30,7 @@
     silkW: 0.12, silkClear: 0.15, silkOffset: 0.11,
     fabW: 0.1, crtW: 0.05,
     dot: 0.3,
-    tol: Math.hypot(0.05, 0.025),  // IPC fabrication (F) ⊕ placement (P) tolerance, no part tolerance
+    tol: Math.hypot(0.05, 0.025),  // IPC fabrication and placement tolerances combined (no part tolerance)
   };
 
   // IPC-7351B-style fillet goals [most, nominal, least] (mm)
@@ -54,7 +46,7 @@
   const THT = { allowance: [0.25, 0.20, 0.15], ring: [0.40, 0.30, 0.20] };
   const CY_DEFAULT = [0.5, 0.25, 0.1];
   const BALL_LAND = 0.8;
-  // 3D colors (SPEC §13.2); metals render shiny
+  // 3D colors (SPEC 13.2). Metals render shiny.
   const COLORS = {
     black: '#1d1e21', gray: '#6f7378', grey: '#6f7378', white: '#ecebe6', red: '#b3352c', green: '#2f7a3e',
     blue: '#2c5aa6', yellow: '#e0bd3a', orange: '#d8772c', brown: '#6b4b31', tan: '#c49c6d', ceramic: '#e2dbc9',
@@ -69,11 +61,11 @@
   }
   const SILENT = (node) => Object.assign(new StompError('', node), { silent: true });
 
-  // ===================================================================== values
+  // Values
 
-  // Value kinds: 'num' (plain literal-derived; becomes a length in the file's
-  // default unit where one is needed), 'ratio' (length ÷ length), 'len' (mm),
-  // 'str' (text — only usable inside a string's `{…}`).
+  // Value kinds: 'num' (a plain number; a length in the file's unit where one is
+  // needed), 'ratio' (length / length), 'len' (mm), and 'str' (text, only usable
+  // inside a string's {...}).
   const KIND_NAME = { num: 'number', ratio: 'ratio', len: 'length', str: 'text' };
 
   function evalExpr(x, env) {
@@ -115,7 +107,7 @@
     }
   }
 
-  /** A string literal: plain text, or { interp: [text | { x, fmt }] } evaluated in env. */
+  /** A string literal: plain text, or { interp: [text | { x, fmt }] } to evaluate. */
   function interpolate(value, env) {
     if (typeof value === 'string') return value;
     let out = '';
@@ -123,8 +115,8 @@
     return out;
   }
 
-  /** How a value prints inside `{…}`: text verbatim, numbers in their shortest form,
-   *  lengths in the file's units; `{x:.N}` fixes N decimal places. */
+  /** How a value prints inside {...}: text as is, numbers in their shortest form,
+   *  lengths in the file's units. {x:.N} gives N decimals. */
   function formatValue(v, fmt, env) {
     if (!v) return '';
     if (v.k === 'str') return v.v;
@@ -160,13 +152,12 @@
     }
   }
 
-  // ===================================================================== compile
+  // Compile
 
-  // Results of earlier compiles, keyed by everything a footprint is built from. Editing
-  // one row of a big table then re-evaluates just that row. Keys hold the source text
-  // (and, where results carry source offsets, those offsets) of the footprint, its
-  // template and the file's lets; a table row's own offset is left out, and
-  // diagnostics inside the row are shifted when replayed.
+  // Results of earlier compiles, keyed by the text a footprint is built from: its own
+  // text, its template and the file's lets. Editing one table row then rebuilds only
+  // that row. A row's position isn't part of its key; its diagnostics are moved when
+  // a cached result is reused.
   const CACHE = new Map();
   const CACHE_MAX = 1500;
 
@@ -177,7 +168,7 @@
     const ast = Parser.parse(lx.tokens, diags);
     const file = buildFile(ast, diags);
 
-    // every footprint declaration, with each table row as a `from` call [§14]
+    // every footprint, with each table row as a `from` call
     const decls = [];
     const tables = [];
     for (const it of ast.items) {
@@ -211,7 +202,7 @@
       });
       if (d.mode === 'extends') d.parentName = safely(b, () => b.nameOf(d.parent));
       if (!b.name) {
-        // placeholders depend on position, which cache keys leave out: don't cache them
+        // placeholder names depend on position, which keys leave out, so don't cache them
         b.key = null;
         b.name = d.table ? `${d.template.name} row ${d.rowIndex + 1}` : `(unnamed, line ${b.lineAt(d.s)})`;
       }
@@ -310,7 +301,7 @@
     return entry.diags.map((x) => Object.assign(move(x), { inst: move(x.inst), related: (x.related || []).map(move) }));
   }
 
-  /** Each table row is a `from` call of the table's template [§14]. */
+  /** Each table row is a `from` call of the table's template. */
   function rowDecls(table) {
     return table.rows.map((row, i) => ({
       type: 'Footprint', mode: 'from', name: null, template: table.template,
@@ -321,9 +312,9 @@
   }
 
   /**
-   * A diagnostic inside a template body is reported once at the template when every
-   * call of the template produces it (a bug in the template), and otherwise on the
-   * calls that produce it — the table row or `from` call with the bad values.
+   * A problem inside a template body is reported once, at the template, when every
+   * call has it. Otherwise it's reported on the calls that cause it: the table row
+   * or `from` call with the bad values.
    */
   function rehome(diags, instCount) {
     const out = [];
@@ -410,7 +401,7 @@
     return out;
   }
 
-  // ===================================================================== footprint
+  // One footprint
 
   class FootprintBuilder {
     constructor(decl, file, diags, source) {
@@ -422,7 +413,7 @@
       this.scope = new Scope(file.lets);
     }
 
-    // ---------------------------------------------------------- reporting
+    // Reporting
     report(sev, msg, node, related) {
       const n = node || this.decl;
       if (sev === 'error') this.errorCount = (this.errorCount || 0) + 1;
@@ -457,7 +448,7 @@
       }
     }
 
-    // ---------------------------------------------------------- values
+    // Values
     env(stmt) { return { scope: this.scope, scale: UNIT_MM[(stmt && stmt.unit) || 'mm'] }; }
     val(x, stmt) { return evalExpr(x, this.env(stmt)); }
     len(x, stmt) {
@@ -482,8 +473,8 @@
       return Math.round(v.v);
     }
 
-    // ================================================================ build
-    /** Flatten templates/parents, bind parameters, define lets, resolve interpolated strings. */
+    // Build
+    /** Expand templates and parents, bind parameters, define lets, fill in strings. */
     prepare() {
       if (this.prepared) return;
       this.prepared = true;
@@ -495,7 +486,7 @@
       this.items = this.items.map((it) => ({ s: this.resolveStmt(it.s), level: it.level }));
     }
 
-    /** The footprint's name: its header, else the template's `name` statement [§14]. */
+    /** The footprint's name: from its header, else from the template's `name` line. */
     computeName() {
       const d = this.decl;
       if (d.name != null) return this.nameOf({ name: d.name, s: d.nameS, e: d.nameE }, d.unit);
@@ -563,7 +554,7 @@
       return this.output();
     }
 
-    // ---------------------------------------------------------- flatten [§14]
+    // Expand templates and parents
     flatten(decl, chain) {
       const key = decl.computedName || (typeof decl.name === 'string' ? decl.name : `@${decl.s}`);
       if (chain.includes(key)) {
@@ -627,7 +618,7 @@
       }
     }
 
-    /** Footprint-scoped lets (lazy, any order); later inheritance levels replace earlier ones. */
+    /** The footprint's lets, evaluated on use and in any order. A child's let replaces its parent's. */
     defineLets() {
       for (const it of this.items) {
         const s = it.s;
@@ -641,7 +632,7 @@
       }
     }
 
-    // ---------------------------------------------------------- gather
+    // Collect statements
     gather() {
       this.broken = new Set();
       const st = this.st = {
@@ -689,7 +680,7 @@
             else single('bareSpan', it, 'span/gap');
             break;
           case 'Model': {
-            // model blocks merge down an extends chain (SPEC §13.4); twice at one level is an error
+            // model blocks merge down an extends chain; two at one level is an error
             const twin = st.models.find((m) => m.level === it.level);
             if (twin) this.err(`\`${s.none ? 'no model' : 'model'}\` is given twice in this footprint (first on line ${this.lineAt(twin.s.s)})`, s, [{ message: 'first given here', node: twin.s }]);
             else st.models.push(it);
@@ -735,7 +726,7 @@
           if (n.form === 'castellated') this.warn('castellated leads are provisional (SPEC §17.7): the demo draws a plain edge land', n);
         });
       }
-      // per-pin leads (SPEC §11.3): a later statement wins for a pin it names again
+      // per-pin leads: a later line wins for a pin named twice
       this.pinLeads = new Map();
       for (const it of st.pinLeads.slice().sort((a, b) => a.level - b.level || a.s.s - b.s.s)) {
         const n = it.s;
@@ -765,7 +756,7 @@
       return L;
     }
 
-    // ---------------------------------------------------------- pad specs [§10]
+    // Pad specs
     shapeFrom(sh, stmt) {
       const L = (x, what) => this.plen(x, stmt, what);
       switch (sh.kind) {
@@ -868,7 +859,7 @@
       if (sh.kind === 'roundrect' && sh.rPct != null) sh.r = (sh.rPct / 100) * Math.min(sh.w, sh.l);
     }
 
-    // ---------------------------------------------------------- generator [§11]
+    // Generators
     generate() {
       this.gen = null;
       const it = this.st.gen;
@@ -896,7 +887,7 @@
       const scheme = C.numbering ? C.numbering.v : null;
       const start = C.start ? C.start.v : 'top-left';
       const gen = this.gen = { node, kind: null, positions: [], sides: {}, pin1: null, proto, protoSrc: clauseSpec ? C.pad : (this.defaultSpec ? this.st.defaultPad.s : null) };
-      // a MELF lies along its two pins, which also sizes its endcap lands (decideAxial for wires)
+      // A MELF lies along its two pins, which also sets its end cap lands. decideAxial handles wires.
       if (this.body && this.body.kind === 'cyl' && lead && lead.form === 'endcap' && node.type === 'Pins' && node.form === 'count') {
         const arr = node.arrangement || 'horizontal';
         if (arr === 'horizontal' || arr === 'vertical') this.makeAxial(arr === 'vertical' ? 'y' : 'x');
@@ -931,7 +922,7 @@
       } else {
         this.countLayout(node, pitch, proto, scheme, start);
       }
-      // pin 1 = first in numbering order (kept even if later omitted, for markers)
+      // pin 1 is first in numbering order (kept even if omitted, for the markers)
       const sorted = gen.positions.slice().sort((a, b) => a.order - b.order);
       gen.pin1 = sorted.length ? sorted[0] : null;
       // duplicate names
@@ -945,7 +936,7 @@
       this.decideAxial();
     }
 
-    /** Per-pin leads (SPEC §11.3): the pin's land is re-derived from its own lead where it was derived at all. */
+    /** Per-pin leads: re-derive a pin's land from its own lead, if its land was derived. */
     applyPinLeads() {
       const gen = this.gen;
       if (!this.pinLeads.size) return;
@@ -979,9 +970,9 @@
     }
 
     /**
-     * A cylinder body lies along the pins when they can't come out of its bottom: a MELF
-     * (endcaps) always, and wire leads that sit outside the circle (an axial part).
-     * In 2D it is then the rectangle it covers: length h along the pins, diameter d across.
+     * A cylinder lies down when its pins can't leave its bottom: always for end caps
+     * (a MELF), and for wire leads outside the circle (an axial part). In 2D it's then
+     * a rectangle: h along the pins, d across.
      */
     decideAxial() {
       const b = this.body, gen = this.gen, lead = this.lead;
@@ -1028,7 +1019,7 @@
       return { shape: { kind: 'circle', d: pad }, tht: true, drill: { d: drill }, rot: 0, mask: null, paste: null, vias: null, ipc: true };
     }
 
-    /** Centre-to-centre row spacing along `axis` (x: left/right rows, y: top/bottom). */
+    /** Center-to-center row spacing along axis (x for left/right rows, y for top/bottom). */
     rowSpacing(axis, proto, ctx) {
       const st = this.st;
       const body = this.body;
@@ -1040,13 +1031,13 @@
         if (!proto) throw new StompError('a pad-measured span needs pad geometry — add `default pad …`', node);
         const bb = G.contourBBox(G.transformContour(G.shapeContour(proto.shape, 0), rad(proto.rot || 0), 0, 0));
         if (!G.boxValid(bb)) throw new StompError('the default pad has zero size, so a pad-measured span can\'t place it', node);
-        return bb.y1 - bb.y0;   // canonical: the lead runs along y
+        return bb.y1 - bb.y0;   // unrotated, the lead runs along y
       };
       const padMeasured = (v, qual) => {
         const q = qual || 'outer';
         return q === 'centers' ? v : q === 'inner' ? v + padLen() : v - padLen();
       };
-      // 1. bare `span` / `gap` measures pads and overrides everything
+      // a bare span or gap measures pads and overrides everything
       if (st.bareSpan) {
         const b = st.bareSpan.s;
         const v = this.plen(b.x, b, b.word);
@@ -1059,7 +1050,7 @@
       const lead = this.lead;
       if (!lead) {
         if (pspan) return { C: padMeasured(pspan.v, pspan.qual), how: `span ${fmtMM(pspan.v)} (pads, ${pspan.qual})` };
-        if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centres)` };
+        if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centers)` };
         throw new StompError('the pad rows need a spacing: add `span …` / `gap …` (measured on the pads), or describe the leads with `lead … span …`', node);
       }
       ctx.src.push(lead.node);
@@ -1068,7 +1059,7 @@
       if (f === 'pin' || f === 'wire') {
         const t = lead.d != null ? lead.d : lead.l != null ? lead.l : lead.v;
         if (!span) {
-          if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (lead centres)` };
+          if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (lead centers)` };
           throw new StompError(`through-hole rows need the lead spacing: add \`span … centers\` to \`pins\` or \`lead\``, node);
         }
         const v = span.qual === 'centers' ? span.v : span.qual === 'inner' ? span.v + (t || 0) : span.v - (t || 0);
@@ -1095,7 +1086,7 @@
       let L;
       if (span) L = toOuter(span, T);
       else if ((f === 'flat' || f === 'endcap' || f === 'tab') && bodyAlong != null) L = bodyAlong;
-      else if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centres)` };
+      else if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centers)` };
       else if (this.bodyFailed && (f === 'flat' || f === 'endcap' || f === 'tab')) throw SILENT(lead.node);   // follows from the body error
       else throw new StompError(`\`lead ${f}\` needs a span: \`lead ${f} … span S\` (outer edge to outer edge)`, lead.node);
       let table;
@@ -1208,11 +1199,11 @@
       if (!entries.length) throw new StompError('the side block lists no pins', node);
       this.layoutSides(node, entries, proto, { twoPin: false, pitch: entries[0].pitch });
       let k = 0;
-      // order = CCW walk as listed
+      // order: counterclockwise, as listed
       for (const p of this.gen.positions) { p.order = k++; }
     }
 
-    /** Place pins on package sides (CCW walk order inside each side). */
+    /** Place pins on the package sides, counterclockwise within each side. */
     layoutSides(node, entries, proto, ctx) {
       const gen = this.gen;
       const has = (s) => entries.some((e) => e.side === s);
@@ -1308,7 +1299,7 @@
       gen.positions = gen.positions.filter((p) => !drop.has(p) && (!keep || keep.has(p)));
     }
 
-    // ---------------------------------------------------------- objects [§8]
+    // Objects
     makeObjects() {
       const st = this.st;
       this.pads = new Map();
@@ -1443,7 +1434,7 @@
         else this.err(`\`delete\` removes pads and holes, not ${kind === 'side' ? 'sides' : kind + 's'}`, r);
       }
       for (const row of this.rows.values()) row.members = row.members.filter((p) => this.pads.get(p.name) === p);
-      // per-pin leads must name a pad (SPEC §11.3)
+      // per-pin leads must name a pad
       for (const [nm, pl] of this.pinLeads) {
         const p = this.pads.get(nm);
         if (p) { p.src.push(pl.lead.node); continue; }
@@ -1491,7 +1482,7 @@
       this.err(`unknown object: ${label}${hint ? ` — did you mean ${quoteName(hint)}?` : ''}`, r.s != null ? r : node);
     }
 
-    // ---------------------------------------------------------- geometry
+    // Geometry
     resolveGeometry() {
       for (const p of this.pads.values()) this.resolvePad(p, []);
       for (const h of this.holes.values()) {
@@ -1547,7 +1538,7 @@
       return base;
     }
 
-    // ---------------------------------------------------------- solver [§9]
+    // Solver (SPEC 9)
     solve() {
       const units = this.units = [];
       const mk = (kind, label, obj) => { const u = { id: units.length, kind, label, obj }; units.push(u); return u; };
@@ -1587,7 +1578,7 @@
       const add = (c) => { cons.push(c); return c; };
       this.originUsed = false;
 
-      // generator defaults (weak, absolute) — explicit always beats generated
+      // generator defaults are weak and absolute, so explicit placements win
       for (const p of this.pads.values()) {
         if (!p.gen) continue;
         for (const a of AXES) {
@@ -1698,7 +1689,7 @@
       return which === 'center' ? (bb.lo + bb.hi) / 2 : which === 'lo' ? bb.lo : bb.hi;
     }
 
-    /** Map an anchor word to lo/hi/center on an axis. s: +1/−1 relation sign (0 = none). */
+    /** Map an anchor word to lo, hi or center on an axis. s is the relation's sign: +1, -1 or 0. */
     which(ref, axis, s, role) {
       const a = ref.anchor || 'center';
       switch (a) {
@@ -1772,7 +1763,7 @@
                 label: `${ti.label}${s.target.anchor ? ' ' + s.target.anchor : ''} is ${exprText(this.src, cl.dist)} ${cl.dir}${cl.dir === 'left' || cl.dir === 'right' ? ' of' : ''} ${ri.label}${cl.ref.anchor ? ' ' + cl.ref.anchor : ''}`,
                 viz: { kind: 'dim', axis, ri, rw, ti, tw, d, sg, text: exprText(this.src, cl.dist), plain: cl.dist.type === 'num' },
               }));
-              // weak cross-axis alignment, centre to centre [§9.2]
+              // weak alignment on the other axis, center to center (SPEC 9.2)
               const o = OTHER[axis];
               const RC = this.anchor(ri, o, 'center');
               const kc = this.toff(ti, o, 'center');
@@ -1875,7 +1866,7 @@
           const d = this.len(s.x, s);
           const text = exprText(this.src, s.x);
           if (mir && mir.viz.axis === axis) {
-            // symmetric unknown: the prototype takes −x (across y) / +y (across x) [§9.4]
+            // symmetric: the prototype takes -x (mirrored across y) or +y (across x). See SPEC 9.4.
             const proto = mir.mirror.pi, tgt = mir.mirror.ti;
             const prev = strongAt(proto.unit.id, axis, it.level);
             if (prev) {
@@ -1884,7 +1875,7 @@
             const sgn = mir.mirror.axis === 'y' ? -1 : 1;     // side the prototype takes
             const pb = proto.bb[axis], tb = tgt.bb[axis];
             const po = proto.off[axis];
-            // measurement m(c) for prototype reference coordinate c, target at −c (mirror)
+            // the measured length for prototype coordinate c, with the mirror at -c
             const meas = (c) => {
               const t = -c;
               const P = { lo: c + pb.lo, hi: c + pb.hi, c };
@@ -2065,8 +2056,8 @@
           comp.roots.slice(1).forEach((u) => under(u, ''));
           comp.floating = true;
         } else {
-          // a lone object with no placement at all just "has no position"; a
-          // placed cluster floating free of the rest "isn't tied" to it
+          // An object with no placement "has no position". A placed group floating
+          // free of the rest "isn't tied" to it.
           comp.roots.forEach((u) => under(u, comp.units.length > 1));
           comp.units.forEach((u) => this.unplaced.add(u));   // positions are arbitrary
         }
@@ -2096,7 +2087,7 @@
         this.cycles.push({ axis, units: stuck, nodes });
         stuck.forEach((u) => { V[u] = 0; this.unplaced.add(u); });
       }
-      // floating layout: the origin rule fixes the translation (body centroid, else land centre) [§6]
+      // floating layout: the origin rule fixes its position (body center, else land center). See SPEC 6.
       if (main && main.floating) {
         this.floatingAxes[axis] = true;
         let ref = null;
@@ -2114,13 +2105,13 @@
       }
     }
 
-    // ---------------------------------------------------------- final positions & layers [§12]
+    // Final positions and layers
     layers() {
       const V = this.V;
       const pos = (obj) => ({ x: V.x[obj.unit.id] + obj.off.x, y: V.y[obj.unit.id] + obj.off.y });
       for (const p of this.pads.values()) Object.assign(p, pos(p));
       for (const h of this.holes.values()) Object.assign(h, pos(h));
-      // body: placed, generator-centred, or centred on the land pattern
+      // body: as placed, at the generator center, or centered on the land pattern
       if (this.body) {
         const b = this.body;
         const land = this.landBox();
@@ -2130,7 +2121,7 @@
           V[a][this.bodyUnit.id] = b[a];
         }
       }
-      // final origin [§6]
+      // final origin
       let O = { x: 0, y: 0 };
       const o = this.st.origin;
       if (this.originUsed) O = { x: V.x[this.originUnit.id], y: V.y[this.originUnit.id] };
@@ -2155,9 +2146,9 @@
       const floatAxes = AXES.filter((a) => this.floatingAxes[a]);
       if (o) this.originNote = this.stmtText(o.s);
       else if (floatAxes.length) {
-        this.originNote = `${this.body ? 'body centre' : 'land-pattern centre'} — nothing places the layout absolutely on ${floatAxes.join(' or ')}, so the origin rule anchors it (§6)`;
-      } else if (this.body && this.gen) this.originNote = 'body centre (generated package)';
-      else this.originNote = '(0, 0) as the placements give it';
+        this.originNote = `${this.body ? 'body center' : 'land-pattern center'}: nothing fixes the layout on ${floatAxes.join(' or ')}, so the origin rule centers it`;
+      } else if (this.body && this.gen) this.originNote = 'body center (generated package)';
+      else this.originNote = '(0, 0), where the placements put it';
       const sh = (p) => [p[0] - O.x, p[1] - O.y];
       this.shift = sh;
       for (const p of this.pads.values()) { p.x -= O.x; p.y -= O.y; }
@@ -2179,7 +2170,7 @@
       }
     }
 
-    /** Manual graphics, text and courtyard settings — evaluated eagerly for their diagnostics. */
+    /** Manual graphics, text and courtyard settings, evaluated now for their diagnostics. */
     manualLayers() {
       for (const it of this.st.silk) if (it.s.mode === 'block') this.gfx(it.s.items, 'silk', this.manual.silk, D.silkW);
       for (const it of this.st.assembly) if (it.s.mode === 'block') this.gfx(it.s.items, 'assembly', this.manual.assembly, D.fabW);
@@ -2192,7 +2183,7 @@
         explicitBase = true;
         base = { mode: it.s.mode, node: it.s, clearance: it.s.clearance, size: it.s.size };
       }
-      if (anyBlock && !explicitBase) base = { mode: 'none' };   // DEMO DECISION: a manual courtyard replaces the auto one
+      if (anyBlock && !explicitBase) base = { mode: 'none' };   // the spec doesn't say; a manual courtyard replaces the automatic one
       if (base.mode === 'auto') {
         let c = this.courtyardExcess != null ? this.courtyardExcess : CY_DEFAULT[this.lv];
         if (base.clearance) c = this.guard(base.node, () => this.plen(base.clearance, base.node, 'courtyard clearance'));
@@ -2212,7 +2203,7 @@
       }
     }
 
-    /** Automatic silk / assembly / courtyard (deferred: only footprints on screen need them). */
+    /** Automatic silk, assembly and courtyard. Deferred: only footprints on screen need them. */
     finishLayers() {
       if (this.finished) return;
       this.finished = true;
@@ -2330,7 +2321,7 @@
       this.pin1Style = style;
     }
 
-    /** Body outline as a closed polyline (offset o), with optional pin-1 chamfer / notch. */
+    /** Body outline as a closed polyline, offset by o, with an optional pin-1 chamfer or notch. */
     bodyOutline(o, mods) {
       const b = this.body;
       if (b.kind === 'cyl') return G.arcPoints([b.x, b.y], b.w / 2 + o, 0, Math.PI * 2, rad(3)).slice(0, -1);
@@ -2646,7 +2637,7 @@
       for (const it of this.st.texts) this.guard(it.s, () => this.textItem(it.s, null, this.manual.silk));
     }
 
-    // ---------------------------------------------------------- checks [§15]
+    // Checks
     checks() {
       const unplacedUnits = this.unplaced;
       const pads = [...this.pads.values()].filter((p) => !p.spec.missing && !unplacedUnits.has(p.unit.id));
@@ -2668,11 +2659,11 @@
         this.warn(`pads ${A.p.name} and ${B.p.name} overlap — intentional only if they share a net`, node);
         A.p.overlap = B.p.overlap = true;
       }
-      // unused group / sanity
+      // no pads at all
       if (!this.pads.size && !this.holes.size && !this.errorCount && !this.broken.size) this.warn(`footprint "${this.name}" has no pads`, { s: this.decl.nameS, e: this.decl.nameE });
     }
 
-    // ---------------------------------------------------------- output
+    // Output
     output() {
       const unplacedObj = new Set();
       for (const u of this.unplaced) { const o = this.units[u].obj; if (o) unplacedObj.add(o); if (this.units[u].kind === 'row') this.units[u].obj.members.forEach((m) => unplacedObj.add(m)); }
@@ -2809,7 +2800,7 @@
       return res;
     }
 
-    /** The merged `model` blocks (SPEC §13.2–13.4), resolved to numbers and colors. */
+    /** The merged model blocks, resolved to numbers and colors. */
     modelInfo() {
       const models = this.st.models.slice().sort((a, b) => a.level - b.level);
       const info = { none: false, props: {}, solids: [], step: null, src: [] };
@@ -2861,7 +2852,7 @@
           });
         }
       }
-      // properties that only some leads can use (SPEC §15)
+      // properties that only some leads can use
       const forms = new Set();
       if (this.lead) forms.add(this.lead.form);
       for (const pl of this.pinLeads.values()) forms.add(pl.lead.form);
@@ -2885,7 +2876,7 @@
       return v.v;
     }
 
-    /** `#rrggbb` or a color name → { hex, metal, name }. */
+    /** A "#rrggbb" or a color name, as { hex, metal, name }. */
     colorOf(c, node) {
       const text = typeof c === 'string' ? c.trim() : '';
       if (/^#/.test(text)) {
@@ -2899,7 +2890,7 @@
       throw new StompError(`unknown color \`${text}\`${hint ? ` — did you mean \`${hint}\`?` : ''} (names: ${COLOR_NAMES}; or "#rrggbb")`, node);
     }
 
-    /** A `box` / `cylinder` solid in final footprint coordinates (SPEC §13.3). */
+    /** A box or cylinder solid, in final footprint coordinates. */
     solidOf(p) {
       const L = (x, what) => this.plen(x, p, what);
       const out = { kind: p.kind, onBody: !!p.onBody, color: p.color != null ? this.colorOf(p.color, p) : null, src: [{ s: p.s, e: p.e }] };
@@ -2921,7 +2912,7 @@
       return out;
     }
 
-    /** One entry per pad that has a 3D lead, in final coordinates (SPEC §13.1). */
+    /** One entry per pad that has a 3D lead, in final coordinates. */
     leads3d() {
       const out = [];
       const O = this.O, b = this.body, gen = this.gen;
@@ -2964,7 +2955,7 @@
     }
   }
 
-  // ===================================================================== helpers
+  // Helpers
 
   const ZERO_BB = { x: { lo: 0, hi: 0 }, y: { lo: 0, hi: 0 } };
 
@@ -2991,7 +2982,7 @@
     return span.qual === 'outer' ? span.v : span.qual === 'inner' ? span.v + 2 * T : span.v + T;
   }
 
-  /** CCW-walk numbering for perimeter packages; returns position indices in pin order. */
+  /** Counterclockwise numbering around a package. Returns position indices in pin order. */
   function walkOrder(pos, scheme, start, single) {
     const n = pos.length;
     if (!n) return [];

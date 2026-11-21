@@ -1,5 +1,4 @@
-/* stomp live — layout: a drafting table with two framed sheets, the source
-   on the left and the footprint drawing (with its title block) on the right. */
+/* stomp live demo. Source on the left; the drawing and its title block on the right. */
 :root {
   --ground: #e6ebe5;
   --panel: #f8faf6;
@@ -189,7 +188,7 @@ a { color: var(--accent); }
 code, kbd { font-family: var(--font-mono); font-size: 0.92em; }
 kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel-2); }
 
-/* ------------------------------------------------------------------ frame */
+/* Frame */
 .app {
   height: 100%;
   display: flex;
@@ -253,7 +252,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .pane-head .hint { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-head .ms { margin-left: auto; color: var(--muted); font: 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* ------------------------------------------------------------------ editor */
+/* Editor */
 .editor-host { flex: 1 1 auto; min-height: 0; display: flex; position: relative; }
 .ed { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 .ed-scroll { flex: 1; overflow: auto; background: var(--code-bg); overscroll-behavior: contain; }
@@ -315,7 +314,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .ed-tip .error b { color: var(--err); }
 .ed-tip .warning b { color: var(--warn); }
 
-/* ------------------------------------------------------------------ problems */
+/* Problems */
 .problems { flex: 0 0 auto; display: flex; flex-direction: column; border-top: 1px solid var(--rule); max-height: 34%; min-height: 0; }
 .problems-head {
   display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: var(--panel);
@@ -342,7 +341,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .problems-list .msg code { background: var(--panel-2); padding: 0 3px; border-radius: 3px; }
 .problems-list .fp { color: var(--muted); }
 
-/* ------------------------------------------------------------------ viewer */
+/* Viewer */
 .tabs { display: flex; gap: 2px; overflow-x: auto; min-width: 0; flex: 1; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
@@ -400,7 +399,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .vw-svg.vw-pointer { cursor: pointer; }
 .viewer-host.stale .vw-world, .viewer-host.stale .vw-labels, .viewer-host.stale .vw-dims { opacity: 0.45; }
 .viewer-host.stale::after {
-  content: "Syntax error — showing the last version that parsed";
+  content: "Syntax error: showing the last version that parsed";
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; pointer-events: none;
   background: var(--panel); border: 1px solid var(--rule-strong); border-radius: 999px;
   padding: 3px 12px; font: 500 12px/1.4 var(--font-ui); color: var(--err); white-space: nowrap; max-width: calc(100% - 24px);
@@ -408,7 +407,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 }
 .vw-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }
 
-/* 3D view: a WebGL canvas over a soft studio backdrop */
+/* 3D view: a WebGL canvas over a gradient */
 .v3d-host { background: radial-gradient(130% 95% at 50% 0%, var(--v3d-top) 0%, var(--v3d-bottom) 100%); }
 .v3d-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; outline: none; }
 .v3d-canvas:active { cursor: grabbing; }
@@ -516,7 +515,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .titleblock .k { font: 600 9.5px/1.2 var(--font-ui); letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); }
 .titleblock .v { font: 500 12.5px/1.35 var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 
-/* ------------------------------------------------------------------ details */
+/* Details */
 .details {
   flex: 0 1 auto; max-height: 34%; overflow: auto; border-top: 1px solid var(--rule);
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 4px 18px; padding: 12px 14px 14px;
@@ -537,7 +536,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .padtable tr.on td { background: var(--accent-soft); }
 .badge { display: inline-block; font: 600 10px/1.4 var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--rule-strong); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); vertical-align: 1px; }
 
-/* ------------------------------------------------------------------ about */
+/* About */
 dialog.about {
   width: min(720px, calc(100% - 32px)); max-height: calc(100% - 48px); overflow: auto;
   border: 1px solid var(--rule-strong); border-radius: 12px; padding: 22px 28px 26px;
@@ -555,7 +554,7 @@ dialog.about::backdrop { background: rgb(8 16 14 / 0.45); }
 .key dt { display: flex; align-items: center; gap: 7px; font-weight: 500; }
 .key dd { margin: 0; color: var(--muted); }
 
-/* ------------------------------------------------------------------ narrow */
+/* Narrow screens */
 @media (max-width: 900px) {
   html, body { height: auto; }
   .app { height: auto; min-height: 100%; }

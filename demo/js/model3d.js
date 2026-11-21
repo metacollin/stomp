@@ -1,14 +1,14 @@
-/* stomp live demo — 3D models (SPEC §13).
+/* stomp live demo: 3D models (SPEC 13).
  *
- * build(res) turns a compiled footprint into triangle meshes: the body chosen by
- * the lead form, one lead per pin, the pin-1 mark, exposed pads and the model
- * block's extra solids. board(res) builds the board slab, copper and silk for the
- * viewer. toVRML / toSTL export the part (not the board).
+ * build(res) turns a compiled footprint into meshes: a body chosen by the lead
+ * form, a lead per pin, the pin-1 mark, exposed pads and any extra solids.
+ * board(res) builds the board under it for the viewer. toVRML and toSTL export
+ * the part, not the board.
  *
- * Millimetres; x, y as the footprint, z up from the board surface (z = 0).
- * A mesh is { name, kind, color: [r, g, b], metal: 0 | 1, pos, nrm, idx, src }
- * with pos/nrm Float32Array (xyz per vertex) and idx Uint32Array (triangles,
- * counter-clockwise seen from outside).
+ * Units are mm: x and y as in the footprint, z up from the board (z = 0).
+ * A mesh is { name, kind, color: [r, g, b], metal: 0 | 1, pos, nrm, idx, src }:
+ * pos and nrm are Float32Arrays (xyz per vertex), idx a Uint32Array of
+ * triangles, counterclockwise seen from outside.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./geom.js'));
@@ -19,7 +19,7 @@
   const D2R = Math.PI / 180;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-  // ------------------------------------------------------------------ colors
+  // Colors
   const hex = (h) => {
     const n = parseInt(h.slice(1), 16);
     return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
@@ -56,7 +56,7 @@
   };
   const matOf = (c) => ({ color: hex(c.hex), metal: c.metal ? 1 : 0 });
 
-  // ------------------------------------------------------------------ mesh
+  // Meshes
   class Mesh {
     constructor(name, kind, mat, src) {
       this.name = name; this.kind = kind; this.color = mat.color; this.metal = mat.metal;
@@ -120,7 +120,7 @@
     return [x / L, y / L, z / L];
   }
 
-  // ------------------------------------------------------------------ primitives
+  // Primitives
   /** Axis-aligned box. */
   function box(m, x0, y0, z0, x1, y1, z1) {
     if (!(x1 > x0 && y1 > y0 && z1 > z0)) return m;
@@ -154,7 +154,7 @@
   }
   const rectPts = (cx, cy, w, l) => [[cx - w / 2, cy - l / 2], [cx + w / 2, cy - l / 2], [cx + w / 2, cy + l / 2], [cx - w / 2, cy + l / 2]];
 
-  /** Upright frustum / cylinder with smooth sides. */
+  /** Upright frustum or cylinder with smooth sides. */
   function frustum(m, cx, cy, z0, z1, r0, r1, seg, caps) {
     seg = seg || 24;
     const slope = (r0 - r1) / Math.max(z1 - z0, 1e-9);
@@ -191,7 +191,7 @@
     return m;
   }
 
-  /** Part of a cylinder wall (angles a0..a1, radians) — a stripe on a can. */
+  /** Part of a cylinder wall, from angle a0 to a1 (radians): a stripe on a can. */
   function shell(m, cx, cy, z0, z1, r, a0, a1, seg) {
     const base = m.p.length / 3;
     for (let k = 0; k <= seg; k++) {
@@ -280,9 +280,9 @@
       for (let i = 0; i + 1 < n; i++) { const a = base + 2 * i; m.quad(a, a + 2, a + 3, a + 1); }
     };
     strip(1, -1, 1, (i) => mapN(N[i][0], 0, N[i][1]));         // outer face (+n)
-    strip(-1, -1, 1, (i) => mapN(-N[i][0], 0, -N[i][1]));      // inner face (−n)
+    strip(-1, -1, 1, (i) => mapN(-N[i][0], 0, -N[i][1]));      // inner face (-n)
     strip(null, 1, 1, () => mapN(0, 1, 0));                     // +v side
-    strip(null, -1, -1, () => mapN(0, -1, 0));                  // −v side
+    strip(null, -1, -1, () => mapN(0, -1, 0));                  // -v side
     const end = (i, s) => {
       const a = path[i], b = path[i + s];
       const tn = [(a[0] - b[0]), (a[1] - b[1])], L = Math.hypot(tn[0], tn[1]) || 1;
@@ -354,7 +354,7 @@
     return m;
   }
 
-  // ------------------------------------------------------------------ the part
+  // The part
   const fmt = (v) => (Math.round(v * 1000) / 1000).toString();
 
   function familyOf(res) {
@@ -404,10 +404,10 @@
     const mainForm = res.lead ? res.lead.form : ((leads.find((l) => l.form !== 'tab') || leads[0] || {}).form || null);
     const fam = familyOf(res);
 
-    if (md.step) notes.push(`uses the STEP file ${md.step.file}, which the demo can't load — showing the generated model instead`);
+    if (md.step) notes.push(`Uses the STEP file ${md.step.file}, which the demo can't load, so this is the generated model.`);
     if (!b) {
-      if (md.solids && md.solids.length) notes.push('no body — only the model block\'s solids');
-      else notes.push('no body: add `body W x L x H` to generate a model');
+      if (md.solids && md.solids.length) notes.push('No body, so only the model block\'s solids are shown.');
+      else notes.push('No body. Add `body W x L x H` to generate a model.');
       const bodyTop = 0;
       for (const s of md.solids || []) meshes.push(solidMesh(s, null, bodyTop));
       out.summary = md.solids && md.solids.length ? `${md.solids.length} solid${md.solids.length > 1 ? 's' : ''}` : null;
@@ -422,11 +422,11 @@
     let H = P.height != null ? P.height : b.h;
     let z0 = P.standoff != null ? P.standoff : STANDOFF[style];
     if (H == null) {
-      notes.push('the body has no height, so it is drawn as a thin plate — add one: `body W x L x H`');
+      notes.push('The body has no height, so it\'s drawn as a thin plate. Add one: `body W x L x H`.');
       H = z0 + 0.1;
     }
     if (z0 >= H - 0.02) {
-      if (P.standoff != null) notes.push(`the standoff (${fmt(z0)}) reaches the body top (${fmt(H)}), so it was lowered`);
+      if (P.standoff != null) notes.push(`The standoff (${fmt(z0)}) reaches the body top (${fmt(H)}), so it was lowered.`);
       z0 = Math.max(0, Math.min(z0, H * 0.5));
     }
     out.H = H; out.standoff = z0;
@@ -446,12 +446,12 @@
     const zp = style === 'dip' ? z0 + 0.4 * (H - z0) : z0 + 0.5 * (H - z0);   // parting line / lead exit
     const ctx = { res, b, H, z0, zp, draft, bodyMat, leadMat, style, fam, thick, below, pitch, notes };
 
-    // ---- body
+    // body
     const bodyInfo = buildBody(ctx, meshes, bodySrc);
     ctx.top = bodyInfo.top;           // the top face for marks: { cx, cy, w, l, z }
     ctx.bodyTop = bodyInfo.z1 != null ? bodyInfo.z1 : H;
 
-    // ---- leads
+    // leads
     let nLeads = 0;
     const leadMeshes = new Map();
     for (const l of leads) {
@@ -469,11 +469,11 @@
         meshes.push(m);
       }
     }
-    // ---- pin-1 mark / polarity
+    // pin-1 mark or polarity stripe
     const mark = markOf(ctx, P);
     if (mark !== 'none') buildMark(ctx, mark, meshes, leadMeshes);
 
-    // ---- extra solids
+    // extra solids
     for (const s of md.solids || []) meshes.push(solidMesh(s, bodyMat, ctx.bodyTop));
 
     const formCount = {};
@@ -505,7 +505,7 @@
     }
   }
 
-  // ------------------------------------------------------------------ bodies
+  // Bodies
   function buildBody(ctx, meshes, src) {
     const { b, H, z0, zp, draft, bodyMat, style, fam } = ctx;
     const m = new Mesh('body', 'body', bodyMat, src);
@@ -686,7 +686,7 @@
         const P0 = [c[0] + dv[0] * t0, c[1] + dv[1] * t0];
         const seg = 12, arc = [];
         for (let k = 0; k <= seg; k++) {
-          const a = Math.PI - (Math.PI * k) / seg;   // from -dv side around through inward to +dv side
+          const a = Math.PI - (Math.PI * k) / seg;   // from the -dv side, around through the inside, to the +dv side
           arc.push([P0[0] + n.r * (Math.cos(a) * dv[0] + Math.sin(a) * inward[0]), P0[1] + n.r * (Math.cos(a) * dv[1] + Math.sin(a) * inward[1])]);
         }
         walls.push(arc);
@@ -736,9 +736,9 @@
     return { top, z1 };
   }
 
-  // ------------------------------------------------------------------ leads
+  // Leads
   const SIGN = { left: -1, right: 1, bottom: -1, top: 1 };
-  /** A frame on the lead's side: u outward from the body centre, v along the side. */
+  /** A frame on the lead's side: u outward from the body center, v along the side. */
   function frame(b, l) {
     const s = SIGN[l.side];
     if (l.side === 'left' || l.side === 'right') {
@@ -873,7 +873,7 @@
       return true;
     }
     if (style === 'header') {
-      // pins rise to H, unless the housing is the whole height (a socket): then they stop inside it
+      // pins rise to H, unless the housing fills the height (a socket); then they stop inside it
       const housing = ctx.housing != null ? ctx.housing : H;
       const top = housing >= H - 1e-6 ? H - Math.min(1, 0.3 * (H - z0)) : H;
       const sz = W;
@@ -888,14 +888,14 @@
       }
       return true;
     }
-    // straight wire / pin from below the board up into the body
+    // straight wire or pin from below the board up into the body
     const zTop = style === 'can' || style === 'radial' ? z0 + 0.3 : Math.min(H, z0 + 0.3);
     if (round || style === 'can') cylinder(m, l.x, l.y, bottom, zTop, (dia != null ? dia : W) / 2, 12);
     else boxC(m, l.x, l.y, bottom, W, Tk, zTop - bottom);
     return true;
   }
 
-  // ------------------------------------------------------------------ marks
+  // Marks
   function markOf(ctx, P) {
     const { res, style } = ctx;
     if (P.pin1) return P.pin1;
@@ -916,7 +916,7 @@
     const { res, b, style, bodyMat, fam } = ctx;
     const src = (res.model && res.model.src) || [];
     const pinOne = res.pin1;
-    // the end a stripe marks: the cathode / negative lead, or the positive end of a chip capacitor
+    // the end a stripe marks: the cathode or negative lead, but the positive end of a chip capacitor
     let stripeTo = null;
     if (mark === 'stripe') {
       const p2 = res.pads.find((p) => p.name === '2') || res.pads.find((p) => pinOne && p.name !== pinOne.pad && !p.thermal);
@@ -989,7 +989,7 @@
     meshes.push(m);
   }
 
-  // ------------------------------------------------------------------ solids
+  // Extra solids
   function solidMesh(s, bodyMat, bodyTop) {
     const mat = s.color ? matOf(s.color) : (bodyMat || MAT.molded);
     const m = new Mesh(s.kind === 'box' ? 'box' : 'cylinder', 'solid', mat, s.src);
@@ -1018,7 +1018,7 @@
     return m;
   }
 
-  // ------------------------------------------------------------------ finish
+  // Finishing
   function finalize(out) {
     const bb = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity };
     let tris = 0, top = -Infinity;
@@ -1040,7 +1040,7 @@
     return out;
   }
 
-  // ------------------------------------------------------------------ board (viewer only)
+  // The board (viewer only)
   const BOARD_T = 1.6, CU = 0.035;
   function board(res, model) {
     const meshes = [], lines = [];
@@ -1145,17 +1145,17 @@
     return out;
   }
 
-  // ------------------------------------------------------------------ export
+  // Export
   /**
-   * VRML 2.0 as KiCad reads it: 1 unit = 0.1 inch (2.54 mm). Vertices are merged and
-   * normals left to `creaseAngle`; a part repeated by translation (balls, terminals,
-   * a row of identical leads) is written once and placed with `USE` in its own
-   * Transform; materials are shared with `DEF`/`USE`.
+   * VRML 2.0 for KiCad, where 1 unit is 0.1 inch (2.54 mm). Vertices are merged and
+   * KiCad works out normals from creaseAngle. A part that repeats (balls, terminals,
+   * identical leads) is written once and placed again with USE, each copy in its own
+   * Transform. Materials are shared the same way.
    */
   function toVRML(model, name) {
     const S = 1 / 2.54;
     const num = (v) => { const r = Math.round(v * S * 1e5) / 1e5; return Object.is(r, -0) ? '0' : String(r); };
-    const out = ['#VRML V2.0 utf8', `# ${name || 'stomp model'} — generated by stomp live (units: 0.1 inch)`];
+    const out = ['#VRML V2.0 utf8', `# ${name || 'stomp model'}, generated by stomp live. Units: 0.1 inch.`];
     const mats = new Map(), shapes = new Map();
     let nMat = 0, nShape = 0;
     for (const m of model.meshes) {
@@ -1225,7 +1225,7 @@
     return new Uint8Array(buf);
   }
 
-  /** A .zip of stored (uncompressed) files: [{ name, data: Uint8Array }] → Uint8Array. */
+  /** A .zip of stored (uncompressed) files. Takes [{ name, data: Uint8Array }], returns a Uint8Array. */
   let CRC = null;
   function crc32(u8) {
     if (!CRC) {

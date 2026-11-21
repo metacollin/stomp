@@ -1,4 +1,4 @@
-// stomp live demo — engine tests.   Run: node --test demo/test/*.test.mjs
+// Engine tests. Run: node --test demo/test/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -43,14 +43,14 @@ test('TO-252: relational dimensions transcribed verbatim', () => {
   const p1 = pad(r, 1), p2 = pad(r, 2), p3 = pad(r, 3);
   near(p3.x - p1.x, 4.56, 'pad 3 is 4.56 right of pad 1');
   near(p1.y, p3.y, 'weak cross-axis alignment puts pad 3 on pad 1\'s row');
-  near(p2.x, (p1.x + p3.x) / 2, 'tab centred between the pins');
-  near(p2.bbox.y0 - p1.y, 1.9, 'tab near edge 1.9 above the pin centres');
+  near(p2.x, (p1.x + p3.x) / 2, 'tab centered between the pins');
+  near(p2.bbox.y0 - p1.y, 1.9, 'tab near edge 1.9 above the pin centers');
   near(r.body.y - r.body.l / 2 - p1.y, 1.1, 'body bottom 1.1 above the pins');
-  near(r.body.x, p2.x, 'body centred on the tab');
+  near(r.body.x, p2.x, 'body centered on the tab');
   near(r.body.x, 0, 'floating layout re-based on the body centroid');
 });
 
-test('USB micro-B: chained relations, mirrors and span about the centreline', () => {
+test('USB micro-B: chained relations, mirrors and span about the centerline', () => {
   const { r } = fp(example('usb_microb.stomp'));
   near(pad(r, 3).x, 0, 'D+ on the origin'); near(pad(r, 3).y, 0, 'D+ on the origin');
   near(pad(r, 2).x - pad(r, 1).x, 0.65, 'row pitch e');
@@ -66,18 +66,18 @@ test('USB micro-B: chained relations, mirrors and span about the centreline', ()
 test('SOIC-8: IPC-style gull-wing lands and CCW numbering', () => {
   const { r } = fp(example('soic8.stomp'));
   const p1 = pad(r, 1);
-  near(p1.x, -2.48, 'land centre'); near(p1.y, 1.905, 'pin 1 top-left');
+  near(p1.x, -2.48, 'land center'); near(p1.y, 1.905, 'pin 1 top-left');
   near(p1.bbox.x1 - p1.bbox.x0, 1.8, 'land length (along the lead)');
   near(p1.bbox.y1 - p1.bbox.y0, 0.53, 'land width (across the row)');
   assert.deepEqual([4, 5, 8].map((n) => [Math.sign(pad(r, n).x), Math.sign(pad(r, n).y)]), [[-1, -1], [1, -1], [1, 1]]);
 });
 
-test('SOIC-8-HS: default pad overrides IPC geometry, keeping the land centre', () => {
+test('SOIC-8-HS: default pad overrides IPC geometry, keeping the land center', () => {
   const { r } = fp(example('soic_family.stomp'), 'SOIC-8-HS');
   const p1 = pad(r, 1);
   near(p1.bbox.x1 - p1.bbox.x0, 2.2, 'W x L: length 2.2 along the lead');
   near(p1.bbox.y1 - p1.bbox.y0, 0.6, 'width 0.6 across the row');
-  near(p1.x, -2.48, 'same land centre as the IPC pad');
+  near(p1.x, -2.48, 'same land center as the IPC pad');
 });
 
 test('templates: parameters, defaults and expression arithmetic', () => {
@@ -91,7 +91,7 @@ test('QFN-32: quad numbering, thermal pad, paste windows, vias', () => {
   const { r } = fp(example('qfn32.stomp'));
   assert.equal(r.pads.length, 33);
   const ep = pad(r, 33);
-  near(ep.x, 0, 'EP centred'); near(ep.bbox.x1 - ep.bbox.x0, 3.7, 'EP size');
+  near(ep.x, 0, 'EP centered'); near(ep.bbox.x1 - ep.bbox.x0, 3.7, 'EP size');
   assert.equal(ep.paste.length, 4);
   assert.equal(ep.vias.length, 9);
   assert.ok(pad(r, 9).y < 0 && pad(r, 17).x > 0 && pad(r, 25).y > 0, 'CCW: left, bottom, right, top');

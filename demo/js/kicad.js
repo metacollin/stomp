@@ -1,16 +1,15 @@
-/* stomp live demo — KiCad export.
+/* stomp live demo: KiCad export.
  *
- * footprint(res, opts) writes a KiCad 9 footprint (.kicad_mod) from a compiled
- * footprint, with its generated 3D model embedded in the file. library(fps, opts)
- * writes a whole .pretty folder as zip entries.
+ * footprint(res, opts) writes a KiCad 9 footprint (.kicad_mod) with its 3D model
+ * embedded. library(fps, opts) writes a whole .pretty folder as zip entries.
  *
- * Embedded files follow KiCad 9 (pcbnew file version 20241229): the file's bytes
- * are a zstd frame, base64-encoded in 76-character lines between `|` marks, and
- * the checksum is KiCad's MurmurHash3 x64-128 (seed 0xABBA2345) of the plain bytes.
- * The model is referenced as `kicad-embed://NAME`.
+ * Embedded files work as in KiCad 9 (file version 20241229): the bytes go in a
+ * zstd frame, base64-encoded in 76-character lines between "|" marks, with
+ * KiCad's MurmurHash3 checksum (seed 0xABBA2345). The model is referenced as
+ * kicad-embed://NAME.
  *
- * Coordinates: stomp is y-up, KiCad footprints are y-down, so y is negated and
- * angles keep their sense on screen. 3D models are y-up in both.
+ * stomp's y axis points up and KiCad's points down, so y is negated. Angles look
+ * the same on screen. 3D models point y up in both.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./geom.js'), require('./model3d.js'));
@@ -18,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function (G, M3) {
   'use strict';
 
-  // ------------------------------------------------------------------ checksum
+  // Checksum
   // KiCad's MMH3_HASH (libs/kimath/include/mmh3_hash.h): MurmurHash3_x64_128, except
   // that the tail is zero-padded to a multiple of 4 and the padding counts in the
   // length (a tail of 12-15 bytes pads to 16 and isn't mixed in at all).
@@ -106,7 +105,7 @@
     return out;
   }
 
-  // ------------------------------------------------------------------ zstd, base64
+  // zstd and base64
   /**
    * A zstd frame of raw (stored) blocks. KiCad needs the frame to declare its content
    * size (ZSTD_getFrameContentSize), so the header is single-segment with an 8-byte
@@ -150,10 +149,10 @@
 
   const utf8 = (s) => new TextEncoder().encode(s);
 
-  // ------------------------------------------------------------------ s-expressions
-  // A node is [head, ...children]; a child is a node, a number, a bare symbol
-  // (JS string) or a quoted string ({ q }). KiCad's layout: atoms stay on the
-  // head's line, each child list goes on its own line, one tab deeper.
+  // S-expressions
+  // A node is [head, ...children]. A child is a node, a number, a bare symbol (a
+  // JS string) or a quoted string ({ q }). KiCad's layout: atoms stay on the
+  // head's line, and each child list goes on its own line, one tab deeper.
   const Q = (s) => ({ q: s == null ? '' : String(s) });
   const quote = (s) => '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
   const num = (v) => { const r = Math.round(v * 1e6) / 1e6; return Object.is(r, -0) || r === 0 ? '0' : String(r); };
@@ -161,7 +160,7 @@
   function print(node, depth) {
     const pad = '\t'.repeat(depth);
     if (node.data != null) {
-      // (data |…|): 76-character lines, the first after `|`, the last ending with `|`
+      // (data |...|): 76-character lines; the first starts after "|", the last ends with "|"
       const d = node.data, lines = [];
       for (let i = 0; i < d.length; i += 76) lines.push(d.slice(i, i + 76));
       if (!lines.length) lines.push('');
@@ -185,7 +184,7 @@
     return `${s}\n${pad})`;
   }
 
-  // ------------------------------------------------------------------ footprint
+  // Footprints
   const KICAD_VERSION = 20241229;      // pcbnew file format of KiCad 9.0
   const BAD_NAME = /[\\/:*?"<>|\x00-\x1f]/g;
   const safeName = (n) => String(n).replace(BAD_NAME, '_').trim() || 'footprint';
@@ -404,7 +403,7 @@
 
   /**
    * A .pretty library as zip entries [{ name, data }].
-   *   fps:  [{ name, result, model, skip }] in file order; skip = a reason not to export it
+   *   fps:  [{ name, result, model, skip }] in file order; skip says why it isn't exported
    *   opts: { lib (library name), source (file the footprints came from) }
    */
   function library(fps, opts) {
@@ -427,7 +426,7 @@
       `${lib}.pretty: ${done.length} footprint${done.length === 1 ? '' : 's'}${opts.source ? ` from ${opts.source}` : ''}, exported by stomp live.`,
       '',
       models ? `${models} of them embed their generated 3D model (VRML), so the library needs no 3D model folder.` : 'None of them has a 3D model.',
-      'The files are KiCad 9 footprints: KiCad 9 or later opens them.',
+      'These are KiCad 9 footprints. They open in KiCad 9 or later.',
       '',
       'To use the library in KiCad: unzip it, then Preferences > Manage Footprint Libraries,',
       '"Add existing library" (the folder button), and choose the .pretty folder.',

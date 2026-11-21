@@ -1,15 +1,14 @@
-/* stomp live demo — parser.
+/* stomp live demo: the parser.
  *
- * Recursive descent over the token stream, following grammar.peg rule by rule
- * (ordered choices are tried in the grammar's order). Every node carries its
- * source range { s, e } (character offsets); statements also carry the
- * file-level `units` in force where they were written.
+ * Recursive descent over the tokens, following grammar.peg rule by rule (choices
+ * are tried in the grammar's order). Every node has its source range { s, e }
+ * (character offsets), and statements also record the file's `units` setting.
  *
- * Errors are recovered per statement: a bad statement is reported and skipped
- * up to the next statement end at the same brace depth, so one typo never
- * hides the rest of the footprint. An inner block ({ … } after a pad, in
- * silk/model/pins) that runs into a footprint-level keyword is assumed to be
- * missing its closing brace.
+ * Errors are recovered one statement at a time: a bad statement is reported and
+ * skipped to its end at the same brace depth, so one typo doesn't hide the rest
+ * of the footprint. An inner block ({ ... } after a pad, or in silk, model or
+ * pins) that runs into a footprint-level keyword is taken to be missing its
+ * closing brace.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -69,7 +68,7 @@
       this.unit = 'mm';
     }
 
-    // ------------------------------------------------------------ cursor
+    // Token cursor
     get cur() { return this.t[this.i]; }
     peek(k) { return this.t[Math.min(this.i + (k || 0), this.t.length - 1)]; }
     advance() { const k = this.t[this.i]; if (k.t !== 'eof') this.i++; return k; }
@@ -122,7 +121,7 @@
       }
     }
 
-    /** `{ stmt EOS … }` with per-statement recovery. */
+    /** `{ stmt EOS ... }` with per-statement recovery. */
     block(parseStmt, inner) {
       const open = this.expectP('{');
       const stmts = [];
@@ -171,7 +170,7 @@
       return { stmts, open, close };
     }
 
-    // ------------------------------------------------------------ file
+    // File
     file() {
       const items = [];
       this.skipEOS();
@@ -256,7 +255,7 @@
 
     footprint() {
       this.expectWord('footprint');
-      // `footprint from qfn(…)` may leave the naming to the template (SPEC §14)
+      // `footprint from qfn(...)` can leave the name to the template
       const name = this.isWord('from') ? null : this.name('a footprint name, or `from TEMPLATE(…)`');
       const node = { type: 'Footprint', name: name ? name.name : null, nameS: name ? name.s : null, nameE: name ? name.e : null, mode: 'block', body: null };
       if (name && this.acceptWord('extends')) {
@@ -282,7 +281,7 @@
       return node;
     }
 
-    /** `( arg, key = arg, … )` */
+    /** `( arg, key = arg, ... )` */
     callArgs() {
       this.expectP('(');
       const args = [];
@@ -301,8 +300,8 @@
 
     /**
      * footprints from TEMPLATE [(fixed args)] {
-     *   COLUMN COLUMN …        header: template parameter names
-     *   cell   cell   …        one row per footprint
+     *   COLUMN COLUMN ...      header: template parameter names
+     *   cell   cell   ...      one row per footprint
      * }
      */
     table() {
@@ -397,7 +396,7 @@
       return { interp: parts, s: k.s, e: k.e };
     }
 
-    // ------------------------------------------------------------ statements
+    // Statements
     statement() {
       const k = this.cur;
       const s = k.s;
@@ -645,7 +644,7 @@
       let f = this.cur;
       let names = null;
       if (!(f.t === 'word' && LEAD_FORMS.has(f.v))) {
-        // per-pin: `lead 4 gullwing …`, `lead 1, 3 none` (SPEC §11.3)
+        // per-pin: `lead 4 gullwing ...`, `lead 1, 3 none` (SPEC 11.3)
         if ((f.t === 'num' && f.isInt && !f.suffix) || f.t === 'str' || (f.t === 'word' && !f.kw)) {
           names = this.selList();
           if (this.acceptWord('none')) return { type: 'Lead', names, none: true };
@@ -915,7 +914,7 @@
       return this.expected(what || 'a name');
     }
 
-    // ------------------------------------------------------------ pads
+    // Pads
     padGeom() {
       const s = this.cur.s;
       const tht = !!this.acceptWord('tht');
@@ -1047,7 +1046,7 @@
       return { deg: v, s, e: this.prevEnd() };
     }
 
-    // ------------------------------------------------------------ graphics
+    // Graphics
     gfxBlock() {
       return this.block(() => this.gfxStmt(), INNER.gfx).stmts;
     }
@@ -1168,7 +1167,7 @@
       return { type: 'Model', props };
     }
 
-    /** `box W x L x H …` / `cylinder d D h H …` with `at`, `on body`, `rotate`, `color`. */
+    /** `box W x L x H ...` or `cylinder d D h H ...`, with `at`, `on body`, `rotate` and `color`. */
     solid() {
       const k = this.advance();
       let p;
@@ -1215,7 +1214,7 @@
       return this.expected('a color: a "#rrggbb" string or a name such as black, tin or gold');
     }
 
-    // ------------------------------------------------------------ values
+    // Values
     exprStart(k) {
       const x = this.peek(k);
       if (x.t === 'num') return !x.suffix || !['%', 'deg', 'rad'].includes(x.suffix);
@@ -1300,7 +1299,7 @@
     }
   }
 
-  // ------------------------------------------------------------------ hints
+  // Hints
   function levenshtein(a, b) {
     const m = a.length, n = b.length;
     const d = Array.from({ length: m + 1 }, (_, i) => [i]);

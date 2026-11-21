@@ -212,7 +212,13 @@
       if (it.type === 'line' && it.pts && it.pts.length >= 2) {
         const pts = it.pts;
         const closed = pts.length >= 4 && near(pts[0][0], pts[pts.length - 1][0]) && near(pts[0][1], pts[pts.length - 1][1]);
-        if (closed) {
+        const rect = closed && pts.length === 5 && [0, 1, 2, 3].every((i) => near(pts[i][0], pts[i + 1][0]) !== near(pts[i][1], pts[i + 1][1]));
+        if (rect) {
+          // an axis-aligned rectangle: KiCad's fp_rect keeps its four corners
+          const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+          const a = [Math.min(...xs), Math.max(...ys)], c = [Math.max(...xs), Math.min(...ys)];
+          out.push(['fp_rect', ['start', ...XY(a)], ['end', ...XY(c)], stroke(it.w || 0.1), ['fill', 'no'], ['layer', Q(layer)], ['uuid', uid()]]);
+        } else if (closed) {
           out.push(['fp_poly', ['pts', ...pts.slice(0, -1).map((p) => ['xy', ...XY(p)])], stroke(it.w || 0.1), ['fill', 'no'], ['layer', Q(layer)], ['uuid', uid()]]);
         } else {
           for (let i = 0; i + 1 < pts.length; i++) {
@@ -369,7 +375,8 @@
       fp.push(['fp_text', 'user', Q(str), ['at', it.at[0], -it.at[1], 0], ['layer', Q(layer)], ['uuid', uid()], font(it.size || 1)]);
     }
     // pads, holes
-    const ctx = { balls: !!(res.generator && res.generator.kind === 'balls'), maskOverlap: 0.05 };
+    const gridLead = res.lead && (res.lead.form === 'ball' || res.lead.form === 'column');
+    const ctx = { balls: !!(res.generator && (res.generator.kind === 'balls' || (res.generator.kind === 'grid' && gridLead))), maskOverlap: 0.05 };
     for (const p of res.pads) fp.push(...pads(p, ctx, uid));
     for (const h of res.holes || []) {
       const sh = h.shape || {};

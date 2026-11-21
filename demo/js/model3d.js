@@ -367,7 +367,8 @@
   function styleOf(res, form) {
     const b = res.body;
     switch (form) {
-      case 'gullwing': case 'jlead': return 'molded';
+      case 'gullwing': case 'jlead': case 'lbend': case 'straight': return 'molded';
+      case 'column': return 'cga';
       case 'flat': case 'tab': return b.kind === 'cyl' ? 'can' : 'sawn';
       case 'endcap': return b.axial ? 'melf' : 'chip';
       case 'ball': return 'bga';
@@ -379,15 +380,15 @@
   }
 
   const STYLE_NAME = {
-    molded: 'molded body', sawn: 'sawn (leadless) body', chip: 'chip body', melf: 'MELF body', bga: 'BGA substrate and mold cap',
+    molded: 'molded body', sawn: 'sawn (leadless) body', chip: 'chip body', melf: 'MELF body', bga: 'BGA substrate and mold cap', cga: 'ceramic body on solder columns',
     dip: 'molded DIP body', header: 'housing', can: 'can', radial: 'radial body', axial: 'axial body', module: 'module board', block: 'plain block',
   };
   const STYLE_SHORT = {
-    molded: 'molded', sawn: 'leadless', chip: 'chip', melf: 'MELF', bga: 'BGA', dip: 'DIP', header: 'header',
+    molded: 'molded', sawn: 'leadless', chip: 'chip', melf: 'MELF', bga: 'BGA', cga: 'CGA', dip: 'DIP', header: 'header',
     can: 'can', radial: 'radial', axial: 'axial', module: 'module', block: 'block',
   };
   const FORM_NAME = {
-    gullwing: 'gull-wing', jlead: 'J-lead', flat: 'flat terminal', endcap: 'end cap', ball: 'ball', pin: 'pin',
+    gullwing: 'gull-wing', jlead: 'J-lead', lbend: 'L-bend lead', straight: 'straight lead', column: 'column', flat: 'flat terminal', endcap: 'end cap', ball: 'ball', pin: 'pin',
     wire: 'wire', tab: 'tab', castellated: 'castellation',
   };
 
@@ -418,7 +419,8 @@
     out.style = style;
     const pitch = (res.generator && res.generator.pitch) || (leads.find((l) => l.pitch) || {}).pitch || null;
     const ballD = (() => { const l = leads.find((x) => x.form === 'ball'); return l ? (l.v != null ? l.v : l.d != null ? l.d : (l.padAcross || 0.5) / 0.8) : 0.5; })();
-    const STANDOFF = { molded: mainForm === 'jlead' ? 0.5 : 0.1, sawn: 0.02, chip: 0, melf: 0, bga: 0.75 * ballD, dip: 0.5, header: 0, can: 0.5, radial: 0.5, axial: 0, module: 0, block: 0 };
+    const MOLDED_STANDOFF = { jlead: 0.5, lbend: 0.15, straight: 0.05 };
+    const STANDOFF = { molded: MOLDED_STANDOFF[mainForm] != null ? MOLDED_STANDOFF[mainForm] : 0.1, sawn: 0.02, chip: 0, melf: 0, bga: 0.75 * ballD, cga: 2.2, dip: 0.5, header: 0, can: 0.5, radial: 0.5, axial: 0, module: 0, block: 0 };
     let H = P.height != null ? P.height : b.h;
     let z0 = P.standoff != null ? P.standoff : STANDOFF[style];
     if (H == null) {
@@ -440,6 +442,7 @@
       if (form === 'flat') return Math.min(0.2, 0.3 * (H - 0) || 0.2);
       if (form === 'tab') return Math.min(0.5, 0.25 * H);
       if (form === 'jlead') return p != null && p >= 1.27 - 1e-9 ? 0.25 : 0.2;
+      if (form === 'lbend' || form === 'straight') return 0.12;
       return p == null ? 0.2 : p < 1 - 1e-9 ? 0.15 : p < 2 - 1e-9 ? 0.2 : 0.3;
     };
     const below = P.below != null ? P.below : 3;
@@ -485,7 +488,7 @@
     if (md.solids && md.solids.length) parts.push(`${md.solids.length} extra solid${md.solids.length > 1 ? 's' : ''}`);
     out.summary = parts.join(' · ');
     const forms = Object.keys(formCount);
-    const NOUN = { gullwing: 'gull-wings', jlead: 'J-leads', flat: 'terminals', endcap: 'caps', ball: 'balls', pin: 'pins', wire: 'wires', castellated: 'castellations', tab: 'tabs' };
+    const NOUN = { gullwing: 'gull-wings', jlead: 'J-leads', lbend: 'L-bend leads', straight: 'straight leads', column: 'columns', flat: 'terminals', endcap: 'caps', ball: 'balls', pin: 'pins', wire: 'wires', castellated: 'castellations', tab: 'tabs' };
     const nAll = leads.length;
     out.short = [STYLE_SHORT[style], nAll ? `${nAll} ${forms.length === 1 ? (nAll === 1 ? NOUN[forms[0]].replace(/s$/, '') : NOUN[forms[0]]) : 'leads'}` : null].filter(Boolean).join(' · ');
     out.mark = mark;
@@ -501,6 +504,7 @@
       case 'can': return MAT.can;
       case 'module': return MAT.module;
       case 'bga': return MAT.molded;
+      case 'cga': return MAT.ceramic;
       default: return MAT.molded;
     }
   }
@@ -527,7 +531,7 @@
       top.w = w - 2 * inT; top.l = l - 2 * inT;
       return { top, z1: H };
     }
-    if (style === 'sawn' || style === 'block' || style === 'header' || style === 'radial') {
+    if (style === 'sawn' || style === 'block' || style === 'header' || style === 'radial' || style === 'cga') {
       let zTop = H;
       if (style === 'header') zTop = ctx.housing = headerHousing(ctx);
       boxC(m, cx, cy, z0, w, l, zTop - z0);
@@ -613,14 +617,16 @@
       const lid = new Mesh('can top', 'body', MAT.aluminum, src);
       cylinder(lid, cx, cy, z1 - lip - 0.002, z1 - lip, r * 0.82, 48, 'top');
       meshes.push(lid);
-      if (r > 1.2) {
+      // a can in a metal color is bare (a polymer cap): no vent, and its mark goes on the lid
+      const bare = !!(ctx.bodyMat && ctx.bodyMat.metal);
+      if (r > 1.2 && !bare) {
         const vent = new Mesh('vent', 'body', MAT.vent, src);
         const vl = r * 0.9, vw = Math.max(0.06, r * 0.04);
         boxC(vent, cx, cy, z1 - lip - 0.001, vl, vw, 0.006);
         boxC(vent, cx, cy, z1 - lip - 0.001, vw, vl, 0.006);
         meshes.push(vent);
       }
-      ctx.can = { r, z1 };
+      ctx.can = { r, z1, lid: z1 - lip, bare };
       return { top: null, z1 };
     }
     if (style === 'bga') {
@@ -767,6 +773,13 @@
       m.color = MAT.solder.color;
       return true;
     }
+    if (f === 'column') {
+      // a solder column from the board up into the body
+      const d = l.v != null ? l.v : l.d != null ? l.d : Math.max(0.2, (l.padAcross || 0.8) - 0.3);
+      tube(m, [[l.x, l.y, 0], [l.x, l.y, z0 + 0.02]], d / 2, 12);
+      m.color = MAT.solder.color;
+      return true;
+    }
     if (f === 'tab') {
       const t = ctx.thick('tab', l);
       let w, ln;
@@ -814,6 +827,24 @@
       const inside = Math.min(0.3, 0.4 * F.uEdge);
       const zl = Math.max(zp, c * 1.5);
       const path = fillet([[F.uEdge - inside, zl], [F.uEdge + sh, zl], [uToe - foot, c / 2], [uToe, c / 2]], 1.5 * c);
+      sweepRect(m, path, W, c, F.map, F.mapN);
+      return true;
+    }
+    if (f === 'straight') {
+      // flat out of the bottom of the body, on the board
+      const uToe = F.uToe != null ? F.uToe : F.uPad + T / 2;
+      const inside = Math.min(0.3, 0.4 * F.uEdge);
+      sweepRect(m, [[F.uEdge - inside, c / 2], [uToe, c / 2]], W, c, F.map, F.mapN);
+      return true;
+    }
+    if (f === 'lbend') {
+      // out of the end face, down it, and folded flat under the body
+      const tip = F.uToe != null ? F.uToe : F.uEdge;
+      const uOut = Math.max(tip - c / 2, F.uEdge + c / 2);
+      const uIn = Math.min(uOut - 2 * c, tip - T);
+      const zl = Math.max(z0 + 0.35 * (H - z0), 2.5 * c);
+      const inside = Math.min(0.3, 0.4 * F.uEdge);
+      const path = fillet([[F.uEdge - inside, zl], [uOut, zl], [uOut, c / 2], [uIn, c / 2]], 1.2 * c);
       sweepRect(m, path, W, c, F.map, F.mapN);
       return true;
     }
@@ -906,7 +937,7 @@
     if (p1.explicit && st === 'none') return 'none';
     if (st === 'notch') return style === 'molded' || style === 'dip' || style === 'block' || style === 'sawn' ? 'notch' : 'none';
     if (st === 'bar') return 'stripe';
-    const dflt = { molded: 'dimple', dip: 'dimple', sawn: 'dot', bga: 'dot', module: 'dot' }[style];
+    const dflt = { molded: 'dimple', dip: 'dimple', sawn: 'dot', bga: 'dot', cga: 'dot', module: 'dot' }[style];
     if (dflt) return dflt;
     if (style === 'block' && (st === 'dot' || st === 'chamfer')) return 'dot';
     return 'none';
@@ -924,6 +955,18 @@
       const toPin1 = !res.polarized || tantalum;
       stripeTo = toPin1 ? (pinOne ? [pinOne.x, pinOne.y] : null) : (p2 ? [p2.x, p2.y] : null);
       if (!stripeTo) return;
+    }
+    if (mark === 'stripe' && ctx.can && ctx.can.bare) {
+      // a bare can: a dark segment across the lid on the marked side
+      const { r, lid } = ctx.can;
+      const a = Math.atan2(stripeTo[1] - b.y, stripeTo[0] - b.x);
+      const R = r * 0.8, d0 = r * 0.2, phi = Math.acos(Math.min(1, d0 / R));
+      const pts = [];
+      for (let j = 0; j <= 24; j++) { const t = a - phi + (2 * phi * j) / 24; pts.push([b.x + R * Math.cos(t), b.y + R * Math.sin(t)]); }
+      const m = new Mesh('polarity mark', 'mark', MAT.rubber, src);
+      m.cap(pts, lid + 0.004, true);
+      meshes.push(m);
+      return;
     }
     if (mark === 'stripe' && ctx.can) {
       const { r, z1 } = ctx.can;

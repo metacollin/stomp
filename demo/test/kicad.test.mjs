@@ -74,7 +74,7 @@ const str = (a) => (a && a.q != null ? a.q : a);
 // every bare word the exporter writes, each checked against KiCad 9's pcb.keywords
 // and embedded_files.keywords. Check any new word the same way.
 const KNOWN = new Set(('anchor at attr center checksum circle clearance custom data descr drill effects embedded_files embedded_fonts ' +
-  'end file fill font footprint fp_circle fp_line fp_poly fp_text generator generator_version gr_poly hide layer layers model ' +
+  'end file fill font footprint fp_circle fp_line fp_poly fp_rect fp_text generator generator_version gr_poly hide layer layers model ' +
   'name no np_thru_hole offset options outline oval pad pad_prop_bga pad_prop_castellated pad_prop_heatsink primitives ' +
   'property pts rect remove_unused_layers rotate roundrect roundrect_rratio scale size smd solder_mask_margin solder_paste_margin ' +
   'solid start stroke tags thickness through_hole thru_hole type unlocked user uuid version width xy xyz yes').split(' '));
@@ -190,7 +190,8 @@ test('SOIC-8: y flipped, quarter-turned pads written unrotated, attributes', () 
   assert.equal(kid(p1, 'roundrect_rratio')[1], 0.25);
   const texts = kids(t, 'fp_text').map((x) => str(x[2]));
   assert.ok(texts.includes('${REFERENCE}'), 'the fab label is KiCad\'s ${REFERENCE}');
-  assert.ok(kids(t, 'fp_poly').some((p) => str(kid(p, 'layer')[1]) === 'F.CrtYd'), 'courtyard');
+  assert.equal(kids(t, 'fp_rect').filter((p) => str(kid(p, 'layer')[1]) === 'F.CrtYd').length, 1, 'the courtyard is one fp_rect');
+  assert.ok(!kids(t, 'fp_poly').some((p) => str(kid(p, 'layer')[1]) === 'F.CrtYd'), 'and nothing else on F.CrtYd');
   assert.equal(K.footprint(exportOf(example('soic8.stomp')).r, { model: null }).text.includes('embedded_files'), false, 'no model, nothing embedded');
 });
 

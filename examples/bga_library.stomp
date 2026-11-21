@@ -1,4 +1,4 @@
-# BGA library: ball grids from a 9-ball chip-scale package to 484 balls.
+# BGA library: ball grids from a 9-ball chip-scale package to 484 balls, and column grids.
 #
 # Each row is a full grid of nx x ny balls at pitch e on a D x D body, with ball
 # diameter bd and seated height A. Rows are lettered and columns numbered the
@@ -29,4 +29,24 @@ footprints from ball_grid {
   14   14   1.0   15    0.5    1.5
   16   16   1.0   17    0.5    1.7
   22   22   1.0   23    0.6    2.0
+}
+
+# Ceramic column grid arrays (CGA): solder columns instead of balls. The columns
+# lift the body by its standoff, and their lands are 0.3 mm wider than they are.
+template column_grid(n, e, D, cd, A) {
+  name "CGA-{n * n}_{D:.1}x{D:.1}mm_Layout{n}x{n}_P{e:.2}mm"
+  description "Ceramic column grid array, {n * n} columns, {e} mm pitch, {D} x {D} mm body"
+  refdes "U"
+
+  body D x D x A
+  balls n x n pitch e                 # the same grid and JEDEC lettering as a BGA
+  lead column d cd
+  pin1 dot
+  model { standoff 2.2 }              # column height
+}
+
+footprints from column_grid {
+  n    e     D     cd     A
+  16   1.27  21    0.51   4.0
+  25   1.27  32.5  0.51   4.6
 }

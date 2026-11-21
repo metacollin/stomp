@@ -25,7 +25,7 @@
   const SIDE_WORDS = new Set(['left', 'right', 'top', 'bottom']);
   const ANCHORS = new Set(['center', 'inner', 'outer', 'left', 'right', 'top', 'bottom']);
   const UNITS = new Set(['mm', 'um', 'nm', 'mil', 'in']);
-  const LEAD_FORMS = new Set(['gullwing', 'jlead', 'flat', 'endcap', 'ball', 'pin', 'wire', 'tab', 'castellated']);
+  const LEAD_FORMS = new Set(['gullwing', 'jlead', 'lbend', 'straight', 'flat', 'endcap', 'ball', 'column', 'pin', 'wire', 'tab', 'castellated']);
   const ARRANGEMENTS = new Set(['dual', 'quad', 'horizontal', 'vertical']);
   const SCHEMES = new Set(['ccw', 'cw', 'zigzag', 'row-major', 'col-major', 'bga']);
   const CORNERS = new Set(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
@@ -37,7 +37,7 @@
     'description', 'datasheet', 'manufacturer', 'mpn', 'refdes', 'tags', 'let', 'origin', 'body', 'pins',
     'balls', 'lead', 'thermal', 'span', 'gap', 'pitch', 'density', 'omit', 'only', 'pin1', 'polarized',
     'default', 'pad', 'pads', 'hole', 'delete', 'row', 'group', 'align', 'silk', 'courtyard', 'assembly',
-    'text', 'model', 'no', 'name', 'footprint', 'footprints', 'template', 'units'];
+    'text', 'model', 'no', 'name', 'footprint', 'footprints', 'template', 'units', 'feature'];
   const STMT_SET = new Set(STMT_WORDS);
   const INNER = {
     pad: new Set(['shape', 'size', 'width', 'length', 'drill', 'rotate', 'mask', 'paste', 'vias']),
@@ -231,6 +231,8 @@
         node = this.letStmt();
       } else if (this.isWord('template')) {
         node = this.template();
+      } else if (this.isWord('feature')) {
+        node = this.featureDecl();
       } else if (this.isWord('footprint')) {
         node = this.footprint();
       } else if (this.isWord('footprints')) {
@@ -238,7 +240,7 @@
       } else if (k.t === 'word' && STMT_SET.has(k.v)) {
         this.failAt(`\`${k.v}\` statements belong inside a \`footprint "NAME" { … }\` block`);
       } else {
-        this.expected('`footprint`, `footprints`, `template`, `let` or `units`');
+        this.expected('`footprint`, `footprints`, `template`, `feature`, `let` or `units`');
       }
       node.s = s; node.e = this.prevEnd(); node.unit = node.unit && node.type === 'Units' ? node.unit : this.unit;
       return node;
@@ -260,12 +262,19 @@
       const k = this.cur;
       if (k.t !== 'word' || k.kw) this.expected('a template name (an identifier)');
       this.advance();
+      const params = this.paramList('template');
+      const blk = this.block(() => this.statement());
+      return { type: 'Template', name: k.v, nameS: k.s, nameE: k.e, params, body: blk.stmts, open: blk.open };
+    }
+
+    /** `( name, name = default, ... )` for a template or feature. */
+    paramList(what) {
       this.expectP('(', 'to open the parameter list');
       const params = [];
       if (!this.isP(')')) {
         do {
           const p = this.cur;
-          if (p.t === 'word' && p.kw) this.failAt(`\`${p.v}\` is a keyword and can't be a template parameter`);
+          if (p.t === 'word' && p.kw) this.failAt(`\`${p.v}\` is a keyword and can't be a ${what} parameter`);
           if (p.t !== 'word') this.expected('a parameter name');
           this.advance();
           let def = null;
@@ -274,8 +283,37 @@
         } while (this.acceptP(','));
       }
       this.expectP(')');
-      const blk = this.block(() => this.statement());
-      return { type: 'Template', name: k.v, nameS: k.s, nameE: k.e, params, body: blk.stmts, open: blk.open };
+      return params;
+    }
+
+    /** `feature NAME [(params)] { silk { ... } assembly { ... } }`: graphics drawn
+     *  around their own origin, placed by `pin1 NAME` or `feature NAME at ...`. */
+    featureDecl() {
+      this.expectWord('feature');
+      const k = this.cur;
+      if (k.t !== 'word' || k.kw) this.expected('a feature name (an identifier)');
+      this.advance();
+      const params = this.isP('(') ? this.paramList('feature') : [];
+      const blk = this.block(() => {
+        const L = this.cur;
+        if (!this.isWord('silk') && !this.isWord('assembly')) this.expected('`silk { … }` or `assembly { … }`, the layers a feature draws on');
+        this.advance();
+        return { type: 'FeatureLayer', layer: L.v, items: this.gfxBlock(), s: L.s, e: this.prevEnd() };
+      });
+      return { type: 'Feature', name: k.v, nameS: k.s, nameE: k.e, params, body: blk.stmts };
+    }
+
+    /** `feature NAME [(args)] at (x, y) | OBJECT [rotate A]` in a footprint. */
+    featureUse() {
+      this.expectWord('feature');
+      const k = this.cur;
+      if (k.t !== 'word' || k.kw) this.expected('the name of a feature');
+      this.advance();
+      const args = this.isP('(') ? this.callArgs() : [];
+      this.expectWord('at', '(`feature NAME at (x, y)` or `at pad 1`)');
+      const at = this.isP('(') ? { point: this.point() } : { ref: this.objref() };
+      const rotate = this.acceptWord('rotate') ? this.angle() : null;
+      return { type: 'FeatureUse', feature: { name: k.v, s: k.s, e: k.e, args }, at, rotate };
     }
 
     footprint() {
@@ -480,11 +518,16 @@
           case 'pin1': {
             this.advance();
             const v = this.cur;
-            if (v.t !== 'word' || !['dot', 'chamfer', 'notch', 'bar', 'none'].includes(v.v)) {
-              this.expected('a pin-1 marker: `dot`, `chamfer`, `notch`, `bar` or `none`');
+            if (v.t === 'word' && ['dot', 'chamfer', 'notch', 'bar', 'none'].includes(v.v)) {
+              this.advance();
+              node = { type: 'Pin1', style: v.v };
+            } else if (v.t === 'word' && !v.kw) {
+              // a custom marker: `pin1 plus`, `pin1 arrow(0.6)`
+              this.advance();
+              node = { type: 'Pin1', style: 'feature', feature: { name: v.v, s: v.s, e: v.e, args: this.isP('(') ? this.callArgs() : [] } };
+            } else {
+              this.expected('a pin-1 marker: `dot`, `chamfer`, `notch`, `bar`, `none`, or the name of a feature');
             }
-            this.advance();
-            node = { type: 'Pin1', style: v.v };
             break;
           }
           case 'polarized': this.advance(); node = { type: 'Polarized' }; break;
@@ -535,6 +578,7 @@
             break;
           }
           case 'text': node = this.text(); break;
+          case 'feature': node = this.featureUse(); break;
           case 'model': case 'no': node = this.model(); break;
           case 'footprint': case 'template': case 'units':
             this.failAt(`\`${k.v}\` can't appear inside a block — is a \`}\` missing above?`);
@@ -678,10 +722,10 @@
           if (this.acceptWord('none')) return { type: 'Lead', names, none: true };
           f = this.cur;
           if (f.t !== 'word' || !LEAD_FORMS.has(f.v)) {
-            this.expected('a lead form for these pins (gullwing, jlead, flat, endcap, ball, pin, wire, tab, castellated) or `none`');
+            this.expected('a lead form for these pins (gullwing, jlead, lbend, straight, flat, endcap, ball, column, pin, wire, tab, castellated) or `none`');
           }
         } else {
-          this.expected('a lead form: gullwing, jlead, flat, endcap, ball, pin, wire, tab or castellated');
+          this.expected('a lead form: gullwing, jlead, lbend, straight, flat, endcap, ball, column, pin, wire, tab or castellated');
         }
       }
       this.advance();

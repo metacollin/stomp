@@ -293,3 +293,33 @@ test('the model builder never throws on mangled sources', () => {
     console.error = quiet;
   }
 });
+
+test('new lead forms: L-bends fold under, straight leads lie flat, columns lift the body', () => {
+  const t = build('footprint "T" {\n  refdes "C"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n}').m;
+  near(t.standoff, 0.15, 'L-bend standoff');
+  const tb = box(leads(t));
+  near(tb.z0, 0, 'the feet are on the board', 1e-3);
+  assert.ok(tb.x1 > 1.6 && tb.x1 < 1.8, `down the end face, got ${tb.x1}`);
+  const l1 = box([mesh(t, 'lead 1')]);
+  assert.ok(l1.x1 > -0.9, `pin 1's foot runs under the body, got ${l1.x1}`);
+  const s = build('footprint "S" {\n  body 2.7 x 1.7 x 0.95\n  pins 2 horizontal\n  lead straight 0.85 x 0.55 span 3.6\n}').m;
+  const sb = box(leads(s));
+  near(sb.z0, 0, 'on the board', 1e-3); near(sb.z1, 0.12, 'flat: one lead thickness', 1e-3); near(sb.x1, 1.8, 'tips at the span', 1e-3);
+  const g = build('footprint "G" {\n  body 10 x 10 x 4\n  balls 4 x 4 pitch 1.27\n  lead column d 0.51\n}').m;
+  near(g.standoff, 2.2, 'column height');
+  assert.equal(leads(g).length, 16, 'a column per land');
+  const gb = box(leads(g));
+  near(gb.z0, 0, 'from the board', 1e-3); assert.ok(gb.z1 >= 2.2, 'into the body');
+  assert.equal(g.style, 'cga');
+});
+
+test('bare cans: no vent, and the polarity mark on the lid', () => {
+  const src = (color) => `footprint "CP" {\n  refdes "C"\n  body cylinder d 6.3 h 5.4\n  pins 2 horizontal\n  lead flat 0.65 x 2.3 span 7.3\n  polarized\n  model { body color ${color} }\n}`;
+  const bare = build(src('aluminum')).m;
+  assert.ok(!mesh(bare, 'vent'), 'no vent');
+  const mk = box([mesh(bare, 'polarity mark')]);
+  assert.ok(mk.x0 > 0, 'on the negative (pin 2) side');
+  near(mk.z0, mk.z1, 'flat on the lid'); assert.ok(mk.z1 < 5.4, 'below the rim');
+  const sleeved = build(src('blue')).m;
+  assert.ok(mesh(sleeved, 'vent') && mesh(sleeved, 'polarity stripe'), 'a sleeved can keeps its vent and printed stripe');
+});

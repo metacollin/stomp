@@ -399,3 +399,100 @@ test('libraries: every footprint builds cleanly with a unique name', () => {
   const h = named('header_library.stomp', 'PinHeader_2x5_P2.54mm_Vertical');
   assert.deepEqual([pad(h, 1).x, pad(h, 1).y, pad(h, 2).x, pad(h, 3).y], [0, 0, 2.54, -2.54], 'origin at pin 1, zigzag');
 });
+
+test('courtyards: always one rectangle', () => {
+  for (const f of readdirSync(join(repo, 'examples')).filter((x) => x.endsWith('.stomp'))) {
+    for (const x of compile(example(f)).footprints) {
+      const lines = x.result.courtyard.filter((i) => i.pts);
+      assert.equal(lines.length, 1, `${f}: ${x.name} has one courtyard`);
+      const p = lines[0].pts;
+      assert.equal(p.length, 5, `${f}: ${x.name}: four corners, closed`);
+      for (let i = 0; i < 4; i++) assert.ok((p[i][0] === p[i + 1][0]) !== (p[i][1] === p[i + 1][1]), `${f}: ${x.name}: sides along x and y`);
+    }
+  }
+  const one = (cy) => compile(`footprint "X" {\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\n  ${cy}\n}`);
+  const msgs = (cy) => one(cy).diagnostics.map((d) => d.message).join(' | ');
+  assert.equal(msgs('courtyard { rect (0, 0) 3 x 2 }'), '');
+  assert.equal(msgs('courtyard { polygon (-1, -1) (1, -1) (1, 1) (-1, 1) }'), '');
+  assert.match(msgs('courtyard { polygon (-1, -1) (1, -1) (0, 1) }'), /this polygon isn't one/);
+  assert.match(msgs('courtyard { polygon (-1, -1) (1, -1) (1.2, 1) (-1, 1) }'), /this polygon isn't one/);
+  assert.match(msgs('courtyard { line (0, 0) (1, 1) }'), /a courtyard is one rectangle/);
+  assert.match(msgs('courtyard { rect (0, 0) 1 x 1; rect (2, 0) 1 x 1 }'), /a courtyard is one rectangle/);
+  assert.match(msgs('courtyard auto 0.5\n  courtyard rect 4 x 3'), /set twice in this footprint; the later one wins/);
+  // the automatic one: the box around lands and body, plus the clearance
+  const r = one('courtyard auto 0.25').footprints[0].result;
+  assert.deepEqual([r.courtyardBox.x0, r.courtyardBox.y0, r.courtyardBox.x1, r.courtyardBox.y1], [-0.75, -0.75, 0.75, 0.75]);
+  // a child's courtyard replaces its parent's without a warning
+  const kid = compile('footprint "P" {\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\n  courtyard auto 0.5\n}\nfootprint "K" extends "P" {\n  courtyard rect 3 x 3\n}');
+  assert.deepEqual(kid.diagnostics, []);
+  near(kid.footprints[1].result.courtyardBox.x1, 1.5, 'the child wins');
+});
+
+test('features: pin-1 marks and placed graphics', () => {
+  const src = `
+feature plus(s = 0.6) {
+  silk {
+    line (-s / 2, 0) (s / 2, 0)
+    line (0, -s / 2) (0, s / 2)
+  }
+}
+feature tag {
+  assembly { text "T{1 + 1}" at (0, 0) size 0.5 }
+}
+footprint "A" {
+  body 3.2 x 1.6 x 1.6
+  pins 2 horizontal
+  lead lbend 1.2 x 0.8
+  pin1 plus
+  feature plus(0.4) at (0, 2) rotate 90
+  feature tag at pad 2
+}`;
+  const out = compile(src);
+  assert.deepEqual(out.diagnostics, []);
+  const r = out.footprints[0].result;
+  const of = (type) => r.silk.filter((i) => i.src && i.src.type === type);
+  const mark = of('Pin1');
+  assert.equal(mark.length, 2, 'the "+" is two lines');
+  const [m0, m1] = mark[0].pts;
+  const c = [(m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2];
+  assert.ok(c[0] < -1.6 && c[1] > 0.8, `outside the corner nearest pin 1, got ${c}`);
+  const placed = of('FeatureUse');
+  near(placed[0].pts[0][0], 0, 'turned a quarter: x'); near(placed[0].pts[0][1], 1.8, 'turned a quarter: y');
+  const tag = r.assembly.find((i) => i.type === 'text' && i.str === 'T2');
+  assert.ok(tag, 'interpolated text on the assembly layer');
+  near(tag.at[0], pad(r, 2).x, 'placed at pad 2');
+
+  const err = (s) => errors(compile(s)).map((d) => d.message).join(' | ');
+  const pad1 = 'pad 1 rect 1 x 1\n  pad 1 at (0, 0)';
+  assert.match(err(src + '\nfeature plus { silk { circle (0, 0) d 1 } }'), /feature `plus` is defined twice/);
+  assert.match(err(`feature plus { silk { line (0, 0) (1, 0) } }\nfootprint "B" {\n  ${pad1}\n  pin1 pluss\n}`), /unknown feature `pluss` — did you mean `plus`\?/);
+  assert.match(err(`footprint "B" {\n  ${pad1}\n  feature star at (0, 0)\n}`), /unknown feature `star` — define it with/);
+  assert.match(err(`feature frame { silk { outline body } }\nfootprint "C" {\n  body 2 x 2\n  ${pad1}\n  feature frame at (0, 0)\n}`), /can't go in a feature/);
+  assert.match(err(`feature f(a) { silk { line (0, 0) (a, 0) } }\nfootprint "D" {\n  ${pad1}\n  feature f at (0, 0)\n}`), /needs a value for `a`/);
+  assert.match(err(`feature f(a) { silk { line (0, 0) (a, 0) } }\nfootprint "E" {\n  ${pad1}\n  feature f(b = 1) at (0, 0)\n}`), /has no parameter `b`/);
+});
+
+test('lead forms: inward L-bend, straight and column lands', () => {
+  const one = (src) => { const out = compile(src); assert.deepEqual(errors(out), []); return out.footprints[0].result; };
+  // IPC inward L-bend, nominal: toe 0.15, heel 0.5, side -0.05. Z = 3.56, G = 0.54, X = 1.16
+  const t = one('footprint "T" {\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n}');
+  near(pad(t, 1).x, -1.025, 'L-bend land center'); near(pad(t, 1).shape.l, 1.51, 'runs on under the body'); near(pad(t, 1).shape.w, 1.16, 'width');
+  // flat leads, nominal: toe 0.2, heel 0. Z = 4.06, G = 2.44
+  const s = one('footprint "S" {\n  body 2.7 x 1.7 x 0.95\n  pins 2 horizontal\n  lead straight 0.85 x 0.55 span 3.6\n}');
+  near(pad(s, 1).x, -1.625, 'flat-lead land center'); near(pad(s, 1).shape.l, 0.81, 'length');
+  // columns: round lands 0.3 mm wider than the column, BGA lettering
+  const g = one('footprint "G" {\n  body 10 x 10 x 4\n  balls 7 x 7 pitch 1.27\n  lead column d 0.51\n}');
+  near(pad(g, 'A1').shape.d, 0.81, 'column land');
+  assert.match(errors(compile('footprint "X" {\n  body 2 x 1\n  pins 2 horizontal\n  lead column d 0.5\n}')).map((d) => d.message).join(), /`lead column` belongs with `balls` or `pins grid`/);
+});
+
+test('polarity: the silk bar marks the same end as the band', () => {
+  const bar = (refdes) => {
+    const r = fp(`footprint "P" {\n  refdes "${refdes}"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n  polarized\n}`).r;
+    const sides = r.silk.filter((i) => i.pts && i.pts.length === 2 && i.pts[0][0] === i.pts[1][0] && Math.abs(i.pts[0][0]) > 1.7).map((i) => Math.sign(i.pts[0][0]));
+    assert.equal(sides.length, 1, `${refdes}: one bar`);
+    return sides[0];
+  };
+  assert.equal(bar('C'), -1, 'a capacitor: by pin 1, the positive end');
+  assert.equal(bar('D'), 1, 'a diode: by pin 2, the cathode');
+});

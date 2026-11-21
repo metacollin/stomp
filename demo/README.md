@@ -68,8 +68,8 @@ The engine prototypes the whole draft, from `grammar.peg` to finished layers:
 |---|---|
 | `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4) |
 | `js/parser.js` | recursive descent in `grammar.peg`'s choice order; recovers from errors one statement at a time |
-| `js/compile.js` | units (per file, footprint or template), `let` and `{...}` interpolation; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; diagnostics (§15); a build cache |
-| `js/model3d.js` | the 3D model (SPEC §13): a body for each lead form (molded with draft, sawn, chip, MELF, BGA, DIP, header, can, axial, module), swept gull-wing and J leads, terminals, balls, pins and wires, pin-1 and polarity marks, extra solids; the board under it; VRML and STL export |
+| `js/compile.js` | units (per file, footprint or template), `let` and `{...}` interpolation; custom features; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; diagnostics (§15); a build cache |
+| `js/model3d.js` | the 3D model (SPEC §13): a body for each lead form (molded with draft, sawn, chip, MELF, BGA, DIP, header, can, axial, module), swept gull-wing, J and L-bend leads, straight leads, terminals, balls, solder columns, pins and wires, bare polymer cans, pin-1 and polarity marks, extra solids; the board under it; VRML and STL export |
 | `js/kicad.js` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded, and whole `.pretty` libraries |
 | `js/geom.js` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
 | `js/view.js` | SVG viewer: layers at true width, pan and zoom, hover details, dimension overlays |
@@ -132,6 +132,8 @@ The tests check:
 
 - hand-calculated geometry for the relational examples (TO-252, USB micro-B, the syntax
   zoo), the generators, interpolation and tables, side marks and units in footprints;
+- rectangular courtyards, custom features, the L-bend, straight and column lead forms,
+  and which end the polarity marks go on;
 - that every library builds with no warnings and unique names;
 - the diagnostics and where they point;
 - that `js/examples.js` matches `examples/`;
@@ -194,8 +196,9 @@ The draft leaves some meanings open. The demo picks these, and the page's
    P = 0.025 mm. Corners are rounded at 25% (at most 0.25 mm). Ball lands are 80% of
    the ball. Through-hole drills are the lead plus 0.15 to 0.25 mm. Mask expansion
    defaults to 0.05 mm per side.
-7. **Courtyards.** A `courtyard { ... }` block replaces the automatic courtyard. Silk and
-   assembly blocks add to theirs, as §12 describes.
+7. **Courtyards are always one rectangle** (SPEC §12): the automatic one is the
+   smallest rectangle around the lands and body, plus the clearance. Silk and assembly
+   blocks add to their automatic layers, as §12 describes.
 8. **Two grammar extensions.** `omit` and `only` take name ranges (`only 1..5`, used in
    the syntax zoo), and sizes can be written without spaces (`0.6x1.5`).
 9. **Interpolation output.** Numbers print in their shortest form, up to 6 decimals, so
@@ -222,9 +225,10 @@ The draft leaves some meanings open. The demo picks these, and the page's
 14. **A cylinder body lies down when its pins can't leave its bottom:** always for
     endcaps (a MELF), and for wire leads outside the circle (an axial part). In 2D it
     is then a rectangle, with its length along the pins and its diameter across.
-15. **The polarity stripe follows the part family.** The cathode of a diode or LED and
-    the negative lead of a can are pin 2, but a chip capacitor's band marks pin 1, the
-    way tantalums are marked (SPEC §17.12).
+15. **The polarity marks follow the part family** (SPEC §13.1). The cathode of a diode
+    or LED and the negative lead of a can are pin 2, but a chip or molded capacitor's
+    band marks pin 1, the way tantalums are marked. The silk bar and the 3D stripe go on
+    the same end.
 16. **Model blocks merge down `extends`.** A child's `model { standoff 0.2 }` changes
     one setting and keeps the parent's solids. `no model` ends the model at that level.
 

@@ -1,9 +1,18 @@
-# Tantalum capacitor library: molded chip cases A to E.
+# Tantalum capacitor library: molded chip cases A to E, marked + at pin 1.
 #
-# The terminals fold around the ends of the body and under it, so they're
-# J-leads here, b wide with a foot f under the body. Pin 1 is positive, and
-# the band on the body marks it. Sizes follow EIA 535BAAC; check your part's
+# The terminals fold around the ends of the body and under it (`lbend`), b wide
+# with a foot f under the body. Pin 1 is positive: the band on the body, the
+# silk bar and a "+" all mark it. Sizes follow EIA 535BAAC; check your part's
 # datasheet.
+
+# A custom pin-1 mark: a "+" drawn around its own origin. `pin1 plus` puts it
+# where the pin-1 dot would go, clear of the copper.
+feature plus(s = 0.7) {
+  silk {
+    line (-s / 2, 0) (s / 2, 0)
+    line (0, -s / 2) (0, s / 2)
+  }
+}
 
 template tantalum(cs, eia, L, W, H, b, f) {
   name "CP_Tantalum_Case-{cs}_EIA-{eia}"
@@ -12,13 +21,10 @@ template tantalum(cs, eia, L, W, H, b, f) {
 
   body L x W x H
   pins 2 horizontal
-  lead jlead b x f span L
-  polarized                           # on a chip capacitor the band marks pin 1
-  model {
-    standoff 0.15                     # the terminals fold flat under the body
-    leads thickness 0.1
-    body color "#d99a1e"              # amber, as most tantalums are molded
-  }
+  lead lbend b x f
+  polarized                           # on a capacitor the band marks pin 1
+  pin1 plus
+  model { body color "#d99a1e" }      # amber, as most tantalums are molded
 }
 
 footprints from tantalum {

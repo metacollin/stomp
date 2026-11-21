@@ -129,3 +129,21 @@ footprint "ZOO-MARKS" {
   pad 3 is 2 right of pad 2
   pad 4 is 2 right of pad 3
 }
+
+# 7. Custom features: graphics around their own origin, used as a pin-1 mark or placed anywhere
+feature arrow(tail = 40) {
+  silk {
+    polygon (0, 0) (-20, 10) (-20, -10) fill
+    line (-20, 0) (-tail, 0)
+  }
+  assembly { text "1" at (-tail - 15, 0) size 20 }
+}
+
+footprint "ZOO-FEATURES" {
+  body 120 x 80 x 30
+  pins 6 dual pitch 25 span 140
+  lead gullwing 10 x 15
+  pin1 arrow(60)                       # where the dot would go, clear of the copper
+  feature arrow at pad 4 rotate 180    # at a point or an object, turned
+  courtyard { rect (0, 0) 220 x 140 }  # a courtyard is always one rectangle
+}

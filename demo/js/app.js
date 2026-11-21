@@ -32,6 +32,7 @@
     'bga_library.stomp': '  8    8    0.8   8     0.4',
     'diode_library.stomp': '"SMA"  "DO-214AC"',
     'tantalum_library.stomp': '"B"   "3528-21"',
+    'polymer_cap_library.stomp': '  6.3   5.4    0.65',
     'inductor_library.stomp': '  4.0   4.0   2.0',
     'crystal_library.stomp': '"3225"  3.2   2.5   0.7',
     'led_library.stomp': '  6    "5050"',

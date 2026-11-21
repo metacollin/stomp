@@ -20,16 +20,16 @@
   const RESERVED = new Set((
     'above across align and arc assembly at auto ball balls bar below between ' +
     'bga body bottom bottom-left bottom-right box castellated ccw center centered ' +
-    'centers chamfer circle col-major color cols copper courtyard coverage cw ' +
+    'centers chamfer circle col-major color cols column copper courtyard coverage cw ' +
     'cylinder d datasheet default defined deg delete density description ' +
-    'dimple divide dot down draft drill dshape dual endcap extends fill flat ' +
+    'dimple divide dot down draft drill dshape dual endcap extends feature fill flat ' +
     'footprint footprints from gap going grid group gullwing gutter h height hole ' +
-    'horizontal horizontally in inner is jlead layer lead leads least left ' +
+    'horizontal horizontally in inner is jlead layer lbend lead leads least left ' +
     'length let line manufacturer mask mil mirrors mm model most mpn name nc nm no ' +
     'nominal none notch numbering of offset omit on only origin outer outline ' +
     'oval pad pads paste pin pin1 pins pitch polarized polygon quad r rad ' +
     'rect ref refdes right rotate roundrect row row-major rows scale shape ' +
-    'side silk single size slot span standoff start step stripe tab tags ' +
+    'side silk single size slot span standoff start step straight stripe tab tags ' +
     'template text thermal thickness tht to top top-left top-right um units up value ' +
     'vertical vertically vias wire with width x y zigzag').split(/\s+/));
 

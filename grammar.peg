@@ -23,12 +23,18 @@ file            <- EOS? (top_stmt EOS)* EOF
 top_stmt        <- units_stmt
                  / let_stmt
                  / template_decl
+                 / feature_decl
                  / footprints_decl
                  / footprint_decl
 
 units_stmt      <- 'units' unit_name
 
 template_decl   <- 'template' IDENT '(' param_list? ')' block
+
+# A feature: graphics around its own origin, used by `pin1 NAME` or placed with
+# `feature NAME at ...` (SPEC 12.1)
+feature_decl    <- 'feature' IDENT ('(' param_list? ')')? feature_block
+feature_block   <- '{' EOS? (units_stmt EOS)? (('silk' / 'assembly') gfx_block EOS)* '}'
 param_list      <- param (',' param)*
 param           <- IDENT ('=' expr)?
 
@@ -86,6 +92,7 @@ statement       <- meta_stmt
                  / assembly_stmt
                  / text_stmt
                  / model_stmt
+                 / feature_stmt
                  / placement_stmt        # starts with an object: at, is, mirrors
 
 meta_stmt       <- 'description'  STRING
@@ -245,8 +252,8 @@ position        <- 'nc' / name
 
 lead_stmt       <- 'lead' sel_list? lead_form lead_dims? ('span' expr span_qual?)?
                  / 'lead' sel_list 'none'                  # these pins get no 3D lead (SPEC 11.3)
-lead_form       <- 'gullwing' / 'jlead' / 'flat' / 'endcap' / 'ball'
-                 / 'pin' / 'wire' / 'tab' / 'castellated'
+lead_form       <- 'gullwing' / 'jlead' / 'lbend' / 'straight' / 'flat' / 'endcap'
+                 / 'ball' / 'column' / 'pin' / 'wire' / 'tab' / 'castellated'
 # With a sel_list, the lead applies to those pins only. Lead forms are keywords
 # and pin names never are, so the two can't be confused.
 lead_dims       <- 'd' expr                              # round: diameter
@@ -257,7 +264,9 @@ thermal_stmt    <- 'thermal' 'pad' ( name size / size ) ( pad_block )?
 
 density_stmt    <- 'density' ('least' / 'nominal' / 'most')
 polarized_stmt  <- 'polarized'
-pin1_stmt       <- 'pin1' ('dot' / 'chamfer' / 'notch' / 'bar' / 'none')
+pin1_stmt       <- 'pin1' ('dot' / 'chamfer' / 'notch' / 'bar' / 'none'
+                         / IDENT ('(' arg_list? ')')?)  # a feature, where the dot would go
+feature_stmt    <- 'feature' IDENT ('(' arg_list? ')')? 'at' (point / objref) ('rotate' angle)?
 
 omit_stmt       <- 'omit' region_or_name (',' region_or_name)*
 only_stmt       <- 'only' region_or_name (',' region_or_name)*
@@ -271,7 +280,7 @@ silk_stmt       <- 'silk'     ( 'auto' / 'none' / gfx_block )
 assembly_stmt   <- 'assembly' ( 'auto' / 'none' / gfx_block )
 courtyard_stmt  <- 'courtyard' ( 'auto' expr?
                                / 'rect' size
-                               / gfx_block )
+                               / gfx_block )   # one rect, or a four-corner polygon (SPEC 12)
 
 gfx_block       <- '{' EOS? (gfx_stmt EOS)* '}'
 gfx_stmt        <- 'outline' 'body' ('offset' expr)?
@@ -340,17 +349,18 @@ EOF             <- !.
 # ones can't clash with an IDENT anyway (an IDENT has no '-'):
 #   above across align and arc assembly at auto ball balls bar below between
 #   bga body bottom bottom-left bottom-right box castellated ccw center
-#   centered centers chamfer circle col-major color cols copper courtyard
-#   coverage cw cylinder d datasheet default defined deg delete density
-#   description dimple divide dot down draft drill dshape dual endcap extends
-#   fill flat footprint footprints from gap going grid group gullwing gutter
-#   h height hole horizontal horizontally in inner is jlead layer lead leads
-#   least left length let line manufacturer mask mil mirrors mm model most
+#   centered centers chamfer circle col-major color cols column copper
+#   courtyard coverage cw cylinder d datasheet default defined deg delete
+#   density description dimple divide dot down draft drill dshape dual endcap
+#   extends feature fill flat footprint footprints from gap going grid group
+#   gullwing gutter h height hole horizontal horizontally in inner is jlead
+#   layer lbend lead leads least left length let line manufacturer mask mil
+#   mirrors mm model most
 #   mpn name nc nm no nominal none notch numbering of offset omit on only
 #   origin outer outline oval pad pads paste pin pin1 pins pitch polarized
 #   polygon quad r rad rect ref refdes right rotate roundrect row row-major
 #   rows scale shape side silk single size slot span standoff start step
-#   stripe tab tags template text thermal thickness tht to top top-left
+#   straight stripe tab tags template text thermal thickness tht to top top-left
 #   top-right um units up value vertical vertically vias width wire with x y
 #   zigzag
 #

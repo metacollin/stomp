@@ -189,7 +189,8 @@ footprints from qfn {
 
 A file holds any number of file-level `units` and `let` statements, `template`
 declarations ([§14](#14-templates-tables-and-inheritance)), `footprint` declarations
-and `footprints` tables ([§14.3](#143-tables-footprints-from)). Related footprints
+and `footprints` tables ([§14.3](#143-tables-footprints-from)), and `feature` definitions
+([§12.1](#121-custom-features)). Related footprints
 (variants, a family, a whole library) usually share one file. A footprint or
 template can also start with its own `units` ([§6](#6-coordinate-system-and-units)).
 
@@ -596,9 +597,12 @@ only rows A..B, rows G..H               # the reverse: keep only the listed regi
 ```stomp
 lead gullwing 0.41 x 1.04 span 6.0   # width x foot length; span outer to outer
 lead jlead 0.5 x 0.9 span 8.6
+lead lbend 1.2 x 0.8                 # inward L-bend (tantalums, SMA): the foot folds under the body; span optional
+lead straight 0.85 x 0.55 span 3.6   # flat leads straight out of the bottom of the body (SOD-123F, SMF)
 lead flat 0.25 x 0.4                 # leadless lands (QFN/DFN/LGA); span optional (defaults to the body edge)
 lead endcap 0.35                     # chip terminations; width defaults to the body width
 lead ball 0.4                        # BGA ball diameter
+lead column d 0.51                   # CGA solder column diameter; on a grid, like ball
 lead pin d 0.64                      # THT round pin; also: lead pin 0.64 x 0.64 (square)
 lead wire d 0.6                      # axial or radial wire leads
 lead tab 5.5 x 6.2                   # DPAK-style tab (becomes highest-numbered pin unless named)
@@ -649,8 +653,9 @@ pin1 chamfer      # chamfered silk corner (the QFN convention)
 pin1 notch        # DIP-style notch at the pin-1 end
 pin1 bar          # bar across the pin-1 end (tantalum or diode style)
 pin1 none
-polarized         # two-terminal polarity: pin 1 is positive (the anode); adds a bar
-                  # on the cathode side, and the 3D stripe
+pin1 plus         # a custom feature (§12.1), drawn where the dot would go
+polarized         # two-terminal polarity: pin 1 is positive (the anode); adds a silk bar
+                  # and the 3D stripe at the end the part's family marks (§13.1)
 density most      # IPC density level: least | nominal | most
 ```
 
@@ -659,14 +664,19 @@ density most      # IPC density level: least | nominal | most
 Everything here defaults to `auto` and rarely needs writing:
 
 - **silk** `auto`: the body outline, kept clear of copper, plus the `pin1` marker;
-- **courtyard** `auto`: the convex hull of the lands and body, plus the IPC clearance
-  for the density level (`courtyard auto 0.5` overrides the clearance);
+- **courtyard** `auto`: the smallest rectangle around the lands and body, plus the IPC
+  clearance for the density level, rounded out to 0.01 mm (`courtyard auto 0.5`
+  overrides the clearance);
 - **assembly** `auto`: the body outline plus the refdes.
 
 Manual work combines predictably. Within one footprint, `auto` and `none` set the
 layer's base (the last one wins), and any `{ … }` blocks **add to the base**. So a lone
 `silk { text … }` adds to the auto outline, while `silk none` followed by `silk { … }`
 is fully manual.
+
+A courtyard is always one rectangle: `courtyard auto`, `courtyard rect W x L`
+(centered on the body), or a `{ … }` block holding one `rect`, or a `polygon` with four
+corners and sides along x and y. The last courtyard statement wins.
 
 Manual additions and overrides:
 
@@ -680,11 +690,42 @@ silk {
 }
 silk none                             # or turn it off entirely
 courtyard rect 7.4 x 7.4
-courtyard { polygon (…) (…) (…) }
+courtyard { rect (0, 0.5) 7.4 x 8.0 }
 assembly none
 text ref at (0, 0) size 1.0           # refdes and value fields; default layers: ref on silk, value on assembly
 text value at (0, -1.2) size 0.8 layer assembly
 ```
+
+### 12.1 Custom features
+
+A feature is a named piece of graphics, drawn around its own origin, that any
+footprint in the file can use. Define it at the top level with `silk` and `assembly`
+blocks, and give it parameters as a template has:
+
+```stomp
+feature plus(s = 0.7) {
+  silk {
+    line (-s / 2, 0) (s / 2, 0)
+    line (0, -s / 2) (0, s / 2)
+  }
+}
+
+footprint "CP-A" {
+  body 3.2 x 1.6 x 1.6
+  pins 2 horizontal
+  lead lbend 1.2 x 0.8
+  pin1 plus                            # the pin-1 mark, where the dot would go
+  feature plus(0.5) at pad 2 rotate 45 # or anywhere: at a point or an object
+}
+```
+
+`pin1 NAME` draws the feature as the pin-1 mark, centered where the dot would go and
+moved out by its own size to clear the copper. Like the other pin-1 marks, it's part of
+the automatic silk. `feature NAME at (x, y)`, or `at pad 3`, places one anywhere,
+optionally turned with `rotate`; text in it stays upright. Arguments work as in a
+template call ([§14.1](#141-templates-are-functions)): a plain number takes the unit of
+the feature's statements, so pass `40mil` from a footprint in other units. `outline body`
+can't go in a feature, since a feature has no body.
 
 ## 13. 3D model
 
@@ -705,9 +746,12 @@ The lead form picks the rest:
 |---|---|---|---|---|
 | `gullwing` | molded, 8° draft, parting line at mid-body | leave the parting line, bend down to a foot on the board; toes at the span | 0.1 | dimple |
 | `jlead` | molded, 8° draft | leave the parting line, run down the body side and curl under it | 0.5 | dimple |
+| `lbend` | molded, 8° draft | leave the end face low, run down it and fold flat under the body | 0.15 | dimple |
+| `straight` | molded, 8° draft | flat strips straight out of the bottom of the body, on the board | 0.05 | dimple |
 | `flat` | sawn block | terminals flush with the body's bottom and edge (or at the span); exposed pads under the body | 0.02 | dot |
 | `endcap` | chip; a cylinder body is a MELF, lying along the pins | metal caps over each end, T long | 0 | — |
 | `ball` | laminate substrate and mold cap | balls d wide, collapsed to the standoff | 0.75 d | dot |
+| `column` | ceramic block | solder columns d wide from the board up into the body | 2.2 | dot |
 | `pin`, `dual` | molded DIP | shoulders down to the board, then the lead through it | 0.5 | dimple |
 | `pin`, other | housing one pitch tall when H is over two pitches, else H | straight pins from below the board to H | 0 | — |
 | `wire` | cylinder: a can, or an axial body when the pins lie outside it | wires down through the board; axial wires leave the body's ends | 0.5 / 0 | — |
@@ -717,13 +761,15 @@ The lead form picks the rest:
 
 - **Leads** are tin. Gull-wings are 0.15 thick below a 1 mm pitch, 0.2 up to 2 mm and
   0.3 above. J-leads are 0.2, or 0.25 at a 1.27 mm pitch or more. Flat terminals are
-  0.2. Grid pins are gold. Through-hole leads reach 3 mm below the board. A gull-wing's
+  0.2, and L-bends and straight leads 0.12. Grid pins are gold. Through-hole leads reach 3 mm below the board. A gull-wing's
   foot is the lead's foot length, shortened if the bend needs the room.
 - **Pin 1.** The mark goes on the body top at the corner nearest pin 1. `pin1 notch`
   gives a notch at the pin-1 end, `pin1 bar` a stripe, and `pin1 none` no mark.
 - **Polarity.** A `polarized` part gets a stripe at its marked end: the cathode (pin 2)
   of a diode or LED and the negative lead of a can, but the positive end (pin 1) of a
-  chip capacitor, which is how tantalums are marked.
+  chip or molded capacitor, which is how tantalums are marked. The silk bar goes on the
+  same end. A can in a metal `body color` is bare, as polymer caps are: it has no vent,
+  and its mark is a dark segment on the lid instead of a stripe on a sleeve.
 - **Colors** follow the part family, from the `refdes` letter. Chip resistors are white
   ceramic with a black top, chip capacitors are tan, inductors gray, and chip LEDs white
   with a clear lens. Molded bodies are black.
@@ -892,6 +938,7 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 - suspicious-geometry *warnings* (a zero-size pad, a drill as large as its pad or larger, overlapping pads whose nets aren't known), never errors, since each can be intended;
 - duplicate footprint names, generated ones included; a table row with the wrong number of cells; a column that names no parameter (with the nearest name suggested); a template that doesn't `name` the footprints a table or an unnamed call needs from it;
 - an error inside a template body, reported on the call or table row whose arguments cause it, and once at the template when every call has it;
+- a courtyard that isn't one rectangle, and a courtyard set twice in one footprint (a warning); an unknown feature (with the nearest name suggested), a feature defined twice, and missing or unknown feature arguments;
 - a side mark outside a 2D size, in the middle of a side, or on both sides with the same letter; `units` after other statements in a footprint or template;
 - 3D: a per-pin `lead` naming a pin that doesn't exist or was omitted; `leads below` or `leads above` on leads that can't use them; a solid or color that can't be built; a model property given twice in one block.
 
@@ -934,9 +981,8 @@ spec wins for *meaning*.
 11. **Body detail.** Molded bodies have one draft angle and square edges; real ones also
     have a pin-1 bevel, rounded corners and ejector-pin marks. A `model` property per
     feature would be additive, but past some point `step` may be the right answer.
-12. **Polarity conventions.** The 3D stripe follows the family's convention (§13.1),
-    which isn't always the silk's: a tantalum's band marks pin 1. Should the silk bar
-    follow it too?
+12. **Polarity conventions.** Settled: the silk bar follows the same family rule as the
+    3D stripe (§13.1), so a tantalum's band and bar both mark pin 1.
 
 ## 18. Example index
 
@@ -970,9 +1016,10 @@ Libraries, each a template or two and a table per family:
 | [`examples/sop_library.stomp`](examples/sop_library.stomp) | SOIC, MSOP, TSSOP, SSOP and QSOP from one template, family values in each call |
 | [`examples/qfp_library.stomp`](examples/qfp_library.stomp) | LQFP and TQFP, 32 to 208 pins; a default computed from another parameter |
 | [`examples/dfn_library.stomp`](examples/dfn_library.stomp) | two-row leadless packages with exposed pads |
-| [`examples/bga_library.stomp`](examples/bga_library.stomp) | ball grids from 9 to 484 balls; `{x:.1}` names; rows past Z |
-| [`examples/diode_library.stomp`](examples/diode_library.stomp) | SOD, SMA/SMB/SMC and MELF; three lead forms |
-| [`examples/tantalum_library.stomp`](examples/tantalum_library.stomp) | tantalum cases A to E, J-leads folded under the body |
+| [`examples/bga_library.stomp`](examples/bga_library.stomp) | ball grids from 9 to 484 balls and two column grids; `{x:.1}` names; rows past Z |
+| [`examples/diode_library.stomp`](examples/diode_library.stomp) | SOD, flat-lead SOD and SMF, SMA/SMB/SMC and MELF; four lead forms |
+| [`examples/tantalum_library.stomp`](examples/tantalum_library.stomp) | tantalum cases A to E: `lbend` leads, and a custom `+` feature as the pin-1 mark |
+| [`examples/polymer_cap_library.stomp`](examples/polymer_cap_library.stomp) | aluminum polymer caps, SMD and radial, in bare cans |
 | [`examples/inductor_library.stomp`](examples/inductor_library.stomp) | shielded power inductors with bottom terminals |
 | [`examples/crystal_library.stomp`](examples/crystal_library.stomp) | four-pad crystals and oscillators with a ceramic base and metal lid |
 | [`examples/led_library.stomp`](examples/led_library.stomp) | chip LEDs and PLCC LEDs with a lens |

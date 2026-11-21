@@ -39,6 +39,9 @@
     gullwing: { name: 'gull-wing', toe: [0.55, 0.35, 0.15], heel: [0.45, 0.35, 0.25], side: [0.05, 0.03, 0.01], cy: [0.5, 0.25, 0.1] },
     gullwingFine: { name: 'gull-wing ≤0.625 pitch', toe: [0.55, 0.35, 0.15], heel: [0.45, 0.35, 0.25], side: [0.01, -0.02, -0.04], cy: [0.5, 0.25, 0.1] },
     jlead: { name: 'J-lead', toe: [0.55, 0.35, 0.15], heel: [0.10, 0.00, -0.10], side: [0.05, 0.03, 0.01], cy: [0.5, 0.25, 0.1] },
+    // molded bodies whose terminals fold under the body (tantalums, SMA): the land runs on under it
+    lbend: { name: 'inward L-bend', toe: [0.25, 0.15, 0.07], heel: [0.80, 0.50, 0.20], side: [0.01, -0.05, -0.10], cy: [0.5, 0.25, 0.1] },
+    straight: { name: 'flat lead', toe: [0.30, 0.20, 0.10], heel: [0, 0, 0], side: [0.05, 0.00, -0.05], cy: [0.5, 0.25, 0.1] },
     flat: { name: 'flat no-lead', toe: [0.40, 0.30, 0.20], heel: [0, 0, 0], side: [-0.04, -0.04, -0.04], cy: [0.5, 0.25, 0.1] },
     chip: { name: 'chip ≥1608', toe: [0.55, 0.35, 0.15], heel: [0.00, -0.05, -0.10], side: [0.05, 0.00, -0.05], cy: [0.5, 0.25, 0.1] },
     chipSmall: { name: 'chip <1608', toe: [0.20, 0.10, 0.05], heel: [0, 0, 0], side: [0.05, 0.00, -0.05], cy: [0.2, 0.15, 0.1] },
@@ -46,6 +49,7 @@
   const THT = { allowance: [0.25, 0.20, 0.15], ring: [0.40, 0.30, 0.20] };
   const CY_DEFAULT = [0.5, 0.25, 0.1];
   const BALL_LAND = 0.8;
+  const COLUMN_LAND = 0.3;   // column lands: the column's diameter plus this
   // 3D colors (SPEC 13.2). Metals render shiny.
   const COLORS = {
     black: '#1d1e21', gray: '#6f7378', grey: '#6f7378', white: '#ecebe6', red: '#b3352c', green: '#2f7a3e',
@@ -186,7 +190,7 @@
     }
 
     // pass 1: name every footprint (templates may compute names), then register them
-    const letsSig = JSON.stringify(ast.items.filter((i) => i.type === 'Let').map((i) => [i.s, source.slice(i.s, i.e), i.unit]));
+    const letsSig = JSON.stringify(ast.items.filter((i) => i.type === 'Let' || i.type === 'Feature').map((i) => [i.s, source.slice(i.s, i.e), i.unit]));
     const builders = decls.map((d) => {
       const b = new FootprintBuilder(d, file, [], source);
       b.key = useCache ? cacheKey(d, source, file, letsSig) : null;
@@ -364,6 +368,7 @@
   function buildFile(ast, diags) {
     const lets = new Scope(null);
     const templates = new Map();
+    const features = new Map();
     const footprints = new Map();
     for (const it of ast.items) {
       if (it.type === 'Let') {
@@ -373,10 +378,13 @@
       } else if (it.type === 'Template') {
         if (templates.has(it.name)) diags.push({ severity: 'error', message: `template \`${it.name}\` is defined twice`, s: it.nameS, e: it.nameE });
         else templates.set(it.name, it);
+      } else if (it.type === 'Feature') {
+        if (features.has(it.name)) diags.push({ severity: 'error', message: `feature \`${it.name}\` is defined twice`, s: it.nameS, e: it.nameE });
+        else features.set(it.name, it);
       }
     }
     // footprints are registered by compile() once their (possibly computed) names are known
-    return { lets, templates, footprints };
+    return { lets, templates, features, footprints };
   }
 
   function finishDiags(diags, source) {
@@ -643,7 +651,7 @@
         meta: {}, body: null, gen: null, lead: null, density: null, pin1: null, polarized: null,
         defaultPad: null, origin: null, bareSpan: null, barePitch: null, model: null,
         omits: [], onlys: [], padStmts: [], padsStmts: [], holes: [], deletes: [], rows: [], groups: [],
-        places: [], thermals: [], texts: [], silk: [], assembly: [], courtyard: [], pinLeads: [], models: [],
+        places: [], thermals: [], texts: [], silk: [], assembly: [], courtyard: [], pinLeads: [], models: [], features: [],
       };
       const singles = {};
       const single = (key, it, label) => {
@@ -700,6 +708,7 @@
           case 'Group': st.groups.push(it); break;
           case 'Thermal': st.thermals.push(it); break;
           case 'Text': st.texts.push(it); break;
+          case 'FeatureUse': st.features.push(it); break;
           case 'Layer': st[s.layer].push(it); break;
           case 'At': case 'Is': case 'Centered': case 'Mirrors': case 'Align': case 'MeasurePair':
             st.places.push(it); break;
@@ -904,9 +913,9 @@
         if ((nx > 1 || ny > 1) && px == null) throw new StompError('the grid needs a `pitch`', node);
         const isBalls = node.type === 'Balls';
         gen.kind = isBalls ? 'balls' : 'grid';
-        if (isBalls && lead && lead.form !== 'ball') this.warn('`balls` implies `lead ball`, but the lead form here is `' + lead.form + '`', lead.node);
+        if (isBalls && lead && lead.form !== 'ball' && lead.form !== 'column') this.warn('`balls` implies `lead ball`, but the lead form here is `' + lead.form + '`', lead.node);
         let gridProto = proto, derived = null;
-        if (!gridProto) { gridProto = this.ipcGridSpec(isBalls, node); derived = lead && lead.form === 'ball' ? 'ball' : 'tht'; }
+        if (!gridProto) { gridProto = this.ipcGridSpec(isBalls, node); derived = lead && (lead.form === 'ball' || lead.form === 'column') ? 'ball' : 'tht'; }
         const sch = scheme || (isBalls ? 'bga' : 'zigzag');
         if (sch === 'ccw' || sch === 'cw') throw new StompError(`\`numbering ${sch}\` walks the package perimeter; grids use zigzag, row-major, col-major or bga`, C.numbering);
         const names = numberGrid(nx, ny, sch, start, px, py);
@@ -944,7 +953,7 @@
     applyPinLeads() {
       const gen = this.gen;
       if (!this.pinLeads.size) return;
-      const SIDE_FORMS = new Set(['gullwing', 'jlead', 'flat', 'endcap', 'tab']);
+      const SIDE_FORMS = new Set(['gullwing', 'jlead', 'lbend', 'straight', 'flat', 'endcap', 'tab']);
       for (const pos of gen.positions) {
         const pl = this.pinLeads.get(pos.name);
         if (!pl) continue;
@@ -965,9 +974,9 @@
             pos.leadSpan = span;
           } else if (pos.derived === 'tht' && (L.form === 'pin' || L.form === 'wire') && (L.d != null || L.w != null || L.v != null)) {
             pos.proto = this.thtSpec(L);
-          } else if (pos.derived === 'ball' && L.form === 'ball' && (L.v != null || L.d != null)) {
+          } else if (pos.derived === 'ball' && (L.form === 'ball' || L.form === 'column') && (L.v != null || L.d != null)) {
             const d = L.v != null ? L.v : L.d;
-            pos.proto = { shape: { kind: 'circle', d: ceilTo(d * BALL_LAND, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true };
+            pos.proto = { shape: { kind: 'circle', d: ceilTo(L.form === 'ball' ? d * BALL_LAND : d + COLUMN_LAND, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true };
           }
         });
       }
@@ -1008,6 +1017,12 @@
         if (d == null) throw new StompError('`lead ball` needs the ball diameter', lead.node);
         this.ipcNote = `ball lands: ${Math.round(BALL_LAND * 100)}% of the ${fmtMM(d)} ball (NSMD)`;
         return { shape: { kind: 'circle', d: ceilTo(d * BALL_LAND, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true };
+      }
+      if (lead.form === 'column') {
+        const d = lead.v != null ? lead.v : lead.d;
+        if (d == null) throw new StompError('`lead column` needs the column diameter: `lead column d 0.5`', lead.node);
+        this.ipcNote = `column lands: the ${fmtMM(d)} column + ${fmtMM(COLUMN_LAND)}`;
+        return { shape: { kind: 'circle', d: ceilTo(d + COLUMN_LAND, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true };
       }
       if (lead.form === 'pin' || lead.form === 'wire') return this.thtSpec(lead);
       throw new StompError(`can't derive grid pads from a \`${lead.form}\` lead — give \`default pad …\``, lead.node);
@@ -1069,7 +1084,7 @@
         const v = span.qual === 'centers' ? span.v : span.qual === 'inner' ? span.v + (t || 0) : span.v - (t || 0);
         return { C: v, how: `lead span ${fmtMM(span.v)} ${span.qual}` };
       }
-      if (f === 'ball') throw new StompError('`lead ball` belongs with `balls` or `pins grid`', lead.node);
+      if (f === 'ball' || f === 'column') throw new StompError(`\`lead ${f}\` belongs with \`balls\` or \`pins grid\``, lead.node);
       // SMD lead forms: IPC land from the lead span
       let T, W;
       if (f === 'castellated') {
@@ -1089,13 +1104,15 @@
       }
       let L;
       if (span) L = toOuter(span, T);
-      else if ((f === 'flat' || f === 'endcap' || f === 'tab') && bodyAlong != null) L = bodyAlong;
+      else if ((f === 'flat' || f === 'endcap' || f === 'tab' || f === 'lbend') && bodyAlong != null) L = bodyAlong;
       else if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centers)` };
-      else if (this.bodyFailed && (f === 'flat' || f === 'endcap' || f === 'tab')) throw SILENT(lead.node);   // follows from the body error
+      else if (this.bodyFailed && (f === 'flat' || f === 'endcap' || f === 'tab' || f === 'lbend')) throw SILENT(lead.node);   // follows from the body error
       else throw new StompError(`\`lead ${f}\` needs a span: \`lead ${f} … span S\` (outer edge to outer edge)`, lead.node);
       let table;
       if (f === 'gullwing') table = ctx.pitch != null && ctx.pitch <= 0.625 + 1e-9 ? IPC.gullwingFine : IPC.gullwing;
       else if (f === 'jlead') table = IPC.jlead;
+      else if (f === 'lbend') table = IPC.lbend;
+      else if (f === 'straight') table = IPC.straight;
       else if (f === 'endcap') table = (bodyAlong != null && bodyAlong < 1.6 - 1e-9) ? IPC.chipSmall : IPC.chip;
       else table = IPC.flat;
       const lv = this.lv;
@@ -2180,16 +2197,17 @@
     manualLayers() {
       for (const it of this.st.silk) if (it.s.mode === 'block') this.gfx(it.s.items, 'silk', this.manual.silk, D.silkW);
       for (const it of this.st.assembly) if (it.s.mode === 'block') this.gfx(it.s.items, 'assembly', this.manual.assembly, D.fabW);
-      // courtyard: base (auto [clearance] | rect W x L | none) plus blocks
+      // The courtyard is one rectangle: auto [clearance], rect W x L, none, or a block
+      // holding one rectangle. The last statement wins; a child's replaces its parent's.
       const items = this.st.courtyard;
       let base = { mode: 'auto', clearance: null, node: null };
-      let anyBlock = false, explicitBase = false;
+      let prev = null;
       for (const it of items) {
-        if (it.s.mode === 'block') { anyBlock = true; continue; }
-        explicitBase = true;
-        base = { mode: it.s.mode, node: it.s, clearance: it.s.clearance, size: it.s.size };
+        if (prev && prev.level === it.level) this.warn('the courtyard is set twice in this footprint; the later one wins', it.s, [{ message: 'first set here', node: prev.s }]);
+        prev = it;
+        base = it.s.mode === 'block' ? { mode: 'box', node: it.s, items: it.s.items }
+          : { mode: it.s.mode, node: it.s, clearance: it.s.clearance, size: it.s.size };
       }
-      if (anyBlock && !explicitBase) base = { mode: 'none' };   // the spec doesn't say; a manual courtyard replaces the automatic one
       if (base.mode === 'auto') {
         let c = this.courtyardExcess != null ? this.courtyardExcess : CY_DEFAULT[this.lv];
         if (base.clearance) c = this.guard(base.node, () => this.plen(base.clearance, base.node, 'courtyard clearance'));
@@ -2200,13 +2218,94 @@
           base.l = this.plen(base.size.l, base.node, 'courtyard length');
         });
       }
+      else if (base.mode === 'box') base.box = this.guard(base.node, () => this.courtyardBox(base.items, base.node));
       this.cyBase = base;
-      for (const it of items) if (it.s.mode === 'block') this.gfx(it.s.items, 'courtyard', this.manual.courtyard, D.crtW);
+      // custom features: placed ones now, pin 1's once the copper is known (silkLayer)
+      this.pin1Feature = null;
+      const p1s = this.st.pin1 && this.st.pin1.s;
+      if (p1s && p1s.style === 'feature') this.pin1Feature = this.guard(p1s, () => this.featureItems(p1s.feature, p1s)) || null;
+      for (const it of this.st.features) {
+        this.guard(it.s, () => {
+          const u = it.s;
+          const items = this.featureItems(u.feature, u);
+          let at;
+          if (u.at.point) at = this.shift([this.len(u.at.point.x, u), this.len(u.at.point.y, u)]);
+          else if (u.at.ref.kind === 'origin') at = [0, 0];
+          else {
+            const inf = this.info(u.at.ref, u);
+            at = AXES.map((a) => this.anchor(inf, a, this.whichStatic(u.at.ref, a)).f(this.V[a]) - this.O[a]);
+          }
+          const r = u.rotate ? rad(u.rotate.deg) : 0, cs = Math.cos(r), sn = Math.sin(r);
+          const map = (q) => [at[0] + q[0] * cs - q[1] * sn, at[1] + q[0] * sn + q[1] * cs];
+          this.manual.silk.push(...mapItems(items.silk, map, u));
+          this.manual.assembly.push(...mapItems(items.assembly, map, u));
+        });
+      }
       // polarity marks need a two-terminal part
       if (this.polarized && this.layerBase('silk') === 'auto') {
         const g = this.gen;
         if (!g || g.kind !== 'two' || !this.pads.get('2')) this.warn('`polarized` marks two-terminal parts (pins 1 and 2)', this.st.polarized.s);
       }
+    }
+
+    /** A feature's graphics around its own origin: { silk: [...], assembly: [...] }.
+     *  Its parameters take the arguments like a template's; plain numbers in them
+     *  take the unit of the feature's statements. */
+    featureItems(use, node) {
+      const f = this.file.features.get(use.name);
+      if (!f) {
+        const hint = Parser.suggest(use.name, [...this.file.features.keys()]);
+        throw new StompError(`unknown feature \`${use.name}\`${hint ? ` — did you mean \`${hint}\`?` : ` — define it with \`feature ${use.name} { silk { … } }\``}`, use);
+      }
+      const sc = new Scope(this.file.lets);
+      const given = new Map();
+      const pos = use.args.filter((a) => !a.key);
+      if (pos.length > f.params.length) throw new StompError(`feature \`${f.name}\` takes ${f.params.length} argument${f.params.length === 1 ? '' : 's'}, but this gives ${pos.length}`, use);
+      pos.forEach((a, i) => given.set(f.params[i].name, a));
+      for (const a of use.args.filter((x) => x.key)) {
+        if (!f.params.some((q) => q.name === a.key)) {
+          const hint = Parser.suggest(a.key, f.params.map((q) => q.name));
+          throw new StompError(`feature \`${f.name}\` has no parameter \`${a.key}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, a);
+        }
+        if (given.has(a.key)) throw new StompError(`parameter \`${a.key}\` is given twice`, a);
+        given.set(a.key, a);
+      }
+      for (const q of f.params) {
+        const a = given.get(q.name);
+        if (a) sc.defs.set(q.name, { x: a.x, unit: node.unit, scope: this.scope });
+        else if (q.def) sc.defs.set(q.name, { x: q.def, unit: f.unit, scope: sc });
+        else throw new StompError(`feature \`${f.name}\` needs a value for \`${q.name}\``, use);
+      }
+      const outer = this.scope;
+      this.scope = sc;
+      try {
+        const out = { silk: [], assembly: [] };
+        for (const L of f.body) if (L.type === 'FeatureLayer') this.gfx(L.items, L.layer, out[L.layer], L.layer === 'silk' ? D.silkW : D.fabW, (q) => q);
+        return out;
+      } finally {
+        this.scope = outer;
+      }
+    }
+
+    /** The rectangle a `courtyard { ... }` block draws: one `rect`, or a polygon with
+     *  four corners and sides parallel to x and y. */
+    courtyardBox(items, node) {
+      const shapes = items.filter((g) => g && g.op);
+      const one = 'a courtyard is one rectangle: write `courtyard rect W x L`, or one `rect` (or four-corner `polygon`) in the block';
+      if (shapes.length !== 1) throw new StompError(one, shapes[1] || node);
+      const g = shapes[0];
+      if (g.op !== 'rect' && g.op !== 'polygon') throw new StompError(one, g);
+      if (g.fill) throw new StompError('a courtyard is an outline; drop `fill`', g);
+      const tmp = [];
+      this.gfx([g], 'courtyard', tmp, D.crtW);
+      const it = tmp[0];
+      if (!it || !it.pts) return undefined;   // already reported
+      const pts = it.pts.slice(0, -1);
+      const box = G.emptyBox();
+      for (const q of pts) G.addPt(box, q);
+      const onEdge = (q) => (Math.abs(q[0] - box.x0) < 1e-6 || Math.abs(q[0] - box.x1) < 1e-6) && (Math.abs(q[1] - box.y0) < 1e-6 || Math.abs(q[1] - box.y1) < 1e-6);
+      if (pts.length !== 4 || !pts.every(onEdge)) throw new StompError('a courtyard is a rectangle, but this polygon isn\'t one: give four corners with sides parallel to x and y', g);
+      return { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, w: it.w, node: g };
     }
 
     /** Automatic silk, assembly and courtyard. Deferred: only footprints on screen need them. */
@@ -2405,6 +2504,7 @@
             if (G.pathLength(piece) >= 2 * w) out.push({ type: 'line', pts: piece, w, auto: true });   // no specks
           }
         }
+        if (p1 && style === 'feature' && this.pin1Feature) this.pin1FeatureAt(out);
         if (p1 && (style === 'dot' || (style === 'chamfer' && !(b && b.kind === 'box')))) this.pin1Dot(out);
         if (p1 && style === 'chamfer' && b && b.kind === 'box' && !this.chamferSize(corner)) this.pin1Dot(out);
       }
@@ -2444,8 +2544,30 @@
     }
 
     pin1Dot(out) {
-      const p1 = this.pin1, b = this.body;
       const r = D.dot / 2;
+      const c = this.pin1Spot(r);
+      if (c) out.push({ type: 'circle', c, r, fill: true, auto: true });
+    }
+
+    /** A custom pin-1 feature, centered where the dot would go and moved out to
+     *  clear the copper by its own size. */
+    pin1FeatureAt(out) {
+      const F = this.pin1Feature;
+      let r = 0;
+      for (const it of F.silk.concat(F.assembly)) {
+        for (const q of it.pts || (it.c ? [it.c] : it.at ? [it.at] : [])) r = Math.max(r, Math.hypot(q[0], q[1]) + (it.r || 0));
+      }
+      const c = this.pin1Spot(Math.max(r, D.dot / 2));
+      if (!c) return;
+      const map = (q) => [c[0] + q[0], c[1] + q[1]];
+      const node = this.st.pin1.s;
+      out.push(...mapItems(F.silk, map, node));
+      this.L.assembly.push(...mapItems(F.assembly, map, node));
+    }
+
+    /** Where a pin-1 mark of radius r goes: outside the corner nearest pin 1, clear of copper. */
+    pin1Spot(r) {
+      const p1 = this.pin1, b = this.body;
       const cands = [];
       if (b && b.kind === 'box') {
         const sx = p1.x <= b.x ? -1 : 1, sy = p1.y >= b.y ? 1 : -1;
@@ -2467,8 +2589,7 @@
         cands.push([pd.x + along[0] * k2, pd.y + along[1] * k2]);
       } else if (!b) cands.push([p1.x - 1, p1.y + 1]);
       const free = cands.find((c) => !this.keepouts.some((k) => G.pointInPoly(c, k) || minDistToPoly(c, k) < r));
-      const c = free || cands[0];
-      if (c) out.push({ type: 'circle', c, r, fill: true, auto: true });
+      return free || cands[0] || null;
     }
 
     polarityMarks(auto, out) {
@@ -2498,17 +2619,20 @@
         }
         return;
       }
-      // bar beyond the pin-2 land
+      // a bar beyond the marked land: the cathode (pin 2), but the positive pin 1 on a
+      // chip or molded capacitor, where its band is (as on the 3D model)
+      const refdes = String(this.st.meta.refdes ? this.st.meta.refdes.value : '').toUpperCase();
+      const mk = refdes.startsWith('C') && p1 ? p1 : p2;
       const grow = D.mask + D.silkClear + D.silkW / 2 + 0.05;
       if (horiz) {
-        const sgn = Math.sign(p2.x - cx) || 1;
-        const x = sgn > 0 ? p2.x + p2.bb.x.hi + grow : p2.x + p2.bb.x.lo - grow;
-        const half = Math.max(b ? b.l / 2 + D.silkOffset : 0, (p2.bb.y.hi - p2.bb.y.lo) / 2 + 0.1);
+        const sgn = Math.sign(mk.x - cx) || 1;
+        const x = sgn > 0 ? mk.x + mk.bb.x.hi + grow : mk.x + mk.bb.x.lo - grow;
+        const half = Math.max(b ? b.l / 2 + D.silkOffset : 0, (mk.bb.y.hi - mk.bb.y.lo) / 2 + 0.1);
         out.push({ type: 'line', pts: [[x, cy - half], [x, cy + half]], w: D.silkW, auto: true });
       } else {
-        const sgn = Math.sign(p2.y - cy) || 1;
-        const y = sgn > 0 ? p2.y + p2.bb.y.hi + grow : p2.y + p2.bb.y.lo - grow;
-        const half = Math.max(b ? b.w / 2 + D.silkOffset : 0, (p2.bb.x.hi - p2.bb.x.lo) / 2 + 0.1);
+        const sgn = Math.sign(mk.y - cy) || 1;
+        const y = sgn > 0 ? mk.y + mk.bb.y.hi + grow : mk.y + mk.bb.y.lo - grow;
+        const half = Math.max(b ? b.w / 2 + D.silkOffset : 0, (mk.bb.x.hi - mk.bb.x.lo) / 2 + 0.1);
         out.push({ type: 'line', pts: [[cx - half, y], [cx + half, y]], w: D.silkW, auto: true });
       }
     }
@@ -2556,18 +2680,20 @@
         for (const h of this.holes.values()) pts.push(...G.contourToPoly(h.land, rad(10)));
         if (this.body) pts.push(...this.bodyOutline(0, null));
         if (pts.length >= 3) {
-          const hull = G.convexHull(pts);
-          const off = G.offsetPolygon(hull, c);
-          const cen = G.polyCentroid(off);
-          const snapped = off.map(([x, y]) => [x >= cen[0] ? ceilTo(x, 0.01) : floorTo(x, 0.01), y >= cen[1] ? ceilTo(y, 0.01) : floorTo(y, 0.01)]);
-          out.push({ type: 'line', pts: snapped.concat([snapped[0]]), w: D.crtW, auto: true });
+          // the smallest rectangle around everything, plus the clearance, out to a 0.01 mm grid
+          const bb = G.emptyBox();
+          for (const q of pts) G.addPt(bb, q);
+          const snap = (v, up) => +(up ? ceilTo(v, 0.01) : floorTo(v, 0.01)).toFixed(4);
+          out.push(rectItem(snap(bb.x0 - c, false), snap(bb.y0 - c, false), snap(bb.x1 + c, true), snap(bb.y1 + c, true), D.crtW, { auto: true }));
           this.courtyardClearance = c;
         }
       } else if (base.mode === 'rect' && base.w != null && base.l != null) {
         const w = base.w, l = base.l;
         const c = this.body ? [this.body.x, this.body.y] : this.shift([0, 0]);
-        const pts = [[c[0] - w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] + l / 2], [c[0] - w / 2, c[1] + l / 2]];
-        out.push({ type: 'line', pts: pts.concat([pts[0]]), w: D.crtW, src: base.node });
+        out.push(rectItem(c[0] - w / 2, c[1] - l / 2, c[0] + w / 2, c[1] + l / 2, D.crtW, { src: base.node }));
+      } else if (base.mode === 'box' && base.box) {
+        const k = base.box;
+        out.push(rectItem(k.x0, k.y0, k.x1, k.y1, k.w || D.crtW, { src: k.node }));
       }
     }
 
@@ -2582,13 +2708,18 @@
       return `${r}?`;
     }
 
-    gfx(items, layer, out, defW) {
-      const P = (pt, s) => this.shift([this.len(pt.x, s), this.len(pt.y, s)]);
+    /** Graphics statements to items. `map` takes local points to the footprint (a
+     *  feature's frame); without it, points are footprint coordinates. */
+    gfx(items, layer, out, defW, map) {
+      const M = map || ((q) => this.shift(q));
+      const at = (pt, s) => [this.len(pt.x, s), this.len(pt.y, s)];
+      const P = (pt, s) => M(at(pt, s));
       for (const g of items) {
         this.guard(g, () => {
           const wOf = () => (g.width ? this.plen(g.width, g, 'line width') : defW);
           switch (g.op) {
             case 'outline': {
+              if (map) throw new StompError('`outline body` draws around a footprint\'s body, so it can\'t go in a feature', g);
               if (!this.body) throw new StompError('`outline body` needs a `body`', g);
               const o = g.offset ? this.len(g.offset, g) : 0;
               const pts = this.bodyOutline(o, null);
@@ -2597,10 +2728,10 @@
             }
             case 'line': out.push({ type: 'line', pts: [P(g.a, g), P(g.b, g)], w: wOf(), src: g }); break;
             case 'arc': {
-              const c = P(g.c, g), r = this.plen(g.r, g, 'arc radius');
+              const c = at(g.c, g), r = this.plen(g.r, g, 'arc radius');
               let a0 = g.from.deg, a1 = g.to.deg;
               while (a1 <= a0) a1 += 360;
-              out.push({ type: 'line', pts: G.arcPoints(c, r, rad(a0), rad(a1)), w: wOf(), src: g });
+              out.push({ type: 'line', pts: G.arcPoints(c, r, rad(a0), rad(a1)).map(M), w: wOf(), src: g });
               break;
             }
             case 'circle': {
@@ -2609,8 +2740,8 @@
               break;
             }
             case 'rect': {
-              const c = P(g.c, g), w = this.plen(g.size.w, g, 'width'), l = this.plen(g.size.l, g, 'length');
-              const pts = [[c[0] - w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] + l / 2], [c[0] - w / 2, c[1] + l / 2]];
+              const c = at(g.c, g), w = this.plen(g.size.w, g, 'width'), l = this.plen(g.size.l, g, 'length');
+              const pts = [[c[0] - w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] - l / 2], [c[0] + w / 2, c[1] + l / 2], [c[0] - w / 2, c[1] + l / 2]].map(M);
               out.push(g.fill ? { type: 'poly', pts, fill: true, src: g } : { type: 'line', pts: pts.concat([pts[0]]), w: wOf(), src: g });
               break;
             }
@@ -2619,7 +2750,10 @@
               out.push(g.fill ? { type: 'poly', pts, fill: true, src: g } : { type: 'line', pts: pts.concat([pts[0]]), w: defW, src: g });
               break;
             }
-            case 'text': this.textItem(g, layer, out); break;
+            case 'text':
+              if (map) out.push({ type: 'text', at: P(g.at, g), size: g.size ? this.plen(g.size, g, 'text size') : 1.0, str: this.textOf(g), src: g });
+              else this.textItem(g, layer, out);
+              break;
             default: break;
           }
         });
@@ -2630,13 +2764,21 @@
       const at = this.shift([this.len(t.at.x, t), this.len(t.at.y, t)]);
       const size = t.size ? this.plen(t.size, t, 'text size') : 1.0;
       const field = t.which.field;
-      const str = field === 'ref' ? this.refLabel() : field === 'value' ? this.name : t.which.str;
+      const str = this.textOf(t);
       const layer = t.layer || layerDefault || (field === 'value' ? 'assembly' : 'silk');
       const item = { type: 'text', at, size, str, src: t, field: field || null };
       if (layer === 'silk') this.manual.silk.push(item);
       else if (layer === 'assembly') this.manual.assembly.push(item);
       else if (layer === 'copper' || layer === 'mask') this.L.texts.push(Object.assign(item, { layer }));
       else outDefault.push(item);
+    }
+
+    /** What a text statement prints: the refdes, the value (name), or its string. */
+    textOf(t) {
+      const field = t.which.field;
+      if (field === 'ref') return this.refLabel();
+      if (field === 'value') return this.name;
+      return interpolate(t.which.str, this.env(t));
     }
 
     textLayer() {
@@ -3074,6 +3216,22 @@
   function quoteName(n) { return /^[A-Za-z_][A-Za-z0-9_]*$|^\d+$/.test(n) ? n : `"${n}"`; }
   function rad(d) { return (d * Math.PI) / 180; }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  /** Copies of graphic items with their points moved through `map`. Text stays upright. */
+  function mapItems(items, map, src) {
+    return items.map((it) => {
+      const o = Object.assign({}, it, { src });
+      if (it.pts) o.pts = it.pts.map(map);
+      if (it.c) o.c = map(it.c);
+      if (it.at) o.at = map(it.at);
+      return o;
+    });
+  }
+
+  /** A closed rectangle outline, as four corners plus the first again. */
+  function rectItem(x0, y0, x1, y1, w, extra) {
+    const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    return Object.assign({ type: 'line', pts: pts.concat([pts[0]]), w }, extra);
+  }
   function ceilTo(v, q) { return Math.ceil(v / q - 1e-6) * q; }
   function floorTo(v, q) { return Math.floor(v / q + 1e-6) * q; }
   function fmtMM(v) { return `${+v.toFixed(4)} mm`; }

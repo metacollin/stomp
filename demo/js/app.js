@@ -666,6 +666,92 @@
   viewer.setUnits(state.units);
   $('fit').addEventListener('click', () => (state.dim === '3d' ? view3.fit() : viewer.fit()));
 
+  // ------------------------------------------------------------- saving files
+  // Opened on its own, the page downloads files directly. Embedded by a host (the
+  // --fragment build), it can't: the host's `downloads` capability saves the types
+  // it allows, .zip among them, once the viewer agrees. With neither, exports copy
+  // text to the clipboard instead.
+  const files = { plain: null, host: null, listeners: [] };
+  /* @plain-download */
+  files.plain = (filename, data) => {
+    const url = URL.createObjectURL(new Blob([data]));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  /* @end-plain-download */
+  files.canSave = () => !!(files.plain || files.host);
+  files.save = async (filename, data) => {
+    if (files.plain) { files.plain(filename, data); return; }
+    if (files.host) { await files.host.save({ filename, data: new Blob([data]) }); return; }
+    const err = new Error('saving files is not available here');
+    err.code = 'unavailable';
+    throw err;
+  };
+  files.onChange = (fn) => files.listeners.push(fn);
+  if (!files.plain && window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then((d) => { if (d) { files.host = d; files.listeners.forEach((fn) => fn()); } }).catch(() => {});
+  }
+  function saveFailed(e) {
+    const code = e && e.code;
+    if (code === 'declined') return;
+    toast(code === 'rate_limited' ? 'Another save is still waiting for an answer: try again in a moment' : 'This page can\'t save files here', true);
+  }
+
+  let toastTimer = 0;
+  function toast(text, bad) {
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('bad', !!bad);
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 5200);
+  }
+
+  // ------------------------------------------------------------- KiCad
+  // Every footprint in the file as a KiCad 9 library (.pretty), each with its 3D
+  // model embedded. Where nothing can be saved, the shown footprint is copied.
+  const kicadBtn = $('export-kicad');
+  const syncKicad = () => {
+    const save = files.canSave();
+    kicadBtn.textContent = save ? 'Export to KiCad' : 'Copy for KiCad';
+    kicadBtn.title = save
+      ? 'Save every footprint in this file as a KiCad 9 library (.pretty, zipped), each with its 3D model embedded'
+      : 'Copy the shown footprint as a KiCad 9 .kicad_mod, with its 3D model embedded';
+  };
+  syncKicad();
+  files.onChange(syncKicad);
+  kicadBtn.addEventListener('click', async () => {
+    const out = state.out;
+    if (!out || !out.footprints.length) { toast('There are no footprints to export', true); return; }
+    const errs = errorNames();
+    if (!files.canSave()) {
+      const fp = out.footprints.find((f) => f.name === state.active);
+      const r = fp && fp.result;
+      if (!r || errs.has(fp.name)) { toast('Fix this footprint\'s errors before exporting it', true); return; }
+      const o = S.kicad.footprint(r, { name: fp.name, model: modelFor(r).model });
+      try {
+        await navigator.clipboard.writeText(o.text);
+        toast(`Copied ${o.file}: paste it into a file of that name inside a .pretty folder`);
+      } catch (e) { toast('Copying to the clipboard failed', true); }
+      return;
+    }
+    const fps = out.footprints.map((f) => {
+      const skip = !f.result || errs.has(f.name) ? 'it has errors' : null;
+      return { name: f.name, result: f.result, skip, model: skip ? null : modelFor(f.result).model };
+    });
+    const lib = (state.file || 'stomp').replace(/\.stomp$/, '');
+    const L = S.kicad.library(fps, { lib, source: state.file ? `examples/${state.file}` : null });
+    if (!L.count) { toast('Nothing to export: every footprint has errors', true); return; }
+    try {
+      await files.save(`${L.lib}.pretty.zip`, S.model3d.toZip(L.files));
+      const parts = [`${L.count} footprint${L.count === 1 ? '' : 's'}`];
+      parts.push(L.models === L.count ? (L.count === 1 ? 'with its 3D model' : 'each with its 3D model') : `${L.models} with a 3D model`);
+      toast(`Saved ${L.lib}.pretty.zip: ${parts.join(', ')}${L.skipped.length ? `. Skipped ${L.skipped.length} with errors` : ''}`);
+    } catch (e) { saveFailed(e); }
+  });
+
   // 3D bar: board and courtyard, preset views, export
   (function bar3d() {
     const b3 = $('bar3d');
@@ -701,59 +787,36 @@
     b3.appendChild(sp);
     const name = () => (state.active || 'model').replace(/[^\w.+-]+/g, '_');
     const current = () => { const r = state.shown; return r ? modelFor(r).model : null; };
-    const flash = (b, text) => { const t = b.textContent; b.textContent = text; setTimeout(() => { b.textContent = t; }, 1600); };
-    if (window.STOMP_SANDBOXED) {
-      // An embedded page can't download by itself: the host's `downloads` capability
-      // saves files it allows (.zip among them), so VRML and STL go out zipped.
-      // Without it, the VRML text goes to the clipboard.
-      let dl = null;
-      const zipChip = chip('Save .zip', null, null, 'Download the model as VRML 2.0 for KiCad (.wrl, 0.1-inch units) and STL (mm), in one .zip', async () => {
-        const m = current();
-        if (!m || !m.meshes.length || !dl) return;
-        const nm = name();
-        const zip = S.model3d.toZip([
-          { name: `${nm}.wrl`, data: new TextEncoder().encode(S.model3d.toVRML(m, state.active)) },
-          { name: `${nm}.stl`, data: S.model3d.toSTL(m, state.active) },
-        ]);
-        try {
-          await dl.save({ filename: `${nm}-3d.zip`, data: new Blob([zip]) });
-        } catch (e) {
-          const code = e && e.code;
-          if (code === 'declined') return;
-          if (code === 'rate_limited') { flash(zipChip, 'Try again shortly'); return; }
-          zipChip.hidden = true; copyChip.hidden = false;      // saving isn't available here after all
-        }
-      });
-      zipChip.classList.add('export');
-      zipChip.hidden = true;
-      const copyChip = chip('Copy VRML', null, null, 'Copy the model as VRML 2.0 (KiCad units) to paste into a .wrl file', async () => {
-        const m = current();
-        if (!m || !m.meshes.length) return;
-        try { await navigator.clipboard.writeText(S.model3d.toVRML(m, state.active)); flash(copyChip, 'Copied'); } catch (e) { flash(copyChip, 'Copy failed'); }
-      });
-      copyChip.classList.add('export');
-      const C = window.claude;
-      if (C && typeof C.use === 'function') {
-        C.use('downloads').then((d) => { if (d) { dl = d; zipChip.hidden = false; copyChip.hidden = true; } }).catch(() => {});
-      }
-    }
-    /* @plain-download */
-    if (!window.STOMP_SANDBOXED) {
-      const save = (data, ext) => {
-        const url = URL.createObjectURL(new Blob([data]));
-        const a = document.createElement('a');
-        a.href = url; a.download = `${name()}.${ext}`;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      };
+    if (files.plain) {
       chip('VRML', null, null, 'Download the model as VRML 2.0 for KiCad (.wrl, 0.1-inch units)', () => {
-        const m = current(); if (m && m.meshes.length) save(S.model3d.toVRML(m, state.active), 'wrl');
+        const m = current(); if (m && m.meshes.length) files.save(`${name()}.wrl`, S.model3d.toVRML(m, state.active));
       }).classList.add('export');
       chip('STL', null, null, 'Download the model as binary STL (millimetres)', () => {
-        const m = current(); if (m && m.meshes.length) save(S.model3d.toSTL(m, state.active), 'stl');
+        const m = current(); if (m && m.meshes.length) files.save(`${name()}.stl`, S.model3d.toSTL(m, state.active));
       }).classList.add('export');
+      return;
     }
-    /* @end-plain-download */
+    // embedded: the host saves .zip but not .wrl or .stl, so both go out zipped
+    const zipChip = chip('Save .zip', null, null, 'Download the model as VRML 2.0 for KiCad (.wrl, 0.1-inch units) and STL (mm), in one .zip', async () => {
+      const m = current();
+      if (!m || !m.meshes.length) return;
+      const nm = name();
+      const zip = S.model3d.toZip([
+        { name: `${nm}.wrl`, data: new TextEncoder().encode(S.model3d.toVRML(m, state.active)) },
+        { name: `${nm}.stl`, data: S.model3d.toSTL(m, state.active) },
+      ]);
+      try { await files.save(`${nm}-3d.zip`, zip); } catch (e) { saveFailed(e); }
+    });
+    zipChip.classList.add('export');
+    const copyChip = chip('Copy VRML', null, null, 'Copy the model as VRML 2.0 (KiCad units) to paste into a .wrl file', async () => {
+      const m = current();
+      if (!m || !m.meshes.length) return;
+      try { await navigator.clipboard.writeText(S.model3d.toVRML(m, state.active)); toast('Copied the VRML model to the clipboard'); } catch (e) { toast('Copying to the clipboard failed', true); }
+    });
+    copyChip.classList.add('export');
+    const sync = () => { zipChip.hidden = !files.host; copyChip.hidden = !!files.host; };
+    sync();
+    files.onChange(sync);
   })();
   $('about-btn').addEventListener('click', () => {
     const d = $('about');

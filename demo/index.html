@@ -24,6 +24,7 @@
       <button id="reset" class="btn ghost" type="button" title="Discard your edits to this example">Reset</button>
     </div>
     <div class="spacer"></div>
+    <button id="export-kicad" class="btn" type="button">Export to KiCad</button>
     <button id="about-btn" class="btn ghost" type="button" aria-haspopup="dialog">How it works</button>
   </header>
 
@@ -99,6 +100,7 @@
     <li><b>Hover a pad</b> for its size, position, mask and paste; its source lines light up. <b>Click</b> it to jump to the statement that defines it.</li>
     <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. The preview follows the footprint your cursor is in.</li>
     <li><b>3D:</b> switch the preview to <b>3D</b> to see the part on a board. The body, the pins and the lead form already describe it: <code>lead gullwing …</code> bends gull-wing leads down to the span, <code>lead ball</code> puts balls under a substrate, <code>lead endcap</code> caps a chip. A <code>model { … }</code> block adjusts standoff, height, draft, colors and the pin-1 mark, or adds boxes and cylinders; <code>lead 4 gullwing 3.0 x 0.9</code> gives one pin its own lead (and land). Export the model as VRML for KiCad, or STL.</li>
+    <li><b>Export to KiCad</b> saves every footprint in the file as a KiCad 9 library (a zipped <code>.pretty</code> folder). Each footprint carries its 3D model inside it, so the library needs no model folder.</li>
     <li><b>Libraries:</b> a template can name the footprints it makes (<code>name "QFN-{n}-…"</code>), and <code>footprints from qfn { … }</code> makes one per table row. <b>Library</b> shows every footprint in the file; put the cursor on a row to see that one. Open the <i>QFN library</i> example to try it.</li>
     <li>In the editor: <kbd>Tab</kbd> indents, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor.</li>
   </ul>
@@ -115,7 +117,7 @@
     <li><b>Small grammar extensions.</b> <code>omit</code>/<code>only</code> accept name ranges (<code>only 1..5</code>, as the syntax zoo uses), and sizes may be written without spaces (<code>0.6x1.5</code>).</li>
   </ul>
   <h3>Not in this demo</h3>
-  <p><code>step</code> files aren't loaded: a footprint that names one shows its generated stand-in. Castellated leads draw a provisional land, pending SPEC §17.7. The footprint itself isn't exported yet; the 3D model is.</p>
+  <p><code>step</code> files aren't loaded: a footprint that names one shows its generated stand-in, and its KiCad export refers to the file instead of embedding a model. Castellated leads draw a provisional land, pending SPEC §17.7. Export is to KiCad 9 and later only.</p>
   <h3>Layers</h3>
   <dl class="key">
     <div><dt><i class="sw cu"></i>Copper</dt><dd>pads, with drills and thermal vias</dd></div>
@@ -128,6 +130,8 @@
   </dl>
 </dialog>
 
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
 <script src="js/geom.js"></script>
 <script src="js/lexer.js"></script>
 <script src="js/parser.js"></script>
@@ -137,6 +141,7 @@
 <script src="js/view.js"></script>
 <script src="js/model3d.js"></script>
 <script src="js/view3d.js"></script>
+<script src="js/kicad.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

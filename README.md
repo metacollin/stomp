@@ -14,8 +14,9 @@ when you want it, a **3D model** of the physical part.
 [`demo/`](demo/) is a browser editor for stomp: type on the left and the footprint
 redraws on the right as you type. It draws copper, paste, mask, silk, courtyard and fab
 layers, and shows the dimension of whichever placement your cursor is on. Switch the
-preview to **3D** to see the part's generated model on a board, and export it as VRML
-or STL. Open `demo/index.html` in a browser; it needs no install, server or build. The
+preview to **3D** to see the part's generated model on a board. **Export to KiCad** saves
+the whole file as a KiCad 9 footprint library, each footprint with its 3D model embedded.
+Open `demo/index.html` in a browser; it needs no install, server or build. The
 *QFN library* example shows a table generating a library, with every footprint in a
 gallery. See [`demo/README.md`](demo/README.md) for details, including the semantic
 choices the prototype had to make where the draft is open.

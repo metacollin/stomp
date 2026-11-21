@@ -43,6 +43,11 @@ example in the browser's local storage, and **Reset** restores the original.
   for KiCad (0.1-inch units) and **STL** a binary STL in millimetres. Embedded in a host
   that saves files for the page (the bundle built with `--fragment`), **Save .zip** saves
   both in one archive; with no such host, **Copy VRML** copies the text instead.
+- **Export to KiCad** saves every footprint in the file as a KiCad library: a zipped
+  `.pretty` folder with one `.kicad_mod` per footprint and a README. Each footprint carries
+  its generated 3D model inside it, so the library needs no 3D model folder; footprints
+  with errors are left out and listed. Embedded, the page saves the zip through its host;
+  where nothing can be saved, the button copies the shown footprint's `.kicad_mod`.
 - A syntax error inside the footprint you're editing usually means a half-typed line. The
   preview then keeps the last version that parsed, dimmed, until the line is complete.
   Semantic errors, such as an over-constrained pad, still draw live.
@@ -60,6 +65,7 @@ The engine is a complete prototype of the draft, from `grammar.peg` to finished 
 | `js/parser.js` | recursive descent following `grammar.peg`'s ordered choices, with per-statement error recovery |
 | `js/compile.js` | units and `let`; text values and `{…}` interpolation; templates as functions (`name`), `from` calls, `footprints from` tables, `extends`; `pins`/`balls`/side-block generators with every numbering scheme, `omit`/`only`/`delete`; IPC-style pad synthesis, per-pin leads; the §9 constraint solver; mask, paste windowpanes, vias, auto silk/courtyard/assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; §15 diagnostics; an incremental build cache |
 | `js/model3d.js` | the 3D model (SPEC §13): a body per lead form (molded with draft, sawn, chip, MELF, BGA, DIP, header, can, axial, module), swept gull-wing and J leads, terminals, balls, pins and wires, pin-1 and polarity marks, extra solids; the board under it; VRML and STL export |
+| `js/kicad.js` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded, and whole `.pretty` libraries |
 | `js/geom.js` | exact outlines (lines plus arcs), offsets, hulls, silk clipping, triangulation |
 | `js/view.js` | SVG viewer: true-width layers, pan/zoom, hover inspection, constraint overlays |
 | `js/view3d.js` | WebGL viewer: one merged buffer, camera-fixed lighting with shiny metals, orbit/pan/zoom, preset views, highlight by source range |
@@ -68,8 +74,44 @@ The engine is a complete prototype of the draft, from `grammar.peg` to finished 
 | `js/examples.js` | **generated** from `examples/*.stomp` by `tools/build.mjs` |
 
 Not covered: `step` files aren't loaded (a footprint that names one shows its generated
-stand-in), castellated leads draw a provisional land (SPEC §17.7), and the footprint
-itself isn't exported yet; the 3D model is.
+stand-in, and its KiCad export refers to the file instead of embedding a model),
+castellated leads draw a provisional land (SPEC §17.7), and export is to KiCad 9 and
+later only.
+
+## KiCad export
+
+A footprint becomes a KiCad 9 `.kicad_mod` (pcbnew file version 20241229):
+
+- **Coordinates.** KiCad's y axis points down, so y is negated; angles keep their sense
+  on screen. A rectangular, rounded or oval pad turned a quarter is written unturned with
+  its sides swapped, as KiCad's own libraries do.
+- **Pads.** `rect`, `roundrect` (radius as `roundrect_rratio`), `circle` and `oval` map
+  directly; D-shapes and polygons become custom pads with one polygon primitive. Drills
+  and slots, NPTH holes, castellated (`pad_prop_castellated`), BGA (`pad_prop_bga`) and
+  heatsink (`pad_prop_heatsink`) pads carry over. A `mask` or `paste` override becomes the
+  pad's `solder_mask_margin` / `solder_paste_margin`; stomp's default 0.05 mm mask
+  expansion is left to the board's setting, as KiCad's library conventions ask. Divided
+  paste becomes paste-only pads, one per window, and thermal vias become tented plated
+  holes with the pad's number.
+- **Graphics.** Silk, fab and courtyard outlines, marks and texts go to `F.SilkS`,
+  `F.Fab` and `F.CrtYd`. The fab label is KiCad's `${REFERENCE}`; Reference sits above
+  the courtyard and Value below it unless the source placed them with `text ref` /
+  `text value`. Item UUIDs are derived from the footprint's name, so exporting twice
+  gives identical files.
+- **The 3D model** is embedded the way KiCad 9 embeds files: VRML in KiCad's 0.1-inch
+  units, wrapped in a zstd frame of stored blocks, base64-encoded between `|` marks, with
+  KiCad's checksum (its MurmurHash3 variant, seed `0xABBA2345`), and referenced as
+  `kicad-embed://NAME.wrl`. Repeated parts (balls, terminals, identical leads) are written
+  once and reused with VRML's `USE`, so even a BGA's model is about 14 kB.
+
+How this was checked, without a KiCad install to load the files: the format, the
+checksum and the VRML reader's support for `DEF`/`USE` were read from KiCad 9's source;
+the checksum code reproduces all 45 checksums in the embedded files of KiCad's own
+*vme-wren* demo library; the frames decode with libzstd and declare their size, as
+KiCad's loader requires; and every word the exporter writes is in KiCad 9's keyword
+list. The tests repeat the decode-and-checksum step on every example. One quirk carries
+over on purpose: KiCad's checksum ignores a final 12-15 bytes it can't fill out to 16, so
+"Hello, World!" checksums like any other 13-byte input.
 
 ## Tests
 
@@ -86,7 +128,11 @@ sequences of random edits that the build cache never changes a result. The 3D te
 check each example's model is finite and consistently wound, measure the generated parts
 (gull-wing toes at the span, terminals flush with the body, balls collapsed to the
 standoff, leads 3 mm below the board), per-pin leads and their lands, the `model` block
-and its diagnostics, and both export formats, and fuzz the model builder too.
+and its diagnostics, and both export formats, and fuzz the model builder too. The KiCad
+tests check the checksum against MurmurHash3's published test value and fixed vectors,
+round-trip the zstd frames, parse every example's export as KiCad would (keywords,
+unique UUIDs, pads and their properties, margins, paste windows, via pads) and decode
+each embedded model back to VRML with a matching checksum.
 
 ## Performance
 

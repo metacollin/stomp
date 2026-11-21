@@ -231,8 +231,19 @@ test('exports: VRML in 0.1-inch units, binary STL', () => {
   const { m } = build(example('soic8.stomp'));
   const wrl = M.toVRML(m, 'SOIC-8');
   assert.ok(wrl.startsWith('#VRML V2.0 utf8'));
-  assert.equal((wrl.match(/Shape \{/g) || []).length, m.meshes.length);
-  assert.ok(wrl.includes('scale 0.393701 0.393701 0.393701'));
+  assert.equal((wrl.match(/Transform \{/g) || []).length, m.meshes.length, 'one placement per part');
+  const shapes = (wrl.match(/DEF S\d+ Shape/g) || []).length;
+  assert.ok(shapes < m.meshes.length, 'identical leads are written once and reused');
+  // KiCad reads VRML in 0.1-inch units: the right-hand toes at x = 3.0 mm are at 1.1811
+  const pts = new Map();
+  let maxX = -Infinity;
+  for (const t of wrl.matchAll(/Transform \{ translation (\S+) (\S+) (\S+) children \[ (?:DEF (S\d+) Shape[\s\S]*?point \[ ([^\]]*) \]|USE (S\d+))/g)) {
+    const tx = +t[1];
+    let xs;
+    if (t[4]) { xs = t[5].split(',').map((q) => +q.trim().split(/\s+/)[0]); pts.set(t[4], xs); } else xs = pts.get(t[6]);
+    for (const x of xs) maxX = Math.max(maxX, tx + x);
+  }
+  near(maxX, 3.0 / 2.54, 'the toes, in 0.1-inch units', 1e-4);
   const stl = M.toSTL(m, 'SOIC-8');
   assert.equal(stl.length, 84 + 50 * m.triangles);
   assert.equal(new DataView(stl.buffer).getUint32(80, true), m.triangles);

@@ -53,7 +53,7 @@ cell            <- STRING
                  / IDENT
                  / '(' expr ')'
 
-block           <- '{' EOS? (statement EOS)* '}'
+block           <- '{' EOS? (units_stmt EOS)? (statement EOS)* '}'   # units, if any, comes first
 
 # 2. Statements in a footprint. Placements start with an object reference,
 # so every keyword statement is tried before them.
@@ -108,14 +108,16 @@ delete_stmt     <- 'delete' objref
 
 expr            <- term (add_op term)*
 term            <- factor (mul_op factor)*
-factor          <- '-'? ( NUMBER unit_name?   # no space before the unit
-                        / IDENT               # a let name or template parameter
-                        / '(' expr ')' )
+factor          <- '-'? ( NUMBER unit_name? SIDE_MARK?   # no space before the unit or mark
+                        / IDENT                          # a let name or template parameter
+                        / '(' expr ')' SIDE_MARK? )
                  / STRING                     # text, only usable inside a string's {...}
 add_op          <- '+' / '-'
 mul_op          <- '*' / '/'
 
-size            <- expr 'x' expr              # WIDTH x LENGTH; 'x' is reserved
+size            <- side 'x' side              # WIDTH x LENGTH; 'x' is reserved
+side            <- expr                       # its last token can carry a SIDE_MARK:
+                                              # 1.6h x 1.1w is 1.1 x 1.6 (SPEC 7)
 point           <- '(' expr ',' expr ')'
 point3          <- '(' expr ',' expr ',' expr ')'
 percent         <- NUMBER '%'
@@ -323,6 +325,9 @@ STRING          <- '"' ( '\\' ["\\{}] / interp / !(["{] / NEWLINE) . )* '"'
 interp          <- '{' expr (':' '.' [0-9])? '}'   # SPEC 7. The expr is lexed like code,
                                                     # with no strings or newlines
 
+SIDE_MARK       <- ('w' / 'h') ![A-Za-z0-9_]  # attached to a NUMBER (after any unit) or a ')';
+                                               # only the end of a size's side takes one
+
 COMMENT         <- '#' (!NEWLINE .)*
 NEWLINE         <- '\r\n' / '\n'
 EOS             <- (COMMENT? NEWLINE / ';')+   # end of statement
@@ -356,3 +361,5 @@ EOF             <- !.
 #    object name: pad "span".
 #  - An INT is digits not followed by a single '.', so `pad 1.` doesn't lex,
 #    but the ranges `1..4` and `1 .. 4` both work.
+#  - `w` isn't reserved. Right after a number or ')' it's a side mark, so a
+#    name used as a side is marked in parentheses: (D)w.

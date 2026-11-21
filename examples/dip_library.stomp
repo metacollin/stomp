@@ -1,0 +1,42 @@
+# DIP library: through-hole dual in-line packages, written in mils.
+#
+# `units mil` at the top of the template makes its plain numbers mils, and the
+# values the tables pass in too. The rows are E apart, center to center, and
+# D is the body length. Typical JEDEC MS-001 and MS-011 values.
+
+template dip(n, D, E = 300, E1 = 250, A = 130) {
+  units mil
+  name "DIP-{n}_W{E}mil"
+  description "DIP, {n} pins, {E} mil row spacing, {D} mil body"
+  refdes "U"
+
+  body E1 x D x A
+  pins n dual pitch 100 span E centers
+  lead pin 18 x 10                    # rectangular leg
+  default pad tht oval 60 x 80 drill 32
+  pad 1 tht rect 60 x 80 drill 32     # square pad marks pin 1
+  pin1 notch
+}
+
+# 300 mil rows
+footprints from dip {
+  n    D
+  6    350
+  8    375
+  14   750
+  16   760
+  18   900
+  20   1030
+  24   1250
+  28   1400
+}
+
+# 600 mil rows
+footprints from dip(E = 600, E1 = 540, A = 160) {
+  n    D
+  24   1250
+  28   1450
+  32   1650
+  40   2050
+  48   2450
+}

@@ -179,7 +179,9 @@ footprints from qfn {
   them). A number can carry a suffix, attached with no space:
   - the length units `mm` `um` `nm` `mil` `in` (e.g. `50mil`, `0.65mm`);
   - `%` for ratios (`25%`);
-  - `deg` (the default) or `rad` for angles.
+  - `deg` (the default) or `rad` for angles;
+  - a side mark, `w` or `h`, after any unit: `1.1w`, `43milw` (§7). A closing
+    parenthesis can carry one too: `(a + b)h`.
 - **Reserved single letters:** `x` (the size separator, §7) and `d` and `h` (the
   diameter and height markers) can't be `let` names.
 
@@ -188,7 +190,8 @@ footprints from qfn {
 A file holds any number of file-level `units` and `let` statements, `template`
 declarations ([§14](#14-templates-tables-and-inheritance)), `footprint` declarations
 and `footprints` tables ([§14.3](#143-tables-footprints-from)). Related footprints
-(variants, a family, a whole library) usually share one file.
+(variants, a family, a whole library) usually share one file. A footprint or
+template can also start with its own `units` ([§6](#6-coordinate-system-and-units)).
 
 ```stomp
 units mm                          # the file's default unit (mm if not given)
@@ -225,6 +228,22 @@ tags qfn, leadless, ipc
 - **The default length unit is mm.** A file can change it (`units mil`), and any number
   can override it (`0.3mm`, or `12mil` in the middle of an expression; units mix
   freely). Internally, everything becomes int64 nanometers.
+- **A footprint or template can set its own unit** with `units` as its first
+  statement. It lasts until the closing brace:
+
+  ```stomp
+  template dip(n, D, E = 300) {
+    units mil                            # everything in here is in mils
+    body 250 x D x 130
+    pins n dual pitch 100 span E centers
+  }
+  ```
+
+  A plain number has no unit until it's used as a length. Then it takes the unit of
+  the footprint or template that uses it, so a table cell of `375` is 375 mil in the
+  template above, and so is the default `E = 300`. A number written with a unit keeps
+  it. Every statement keeps the unit of the block it's written in, so a footprint
+  that `extends` a parent in mils can add statements in mm.
 - **The origin** defaults to the center of the body if there is one, else the center
   of the land pattern's bounding box. You can move it:
 
@@ -245,6 +264,13 @@ tags qfn, leadless, ipc
 - **Sizes:** `WIDTH x LENGTH`, two length expressions joined by the keyword `x`:
   `0.6 x 1.5`, `(a+b) x 1.5`. The width is the x size and the length the y size,
   *before* any `rotate`.
+- **Side marks:** either side of a size can be marked, `w` for the width and `h` for
+  the height (the length). A marked side goes in its slot wherever it's written, so
+  `rect 1.6h x 1.1w` is `rect 1.1 x 1.6`, and one mark is enough: `1.6h x 1.1`. The
+  mark goes at the end of the side, after any unit: `43milw`, `(D - 0.2)h`. A name
+  needs parentheses, since `Dw` would be a different name: `(D)w`. Marks are for 2D
+  sizes only (pads, drills, holes, leads, thermal pads and rectangles); a `body` or
+  `box` is always `W x L x H`.
 - **Points:** `(x, y)`. 3D points `(x, y, z)` appear only in `model` blocks.
 - **Percentages:** `25%`, used for the round-rect corner ratio and paste coverage.
 - **Angles:** `45`, `45deg`, `0.7854rad`. Only `rotate` and arcs use them.
@@ -866,6 +892,7 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 - suspicious-geometry *warnings* (a zero-size pad, a drill as large as its pad or larger, overlapping pads whose nets aren't known), never errors, since each can be intended;
 - duplicate footprint names, generated ones included; a table row with the wrong number of cells; a column that names no parameter (with the nearest name suggested); a template that doesn't `name` the footprints a table or an unnamed call needs from it;
 - an error inside a template body, reported on the call or table row whose arguments cause it, and once at the template when every call has it;
+- a side mark outside a 2D size, in the middle of a side, or on both sides with the same letter; `units` after other statements in a footprint or template;
 - 3D: a per-pin `lead` naming a pin that doesn't exist or was omitted; `leads below` or `leads above` on leads that can't use them; a solid or color that can't be built; a model property given twice in one block.
 
 ## 16. Formal grammar
@@ -933,3 +960,21 @@ spec wins for *meaning*.
 | [`examples/do41.stomp`](examples/do41.stomp) | axial through-hole: a cylinder body lying down, bent wires, a cathode band |
 | [`examples/crystal3225.stomp`](examples/crystal3225.stomp) | extra 3D solids: a ceramic package with a metal lid |
 | [`examples/syntax_zoo.stomp`](examples/syntax_zoo.stomp) | not a real part: covers everything else, and can double as a parser test |
+
+Libraries, each a template or two and a table per family:
+
+| file | shows |
+|---|---|
+| [`examples/chip_library.stomp`](examples/chip_library.stomp) | chip resistors, capacitors and inductors, 0201 to 2512; one template, three tables, quoted size codes |
+| [`examples/sot_library.stomp`](examples/sot_library.stomp) | SOT-23, SC-70, SOT-523 and SOT-563, one template per pin layout |
+| [`examples/sop_library.stomp`](examples/sop_library.stomp) | SOIC, MSOP, TSSOP, SSOP and QSOP from one template, family values in each call |
+| [`examples/qfp_library.stomp`](examples/qfp_library.stomp) | LQFP and TQFP, 32 to 208 pins; a default computed from another parameter |
+| [`examples/dfn_library.stomp`](examples/dfn_library.stomp) | two-row leadless packages with exposed pads |
+| [`examples/bga_library.stomp`](examples/bga_library.stomp) | ball grids from 9 to 484 balls; `{x:.1}` names; rows past Z |
+| [`examples/diode_library.stomp`](examples/diode_library.stomp) | SOD, SMA/SMB/SMC and MELF; three lead forms |
+| [`examples/tantalum_library.stomp`](examples/tantalum_library.stomp) | tantalum cases A to E, J-leads folded under the body |
+| [`examples/inductor_library.stomp`](examples/inductor_library.stomp) | shielded power inductors with bottom terminals |
+| [`examples/crystal_library.stomp`](examples/crystal_library.stomp) | four-pad crystals and oscillators with a ceramic base and metal lid |
+| [`examples/led_library.stomp`](examples/led_library.stomp) | chip LEDs and PLCC LEDs with a lens |
+| [`examples/dip_library.stomp`](examples/dip_library.stomp) | DIPs from 6 to 48 pins, written in mils with `units mil` in the template |
+| [`examples/header_library.stomp`](examples/header_library.stomp) | 2.54, 2.0 and 1.27 mm pin headers in one and two rows |

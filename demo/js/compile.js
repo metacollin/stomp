@@ -147,6 +147,10 @@
       }
       const all = [];
       for (let sc = this; sc; sc = sc.parent) all.push(...sc.defs.keys());
+      const mark = /^(.+)([wh])$/.exec(name);
+      if (mark && all.includes(mark[1])) {
+        throw new StompError(`unknown name \`${name}\` — to mark a side of a size, put the name in parentheses: \`(${mark[1]})${mark[2]}\``, node);
+      }
       const hint = Parser.suggest(name, all);
       throw new StompError(`unknown name \`${name}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, node);
     }
@@ -1518,9 +1522,11 @@
       if (!base && p.gen && p.gen.proto) base = cloneSpec(p.gen.proto);
       if (!base && this.defaultSpec) base = cloneSpec(this.defaultSpec);
       if (!base) {
+        // the block form can give the whole geometry: `pad 1 { shape rect 1 x 2 }`
+        const shaped = p.partials.some((part) => part.stmts.some((b) => b.op === 'shape'));
         const node = p.src[0] || this.decl;
-        if (!p.geomFailed && !this.broken.has(p.name)) this.err(`pad ${p.name} has no geometry — give it a shape, add \`default pad …\`, or describe the leads with \`lead …\``, node);
-        base = { shape: { kind: 'rect', w: 0.5, l: 0.5 }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, missing: true };
+        if (!shaped && !p.geomFailed && !this.broken.has(p.name)) this.err(`pad ${p.name} has no geometry — give it a shape, add \`default pad …\`, or describe the leads with \`lead …\``, node);
+        base = { shape: { kind: 'rect', w: 0.5, l: 0.5 }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, missing: !shaped };
       }
       for (const part of p.partials) this.applyBlock(base, part.stmts, part.stmt);
       p.spec = base;

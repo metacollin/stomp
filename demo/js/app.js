@@ -24,9 +24,22 @@
     'sot223.stomp': 'lead 4 gullwing',
     'do41.stomp': 'body cylinder',
     'crystal3225.stomp': 'box 2.9',
+    'chip_library.stomp': '"0603"  "1608"  1.6   0.8   0.45',
+    'sot_library.stomp': '"SOT-23"           1.3',
+    'sop_library.stomp': '  8    4.9',
+    'qfp_library.stomp': '  100   14   0.5   0.22',
+    'dfn_library.stomp': '  8    3    3     0.65',
+    'bga_library.stomp': '  8    8    0.8   8     0.4',
+    'diode_library.stomp': '"SMA"  "DO-214AC"',
+    'tantalum_library.stomp': '"B"   "3528-21"',
+    'inductor_library.stomp': '  4.0   4.0   2.0',
+    'crystal_library.stomp': '"3225"  3.2   2.5   0.7',
+    'led_library.stomp': '  6    "5050"',
+    'dip_library.stomp': '  8    375',
+    'header_library.stomp': '  5\n  6\n  7\n  8\n  10',
   };
-  // Examples that open on the Library view rather than a single footprint
-  const OPEN_IN_LIBRARY = new Set(['qfn_library.stomp']);
+  // Libraries open on the Library view rather than a single footprint
+  const opensInLibrary = (file) => file.endsWith('_library.stomp');
   // Examples about the 3D model, which open on it
   const OPEN_IN_3D = new Set(['sot223.stomp', 'do41.stomp', 'crystal3225.stomp']);
   const TAB_LIMIT = 5;          // more footprints than this: a dropdown instead of tabs
@@ -142,12 +155,19 @@
 
   // Examples
   const sel = $('example');
+  const pickerGroups = new Map();
   for (const ex of examples) {
     const opt = document.createElement('option');
     opt.value = ex.file;
     opt.textContent = ex.title;
     if (ex.blurb) opt.title = ex.blurb;
-    sel.appendChild(opt);
+    let g = pickerGroups.get(ex.group);
+    if (!g) {
+      g = ex.group ? document.createElement('optgroup') : sel;
+      if (ex.group) { g.label = ex.group; sel.appendChild(g); }
+      pickerGroups.set(ex.group, g);
+    }
+    g.appendChild(opt);
   }
   sel.addEventListener('change', () => openExample(sel.value));
   $('reset').addEventListener('click', () => {
@@ -165,7 +185,7 @@
     const edited = state.buffers[ex.file];
     editor.setValue(edited != null ? edited : ex.source);
     state.active = null;
-    state.view = OPEN_IN_LIBRARY.has(ex.file) && edited == null ? 'lib' : 'fp';
+    state.view = opensInLibrary(ex.file) && edited == null ? 'lib' : 'fp';
     if (OPEN_IN_3D.has(ex.file) && (edited == null || fresh)) state.dim = '3d';
     markEdited();
     compileNow();

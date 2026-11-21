@@ -18,8 +18,10 @@ step. The page works straight from disk.
 - **Single file:** `node demo/tools/build.mjs --bundle stomp-live.html` puts every
   script and style into one HTML page you can send around.
 
-The example picker loads the files in [`examples/`](../examples/). Your edits to each
-example are kept in the browser's local storage, and **Reset** restores the original.
+The example picker loads the files in [`examples/`](../examples/), with the libraries
+(`*_library.stomp`) in a group of their own that opens on the Library view. Your edits
+to each example are kept in the browser's local storage, and **Reset** restores the
+original.
 
 ## Using it
 
@@ -64,9 +66,9 @@ The engine prototypes the whole draft, from `grammar.peg` to finished layers:
 
 | file | what it does |
 |---|---|
-| `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4) |
+| `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4) |
 | `js/parser.js` | recursive descent in `grammar.peg`'s choice order; recovers from errors one statement at a time |
-| `js/compile.js` | units, `let` and `{...}` interpolation; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; diagnostics (§15); a build cache |
+| `js/compile.js` | units (per file, footprint or template), `let` and `{...}` interpolation; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; diagnostics (§15); a build cache |
 | `js/model3d.js` | the 3D model (SPEC §13): a body for each lead form (molded with draft, sawn, chip, MELF, BGA, DIP, header, can, axial, module), swept gull-wing and J leads, terminals, balls, pins and wires, pin-1 and polarity marks, extra solids; the board under it; VRML and STL export |
 | `js/kicad.js` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded, and whole `.pretty` libraries |
 | `js/geom.js` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
@@ -129,7 +131,8 @@ node demo/tools/build.mjs            # rebuild js/examples.js after editing exam
 The tests check:
 
 - hand-calculated geometry for the relational examples (TO-252, USB micro-B, the syntax
-  zoo), the generators, interpolation and tables;
+  zoo), the generators, interpolation and tables, side marks and units in footprints;
+- that every library builds with no warnings and unique names;
 - the diagnostics and where they point;
 - that `js/examples.js` matches `examples/`;
 - that half-typed and mangled versions of every example don't break the compiler, and

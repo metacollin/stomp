@@ -116,3 +116,16 @@ footprint "ZOO-SOCKET" {
     pin1 notch
   }
 }
+
+# 6. Side marks, and a footprint with its own units
+footprint "ZOO-MARKS" {
+  units mm                             # this footprint is in mm; the file is in mil
+  pad 1 rect 1.1w x 1.6h               # w marks the width, h the height
+  pad 2 rect 1.6h x 1.1w               # the same size, sides in the other order
+  pad 3 rect (0.5 + 0.6)w x 1.6        # a mark goes after the whole side
+  pad 4 rect 43milw x 63milh           # a unit, then the mark
+  pad 1 at (0, 0)
+  pad 2 is 2 right of pad 1
+  pad 3 is 2 right of pad 2
+  pad 4 is 2 right of pad 3
+}

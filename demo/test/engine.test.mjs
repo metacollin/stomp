@@ -268,3 +268,134 @@ test('tables: shape errors, unknown columns, duplicates, row-level diagnostics',
   assert.equal(once.diagnostics.find((d) => /zz/.test(d.message)).line, 5, '…at the template');
   assert.match(errors(compile('template t(n) { pad 1 rect n x n; pad 1 at (0,0) }\nfootprints from t {\n  n\n  1\n}'))[0].message, /doesn't name its footprints/);
 });
+
+test('lexer: side marks after a number or its unit', () => {
+  const k = lex('1.1w 1.6h 43milw 1.1wx1.6h', []).tokens.filter((t) => t.t !== 'eof');
+  assert.deepEqual(k.map((t) => t.t === 'num' ? `${t.v}${t.suffix || ''}${t.axis ? ':' + t.axis : ''}` : t.v),
+    ['1.1:w', '1.6:h', '43mil:w', '1.1:w', 'x', '1.6:h']);
+  const hint = (src) => { const d = []; lex(src, d); return d.map((x) => x.message).join(' | '); };
+  assert.match(hint('1.1wmm'), /put the unit before the side mark: `1.1mmw`/);
+  assert.match(hint('3mils'), /write mils as `mil`/);
+  assert.match(hint('2inch'), /write inches as `in`/);
+  assert.match(hint('1.1W'), /lowercase/);
+});
+
+test('side marks: w and h put the sides of a size in their slots', () => {
+  const size = (line) => {
+    const out = compile(`footprint "X" {\n  ${line}\n  pad 1 at (0, 0)\n}`);
+    assert.deepEqual(errors(out).map((d) => d.message), [], line);
+    const p = pad(out.footprints[0].result, 1);
+    return [+p.shape.w.toFixed(4), +p.shape.l.toFixed(4)];
+  };
+  assert.deepEqual(size('pad 1 rect 1.1w x 1.6h'), [1.1, 1.6]);
+  assert.deepEqual(size('pad 1 rect 1.6h x 1.1w'), [1.1, 1.6], 'marked sides override their order');
+  assert.deepEqual(size('pad 1 rect 1.6h x 1.1'), [1.1, 1.6], 'one mark is enough');
+  assert.deepEqual(size('pad 1 rect 1.1wx1.6h'), [1.1, 1.6], 'the separator can touch a mark');
+  assert.deepEqual(size('pad 1 rect (1 + 0.6)h x 1.1'), [1.1, 1.6], 'a mark after parentheses');
+  assert.deepEqual(size('pad 1 rect 63milh x 43milw'), [1.0922, 1.6002], 'a unit, then the mark');
+  assert.deepEqual(size('pad 1 { shape rect 1 x 1; size 1.6h x 1.1w }'), [1.1, 1.6], 'in a pad block');
+  assert.deepEqual(size('pad 1 { shape rect 1.6h x 1.1w }'), [1.1, 1.6], 'a block alone gives the whole geometry');
+
+  // every 2D size takes marks: drill slots, holes, thermal pads, leads
+  const out = compile(`footprint "Y" {
+  pad 1 tht oval 1.7 x 2.4 drill slot 1.7h x 1w
+  pad 1 at (0, 0)
+  hole M slot 1.4h x 0.85w
+  hole M is 3 right of pad 1
+}
+footprint "Z" {
+  body 3 x 3 x 0.9
+  pins 8 dual pitch 0.65
+  lead flat 0.3 x 0.4
+  thermal pad 2.4h x 1.65w
+}`);
+  assert.deepEqual(errors(out), []);
+  const y = out.footprints[0].result;
+  assert.deepEqual(pad(y, 1).spec.drill.slot, { w: 1, l: 1.7 });
+  assert.deepEqual([y.holes[0].shape.w, y.holes[0].shape.l], [0.85, 1.4]);
+  const ep = out.footprints[1].result.pads.find((p) => p.thermal);
+  assert.deepEqual([ep.shape.w, ep.shape.l], [1.65, 2.4]);
+  const soic = (lead) => fp(`footprint "S" {\n  body 3.9 x 4.9 x 1.5\n  pins 8 dual pitch 1.27\n  ${lead}\n}`).r.pads.map((q) => [q.name, q.x, q.y, q.rot, q.shape]);
+  assert.deepEqual(soic('lead gullwing 1.04h x 0.41w span 6.0'), soic('lead gullwing 0.41 x 1.04 span 6.0'), 'lead sizes');
+});
+
+test('side marks: where they are refused', () => {
+  const msg = (body) => errors(compile(`let D = 2\nfootprint "X" {\n  ${body}\n}`)).map((d) => d.message).join(' | ');
+  assert.match(msg('pad 1 rect 1.1w x 1.6w'), /both sides are marked `w`/);
+  assert.match(msg('pad 1 rect 1.1w + 1 x 2'), /after the whole side/);
+  assert.match(msg('body 3.9w x 4.9 x 1.5'), /a body is always `W x L x H`/);
+  assert.match(msg('model { box 1w x 1 x 1 }'), /a box is always `W x L x H`/);
+  assert.match(msg('gap 0.5w'), /marks a side of a size, as in `rect 1.1w x 1.6h`/);
+  assert.match(msg('lead endcap 0.3h'), /this is a single value/);
+  assert.match(msg('pad 1 rect Dw x 1\n  pad 1 at (0, 0)'), /put the name in parentheses: `\(D\)w`/);
+  const t = compile('template t(a) {\n  name "T{a}"\n  pad 1 rect a x 1\n  pad 1 at (0, 0)\n}\nfootprints from t {\n  a\n  1w\n}');
+  assert.match(errors(t).map((d) => d.message).join(), /a table cell holds a plain value/);
+  // `h` after a parenthesis outside a size is still the cylinder's height
+  assert.deepEqual(errors(compile('let a = 2\nfootprint "C" {\n  body cylinder d (a)h 3\n  pins 2 horizontal pitch 5\n  lead wire d 0.6\n}')), []);
+});
+
+test('units: a footprint or template can set its own', () => {
+  const out = compile(`
+footprint "MIL" {
+  units mil
+  pad 1 rect 40 x 80
+  pad 2 rect 40 x 80
+  pad 2 is 100 right of pad 1
+  pad 1 at (0, 0)
+}
+footprint "AFTER" {
+  pad 1 rect 1 x 2
+  pad 1 at (0, 0)
+}
+footprint "KID" extends "MIL" {
+  pad 3 rect 1 x 1
+  pad 3 is 2 right of pad 2
+}`);
+  assert.deepEqual(errors(out), []);
+  const r = (n) => out.footprints.find((f) => f.name === n).result;
+  near(pad(r('MIL'), 1).shape.w, 1.016, '40 mil');
+  near(pad(r('MIL'), 2).x, 2.54, '100 mil apart');
+  near(pad(r('AFTER'), 1).shape.w, 1, 'the next footprint is back in mm');
+  near(pad(r('KID'), 2).x, 2.54, 'inherited statements keep their units');
+  near(pad(r('KID'), 3).x, 4.54, "the child's own statements use the file's units");
+
+  const dip = compile(`
+template dip(n, D, E = 300) {
+  units mil
+  name "DIP-{n}"
+  body 250 x D x 130
+  pins n dual pitch 100 span E centers
+  lead pin 18 x 10
+  default pad tht oval 60 x 80 drill 32
+}
+footprints from dip {
+  n   D
+  8   375
+}
+footprint "DIP-8-MM" from dip(8, 9.5mm)`);
+  assert.deepEqual(errors(dip), []);
+  const a = dip.footprints.find((f) => f.name === 'DIP-8').result;
+  near(a.body.l, 9.525, 'a plain table value takes the template unit');
+  near(pad(a, 1).x, -3.81, 'and so does the default E');
+  near(dip.footprints.find((f) => f.name === 'DIP-8-MM').result.body.l, 9.5, 'an explicit unit stays');
+
+  const late = compile('footprint "X" {\n  pad 1 rect 1 x 1\n  units mil\n  pad 1 at (0, 0)\n}');
+  assert.match(errors(late).map((d) => d.message).join(), /`units` goes first in a footprint or template/);
+  assert.match(errors(compile('units mils')).map((d) => d.message).join(), /write mils as `mil`/);
+});
+
+test('libraries: every footprint builds cleanly with a unique name', () => {
+  for (const f of readdirSync(join(repo, 'examples')).filter((x) => x.endsWith('_library.stomp'))) {
+    const out = compile(example(f));
+    assert.deepEqual(out.diagnostics.map((d) => `${f}:${d.line}: ${d.message}`), [], `${f}: no errors or warnings`);
+    const names = out.footprints.map((x) => x.name);
+    assert.equal(new Set(names).size, names.length, `${f}: names are unique`);
+    assert.ok(names.length >= 5, `${f} is a library`);
+  }
+  const named = (f, n) => compile(example(f)).footprints.find((x) => x.name === n).result;
+  const d40 = named('dip_library.stomp', 'DIP-40_W600mil');
+  near(pad(d40, 1).x, -7.62, 'DIP-40: 600 mil rows'); near(pad(d40, 1).y, 24.13, 'pin 1 at the top');
+  assert.ok(pad(named('bga_library.stomp', 'BGA-484_23.0x23.0mm_Layout22x22_P1.0mm'), 'AB22'), 'rows run past Z to AA and AB');
+  const h = named('header_library.stomp', 'PinHeader_2x5_P2.54mm_Vertical');
+  assert.deepEqual([pad(h, 1).x, pad(h, 1).y, pad(h, 2).x, pad(h, 3).y], [0, 0, 2.54, -2.54], 'origin at pin 1, zigzag');
+});

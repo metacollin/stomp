@@ -101,7 +101,8 @@
     <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. The preview follows the footprint your cursor is in.</li>
     <li><b>3D</b> shows the part on a board. The model comes from the body, pins and lead form: <code>lead gullwing ...</code> bends gull-wing leads down to the span, <code>lead ball</code> puts balls under a substrate, <code>lead endcap</code> caps a chip. A <code>model { ... }</code> block changes the standoff, height, draft, colors and pin-1 mark, or adds boxes and cylinders. <code>lead 4 gullwing 3.0 x 0.9</code> gives one pin its own lead and land. You can export the model as VRML (for KiCad) or STL.</li>
     <li><b>Export to KiCad</b> saves every footprint in the file as a KiCad 9 library (a zipped <code>.pretty</code> folder). Each footprint carries its own 3D model, so there's no model folder.</li>
-    <li><b>Libraries:</b> a template can name the footprints it makes (<code>name "QFN-{n}-..."</code>), and <code>footprints from qfn { ... }</code> makes one per table row. <b>Library</b> shows every footprint in the file. Put the cursor on a row to see that one. Try the <i>QFN library</i> example.</li>
+    <li><b>Libraries:</b> a template can name the footprints it makes (<code>name "QFN-{n}-..."</code>), and <code>footprints from qfn { ... }</code> makes one per table row. <b>Library</b> shows every footprint in the file. Put the cursor on a row to see that one. The libraries are at the bottom of the example picker.</li>
+    <li><b>Units and sizes:</b> numbers are in mm unless the file or a footprint says <code>units mil</code>, or a number has its own unit (<code>50mil</code>). Mark a size's sides when a drawing gives the height first: <code>rect 1.6h x 1.1w</code>.</li>
     <li>In the editor: <kbd>Tab</kbd> indents, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor.</li>
   </ul>
   <h3>Choices the draft leaves open</h3>

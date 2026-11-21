@@ -1,0 +1,29 @@
+# Power inductor library: shielded SMD inductors with two terminals under the body.
+#
+# Each row is a D x E x H body with a b x L terminal at each end, flush with the
+# body edge. These are common sizes across vendors, with typical terminals;
+# check your part's datasheet.
+
+template power_inductor(D, E, H, b, L) {
+  name "L_{D}x{E}mm_H{H}mm"
+  description "Shielded power inductor, {D} x {E} x {H} mm"
+  refdes "L"
+
+  body D x E x H
+  pins 2 horizontal
+  lead flat b x L                     # b across the body, L along it
+  pin1 none
+  model { body color "#3b3e44" }      # dark gray ferrite
+}
+
+footprints from power_inductor {
+  D     E     H     b     L
+  2.5   2.0   1.2   1.6   0.6
+  3.0   3.0   1.5   2.4   0.8
+  4.0   4.0   2.0   3.2   1.0
+  5.0   5.0   3.0   4.0   1.2
+  6.0   6.0   3.0   4.8   1.4
+  8.0   8.0   4.0   6.4   1.8
+  10.0  10.0  4.5   8.0   2.2
+  12.0  12.0  6.0   9.6   2.6
+}

@@ -1,0 +1,32 @@
+# BGA library: ball grids from a 9-ball chip-scale package to 484 balls.
+#
+# Each row is a full grid of nx x ny balls at pitch e on a D x D body, with ball
+# diameter bd and seated height A. Rows are lettered and columns numbered the
+# JEDEC way: A1 at the top left, and no I, O, Q, S, X or Z. Values are
+# typical; check your part's datasheet.
+
+template ball_grid(nx, ny, e, D, bd, A, E = D) {
+  name "BGA-{nx * ny}_{D:.1}x{E:.1}mm_Layout{nx}x{ny}_P{e:.1}mm"   # sizes to one decimal, as KiCad names them
+  description "BGA, {nx * ny} balls ({nx} x {ny}), {e} mm pitch, {D} x {E} mm body"
+  refdes "U"
+
+  body D x E x A
+  balls nx x ny pitch e
+  lead ball bd                        # the lands are 80% of the ball
+  pin1 dot
+}
+
+footprints from ball_grid {
+  nx   ny   e     D     bd     A
+  3    3    0.5   1.5   0.3    0.6
+  4    4    0.5   2.0   0.3    0.6
+  6    6    0.5   3.5   0.3    1.0
+  7    7    0.8   6     0.4    1.2
+  8    8    0.8   8     0.4    1.2
+  10   10   0.8   9     0.4    1.4
+  12   12   0.8   10    0.4    1.4
+  16   16   0.8   14    0.45   1.4
+  14   14   1.0   15    0.5    1.5
+  16   16   1.0   17    0.5    1.7
+  22   22   1.0   23    0.6    2.0
+}

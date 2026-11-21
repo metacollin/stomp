@@ -16,11 +16,15 @@ const demo = resolve(here, '..');
 const repo = resolve(demo, '..');
 const exDir = join(repo, 'examples');
 
-// Order in the example picker. Files not listed go last, by name.
+// Order in the example picker. Files not listed go last, by name. The picker
+// puts files named *_library.stomp in a group of their own.
 const ORDER = [
-  'to252.stomp', 'usb_microb.stomp', 'qfn_library.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'sot223.stomp',
+  'to252.stomp', 'usb_microb.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'sot223.stomp',
   'tssop20.stomp', 'soic_family.stomp', 'bga64.stomp', 'dip8.stomp', 'hdr2x5.stomp', 'r0402.stomp', 'led0603.stomp',
   'cp_radial.stomp', 'do41.stomp', 'crystal3225.stomp', 'syntax_zoo.stomp',
+  'qfn_library.stomp', 'chip_library.stomp', 'sot_library.stomp', 'sop_library.stomp', 'qfp_library.stomp',
+  'dfn_library.stomp', 'bga_library.stomp', 'diode_library.stomp', 'tantalum_library.stomp', 'inductor_library.stomp',
+  'crystal_library.stomp', 'led_library.stomp', 'dip_library.stomp', 'header_library.stomp',
 ];
 
 function exampleList() {
@@ -40,7 +44,8 @@ function exampleList() {
     const at = first.indexOf(': ');
     const title = at < 0 ? first : first.slice(0, at);
     const blurb = at < 0 ? '' : first.slice(at + 2);
-    return { file, title, blurb, source };
+    const group = file.endsWith('_library.stomp') ? 'Libraries' : 'Parts';
+    return { file, title, blurb, group, source };
   });
 }
 

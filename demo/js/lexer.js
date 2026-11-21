@@ -7,7 +7,7 @@
  *
  * Token: { t, v, s, e, line, col }
  *   t: 'word' | 'num' | 'str' | 'p' (punctuation) | 'nl' | 'comment' | 'bad' | 'eof'
- *   word: v = text, kw = reserved?            num: v = value, text, suffix, isInt
+ *   word: v = text, kw = reserved?            num: v = value, text, suffix, axis, isInt
  *   str:  v = unescaped value                 p:   v = '{' '}' '(' ')' ',' ';' ':' '=' '+' '-' '*' '/' '..'
  *         parts = null, or (interpolated) [{ lit, s, e } | { open, close, codeS, codeE, fmt, toks, all }]
  */
@@ -36,6 +36,24 @@
   const HYPHENATED = ['row-major', 'col-major', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
   const UNIT_SUFFIX = new Set(['mm', 'um', 'nm', 'mil', 'in']);
   const ANGLE_SUFFIX = new Set(['deg', 'rad']);
+
+  // A number's suffix: a unit or an angle unit, and/or a side mark. `w` and `h` mark
+  // which side of a size a number is (`1.6h x 1.1w`), after any unit: `43milw`.
+  function splitSuffix(word) {
+    if (UNIT_SUFFIX.has(word) || ANGLE_SUFFIX.has(word)) return { unit: word, axis: null };
+    const mark = word.slice(-1), unit = word.slice(0, -1);
+    if ((mark === 'w' || mark === 'h') && (unit === '' || UNIT_SUFFIX.has(unit))) return { unit: unit || null, axis: mark };
+    return null;
+  }
+  function suffixHint(word, text) {
+    if (/^x/.test(word)) return `put spaces around the size separator: \`${text} x ${word.slice(1) || '...'}\``;
+    const m = /^([wh])(mm|um|nm|mil|in)$/.exec(word);
+    if (m) return `put the unit before the side mark: \`${text}${m[2]}${m[1]}\``;
+    if (/^mils?[wh]?$/.test(word) || word === 'mils') return 'write mils as `mil`';
+    if (/^inch(es)?$/.test(word)) return 'write inches as `in`';
+    if (/^(mm|um|nm|mil|in)?[WH]$/.test(word)) return 'side marks are lowercase: `w` and `h`';
+    return 'units are mm, um, nm, mil and in (angles: deg, rad), and `w` and `h` mark the sides of a size';
+  }
   const PUNCT = new Set(['{', '}', '(', ')', ',', ';', ':', '=', '+', '-', '*', '/']);
   // a newline right after one of these doesn't end a statement (SPEC 4)
   const JOINERS = new Set(['{', ',', '+', '-', '*', '/']);
@@ -133,7 +151,7 @@
         }
         const text = src.slice(s, i);
         const value = parseFloat(text.startsWith('.') ? '0' + text : text);
-        let suffix = null;
+        let suffix = null, axis = null;
         if (src[i] === '%') { suffix = '%'; i++; isInt = false; }
         else if (src[i] === 'x' && /[0-9.(\s-]/.test(src[i + 1] || ' ')) {
           // `0.6x1.5`: the size separator can touch the number, so emit it as its
@@ -145,19 +163,30 @@
         }
         else if (i < n && isIdStart(src[i])) {
           const ss = i;
-          while (i < n && isIdChar(src[i])) i++;
-          const word = src.slice(ss, i);
-          if (UNIT_SUFFIX.has(word) || ANGLE_SUFFIX.has(word)) { suffix = word; isInt = false; }
+          let j = i;
+          while (j < n && /[A-Za-z]/.test(src[j])) j++;
+          let word = src.slice(ss, j);
+          const touching = word.length > 1 && word.endsWith('x') && splitSuffix(word.slice(0, -1));
+          if (touching && /[0-9.(\s-]/.test(src[j] || ' ')) {
+            // `1.1wx1.6h`, `0.6mmx1.5`: the separator touches a suffix
+            i = j - 1;
+            tok('num', s, i, { v: value, text: src.slice(s, i), num: text, suffix: touching.unit, axis: touching.axis, isInt: false });
+            tok('word', i, i + 1, { v: 'x', kw: true });
+            i++;
+            continue;
+          }
+          while (j < n && isIdChar(src[j])) j++;
+          word = src.slice(ss, j);
+          i = j;
+          const sf = splitSuffix(word);
+          if (sf) { suffix = sf.unit; axis = sf.axis; isInt = false; }
           else {
-            const hint = /^x/.test(word)
-              ? `put spaces around the size separator: \`${text} x ${word.slice(1) || '…'}\``
-              : `units are mm, um, nm, mil, in (angles: deg, rad)`;
-            report(`unknown suffix \`${word}\` on number ${text} — ${hint}`, ss, i);
+            report(`unknown suffix \`${word}\` on number ${text} — ${suffixHint(word, text)}`, ss, i);
             tok('bad', s, i, { v: src.slice(s, i) });
             continue;
           }
         }
-        tok('num', s, i, { v: value, text: src.slice(s, i), num: text, suffix, isInt });
+        tok('num', s, i, { v: value, text: src.slice(s, i), num: text, suffix, axis, isInt });
         continue;
       }
       if (isIdStart(c)) {

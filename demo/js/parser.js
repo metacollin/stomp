@@ -66,6 +66,7 @@
       this.i = 0;
       this.diags = diags;
       this.unit = 'mm';
+      this.marks = null;     // where a `w`/`h` side mark may appear: 'size', or a reason it can't
     }
 
     // Token cursor
@@ -98,6 +99,12 @@
       throw new ParseError(msg, k.s, Math.max(k.e, k.s + 1));
     }
     report(err) { this.diags.push({ severity: 'error', message: err.message, s: err.s, e: err.e, syntax: true }); }
+    /** Run fn with `w`/`h` side marks allowed ('size') or refused for a reason. */
+    withMarks(ctx, fn) {
+      const outer = this.marks;
+      this.marks = ctx;
+      try { return fn(); } finally { this.marks = outer; }
+    }
 
     atStmtEnd() {
       const k = this.cur;
@@ -121,14 +128,19 @@
       }
     }
 
-    /** `{ stmt EOS ... }` with per-statement recovery. */
+    /** `{ stmt EOS ... }` with per-statement recovery. A footprint or template body
+     *  (no `inner` set) can start with `units`, which lasts until its `}`. */
     block(parseStmt, inner) {
+      const outerUnit = this.unit;
+      try { return this.blockBody(parseStmt, inner); } finally { this.unit = outerUnit; }
+    }
+    blockBody(parseStmt, inner) {
       const open = this.expectP('{');
       const stmts = [];
       this.skipEOS();
       while (!this.isP('}') && this.cur.t !== 'eof') {
         const k = this.cur;
-        if (k.t === 'word' && STMT_SET.has(k.v) && !(inner && inner.has(k.v)) && (inner || k.v === 'footprint' || k.v === 'footprints' || k.v === 'template' || k.v === 'units')) {
+        if (k.t === 'word' && STMT_SET.has(k.v) && !(inner && inner.has(k.v)) && (inner || k.v === 'footprint' || k.v === 'footprints' || k.v === 'template')) {
           this.diags.push({
             severity: 'error', message: `missing \`}\` to close the block opened on line ${open.line}`,
             s: open.s, e: open.e, syntax: true,
@@ -140,7 +152,7 @@
         const outerTarget = this.stmtTarget;
         this.stmtTarget = null;
         try {
-          const st = parseStmt();
+          const st = !inner && this.isWord('units') ? this.blockUnits(stmts.length) : parseStmt();
           if (st) {
             if (st.unit === undefined) st.unit = this.unit;   // inner statements use the file units too
             stmts.push(st);                                  // kept even if junk follows it
@@ -170,6 +182,22 @@
       return { stmts, open, close };
     }
 
+    /** `units mil` at the top of a footprint or template body. */
+    blockUnits(before) {
+      const k = this.advance();
+      if (before) throw new ParseError('`units` goes first in a footprint or template, before the statements it applies to', k.s, k.e);
+      this.unit = this.unitWord();
+      return null;
+    }
+    /** The word after `units`. */
+    unitWord() {
+      const u = this.cur;
+      if (u.t === 'word' && UNITS.has(u.v)) return this.advance().v;
+      if (u.t === 'word' && u.v === 'mils') this.failAt('write mils as `mil`');
+      if (u.t === 'word' && /^inch(es)?$/.test(u.v)) this.failAt('write inches as `in`');
+      return this.expected('a unit: mm, um, nm, mil or in');
+    }
+
     // File
     file() {
       const items = [];
@@ -197,11 +225,8 @@
       let node;
       if (this.isWord('units')) {
         this.advance();
-        const u = this.cur;
-        if (u.t !== 'word' || !UNITS.has(u.v)) this.expected('a unit: mm, um, nm, mil or in');
-        this.advance();
-        this.unit = u.v;
-        node = { type: 'Units', unit: u.v };
+        this.unit = this.unitWord();
+        node = { type: 'Units', unit: this.unit };
       } else if (this.isWord('let')) {
         node = this.letStmt();
       } else if (this.isWord('template')) {
@@ -354,7 +379,8 @@
     }
 
     /** One table cell: a number, a name, a "string" or a (parenthesized expression). */
-    cell() {
+    cell() { return this.withMarks('cell', () => this.cellValue()); }
+    cellValue() {
       const k = this.cur;
       if (k.t === 'str') { this.advance(); const x = { type: 'str', value: this.strNode(k), s: k.s, e: k.e }; return { x, s: k.s, e: k.e }; }
       if (this.isP('(')) { const x = this.primary(); return { x, s: x.s, e: x.e }; }
@@ -547,11 +573,13 @@
       }
       if (this.exprStart(1)) {
         this.advance();
-        const w = this.expr();
-        this.expectWord('x', 'between body width and length (`body 3.9 x 4.9 x 1.5`)');
-        const l = this.expr();
-        const h = this.acceptWord('x') ? this.expr() : null;
-        return { type: 'Body', w, l, h };
+        return this.withMarks('body', () => {
+          const w = this.expr();
+          this.expectWord('x', 'between body width and length (`body 3.9 x 4.9 x 1.5`)');
+          const l = this.expr();
+          const h = this.acceptWord('x') ? this.expr() : null;
+          return { type: 'Body', w, l, h };
+        });
       }
       return this.placement();
     }
@@ -660,8 +688,8 @@
       let dims = null;
       if (this.acceptWord('d')) dims = { d: this.expr() };
       else if (this.exprStart()) {
-        const a = this.expr();
-        dims = this.acceptWord('x') ? { w: a, l: this.expr() } : { v: a };
+        const z = this.sizeOrOne(false);
+        dims = z.v ? { v: z.v } : { w: z.w, l: z.l };
       }
       let span = null;
       if (this.isWord('span')) {
@@ -1035,7 +1063,7 @@
       const s = this.cur.s;
       const neg = !!this.acceptP('-');
       const k = this.cur;
-      if (k.t !== 'num' || k.suffix === '%' || (k.suffix && !['deg', 'rad'].includes(k.suffix))) {
+      if (k.t !== 'num' || k.suffix === '%' || k.axis || (k.suffix && !['deg', 'rad'].includes(k.suffix))) {
         this.expected('an angle such as `45`, `45deg` or `0.7854rad`');
       }
       this.advance();
@@ -1172,12 +1200,14 @@
       const k = this.advance();
       let p;
       if (k.v === 'box') {
-        const w = this.expr();
-        this.expectWord('x', '(a box is `W x L x H`)');
-        const l = this.expr();
-        this.expectWord('x', '(a box is `W x L x H`)');
-        const h = this.expr();
-        p = { key: 'solid', kind: 'box', w, l, h };
+        p = this.withMarks('box', () => {
+          const w = this.expr();
+          this.expectWord('x', '(a box is `W x L x H`)');
+          const l = this.expr();
+          this.expectWord('x', '(a box is `W x L x H`)');
+          const h = this.expr();
+          return { key: 'solid', kind: 'box', w, l, h };
+        });
       } else {
         this.expectWord('d', 'after `cylinder` (`cylinder d D h H`)');
         const d = this.expr();
@@ -1256,8 +1286,11 @@
       if (k.t === 'num') {
         if (k.suffix === '%') this.failAt('a percentage isn\'t allowed here');
         if (k.suffix === 'deg' || k.suffix === 'rad') this.failAt('an angle isn\'t allowed here');
+        if (k.axis && this.marks !== 'size') this.markError(k.axis, k);
         this.advance();
-        return { type: 'num', v: k.v, unit: k.suffix, s: k.s, e: k.e };
+        const node = { type: 'num', v: k.v, unit: k.suffix, s: k.s, e: k.e };
+        if (k.axis) node.axis = k.axis;
+        return node;
       }
       if (k.t === 'word' && !k.kw) { this.advance(); return { type: 'id', name: k.v, s: k.s, e: k.e }; }
       if (k.t === 'str') { this.advance(); return { type: 'str', value: this.strNode(k), s: k.s, e: k.e }; }
@@ -1265,17 +1298,59 @@
         this.advance();
         const x = this.expr();
         const close = this.expectP(')');
-        return { type: 'paren', x, s: k.s, e: close.e };
+        const node = { type: 'paren', x, s: k.s, e: close.e };
+        // `(D - 0.2)w`: a side mark right after the parenthesis
+        const m = this.cur;
+        if (m.t === 'word' && m.s === close.e && (m.v === 'w' || (m.v === 'h' && this.marks === 'size'))) {
+          if (this.marks !== 'size') this.markError(m.v, m);
+          this.advance();
+          node.axis = m.v; node.e = m.e;
+        }
+        return node;
       }
       if (k.t === 'word' && k.kw) this.failAt(`expected a number, found the keyword \`${k.v}\``);
       return this.expected('a number');
     }
 
-    size() {
-      const w = this.expr();
-      this.expectWord('x', '(sizes are written `WIDTH x LENGTH`)');
-      const l = this.expr();
-      return { w, l, s: w.s, e: l.e };
+    /** `W x L`. A side marked `w` or `h` (`1.6h x 1.1w`) goes in that slot whatever its place. */
+    size() { return this.sizeOrOne(true); }
+    /** `W x L`, or (unless a size is required) a single value: { v }. */
+    sizeOrOne(required) {
+      return this.withMarks('size', () => {
+        let w = this.expr();
+        const mw = this.sideMark(w);
+        if (!required && !this.isWord('x')) {
+          if (mw) throw new ParseError(`\`${mw}\` marks a side of a size, but this is a single value`, w.s, w.e);
+          return { v: w };
+        }
+        this.expectWord('x', '(sizes are written `WIDTH x LENGTH`)');
+        let l = this.expr();
+        const ml = this.sideMark(l);
+        if (mw && mw === ml) throw new ParseError(`both sides are marked \`${mw}\`: mark one \`w\` and the other \`h\``, w.s, l.e);
+        const s = w.s, e = l.e;
+        if (mw === 'h' || ml === 'w') [w, l] = [l, w];
+        return { w, l, s, e };
+      });
+    }
+    /** The side mark on an operand of a size. It must come last: `1.1w`, `(e / 2)w`. */
+    sideMark(x) {
+      let mark = null;
+      const walk = (n) => {
+        if (n.axis) {
+          if (n.e !== x.e) throw new ParseError(`put \`${n.axis}\` after the whole side: \`(${'...'})${n.axis}\``, n.s, n.e);
+          mark = n.axis;
+        }
+        for (const k of ['a', 'b', 'x']) if (n[k] && typeof n[k] === 'object') walk(n[k]);
+      };
+      walk(x);
+      return mark;
+    }
+    markError(mark, tok) {
+      this.failAt({
+        body: 'a body is always `W x L x H`, so it takes no `w` or `h` marks',
+        box: 'a box is always `W x L x H`, so it takes no `w` or `h` marks',
+        cell: 'a table cell holds a plain value; mark the sides in the template\'s sizes instead',
+      }[this.marks] || `\`${mark}\` marks a side of a size, as in \`rect 1.1w x 1.6h\`, and can't be used here`, tok);
     }
 
     point() {

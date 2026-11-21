@@ -18,9 +18,10 @@ see the part's model on a board. **Export to KiCad** saves the file as a KiCad 9
 footprint library, with each footprint's 3D model embedded.
 
 Open `demo/index.html` in a browser. There's nothing to install, serve or build. The
-*QFN library* example builds a whole library from one table. See
-[`demo/README.md`](demo/README.md) for details, including the choices the prototype made
-where the draft is open.
+libraries in the example picker each build a whole family of footprints from tables:
+chip passives, SOT, SOP, QFP, QFN, DFN, BGA, diodes, tantalums, power inductors,
+crystals, LEDs, DIPs and pin headers. See [`demo/README.md`](demo/README.md) for
+details, including the choices the prototype made where the draft is open.
 
 ## Why
 
@@ -45,6 +46,10 @@ footprint "TO-252" {                    # DPAK
 `inner` is the edge facing the other object and `outer` the edge facing away, so span
 (outer to outer), gap (inner to inner), pitch (center to center) and mixed dimensions all
 go in exactly as drawn.
+
+Numbers are in mm unless the file, a footprint or the number itself says otherwise
+(`units mil`, `50mil`). When a drawing gives a pad's height first, mark the sides:
+`pad 2 rect 6.2h x 5.5w` is the same pad as `pad 2 rect 5.5 x 6.2`.
 
 Common packages don't need any of that. Generators cover pins per side, pitch, lead
 form, span, thermal pads, ball grids and pin-1 marks, and size the pads from the part's
@@ -109,7 +114,7 @@ footprint "SOT-223" {
 |---|---|
 | [`SPEC.md`](SPEC.md) | the language spec: design, meaning, and every statement |
 | [`grammar.peg`](grammar.peg) | the formal PEG grammar, written to map onto PEGTL |
-| [`examples/`](examples/) | 18 example files, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and an 18-footprint QFN library. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
+| [`examples/`](examples/) | 17 single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 14 libraries with about 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
 | [`demo/`](demo/) | the browser editor and its JavaScript engine, with tests |
 
 ## Name

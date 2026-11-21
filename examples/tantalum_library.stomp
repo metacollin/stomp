@@ -1,0 +1,31 @@
+# Tantalum capacitor library: molded chip cases A to E.
+#
+# The terminals fold around the ends of the body and under it, so they're
+# J-leads here, b wide with a foot f under the body. Pin 1 is positive, and
+# the band on the body marks it. Sizes follow EIA 535BAAC; check your part's
+# datasheet.
+
+template tantalum(cs, eia, L, W, H, b, f) {
+  name "CP_Tantalum_Case-{cs}_EIA-{eia}"
+  description "Tantalum capacitor, case {cs} (EIA {eia}), {L} x {W} x {H} mm"
+  refdes "C"
+
+  body L x W x H
+  pins 2 horizontal
+  lead jlead b x f span L
+  polarized                           # on a chip capacitor the band marks pin 1
+  model {
+    standoff 0.15                     # the terminals fold flat under the body
+    leads thickness 0.1
+    body color "#d99a1e"              # amber, as most tantalums are molded
+  }
+}
+
+footprints from tantalum {
+  cs    eia         L     W     H     b     f
+  "A"   "3216-18"   3.2   1.6   1.6   1.2   0.8
+  "B"   "3528-21"   3.5   2.8   1.9   2.2   0.8
+  "C"   "6032-28"   6.0   3.2   2.5   2.2   1.3
+  "D"   "7343-31"   7.3   4.3   2.8   2.4   1.3
+  "E"   "7343-43"   7.3   4.3   4.0   2.4   1.3
+}

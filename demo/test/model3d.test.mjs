@@ -247,7 +247,8 @@ test('exports: VRML in 0.1-inch units, binary STL', () => {
   const cd = dv.getUint32(end + 16, true);
   assert.equal(dv.getUint32(cd, true), 0x02014b50, 'the central directory is where the end record says');
   assert.equal(dv.getUint32(cd + 24, true), wrlBytes.length, 'first entry is stored at full size');
-  assert.equal(zip.length, 2 * (30 + 46) + 2 * 'SOIC-8.wrl'.length + wrlBytes.length + stl.length + 22);
+  // each name is stored twice: in its local header and in the central directory
+  assert.equal(zip.length, 2 * (30 + 46) + 2 * 2 * 'SOIC-8.wrl'.length + wrlBytes.length + stl.length + 22);
 });
 
 test('the model builder never throws on mangled sources', () => {

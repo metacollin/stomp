@@ -1,0 +1,438 @@
+# Snapshot corpus: model branches the examples don't reach.
+#
+# These aren't real parts. demo/tools/snapshot.mjs records them along with the
+# examples, so a change to the engine or the standard library that alters one
+# of these models shows up in the snapshot test.
+
+# MELF bodies: one per family, one along y, one polarized non-diode
+footprint "MELF-R" {
+  refdes "R"
+  body cylinder d 2.2 h 5.8
+  pins 2 horizontal
+  lead endcap 0.5
+}
+footprint "MELF-L-Y" {
+  refdes "L"
+  body cylinder d 1.4 h 3.5
+  pins 2 vertical
+  lead endcap 0.4
+}
+footprint "MELF-C-POLARIZED" {
+  refdes "C"
+  body cylinder d 1.4 h 3.5
+  pins 2 horizontal
+  lead endcap 0.4
+  polarized
+}
+footprint "MELF-X" {
+  refdes "F"
+  body cylinder d 1.4 h 3.5
+  pins 2 horizontal
+  lead endcap 0.4
+}
+
+# Axial bodies: resistor, capacitor along y (polarized), inductor, ferrite bead,
+# another family, and pins under the body
+footprint "AXIAL-R" {
+  refdes "R"
+  body cylinder d 2.5 h 6.3
+  pins 2 horizontal pitch 10.16
+  lead wire d 0.6
+}
+footprint "AXIAL-C-Y" {
+  refdes "C"
+  body cylinder d 4 h 8
+  pins 2 vertical pitch 12.7
+  lead wire d 0.6
+  polarized
+}
+footprint "AXIAL-L" {
+  refdes "L"
+  body cylinder d 3 h 7
+  pins 2 horizontal pitch 12.7
+  lead wire d 0.6
+}
+footprint "AXIAL-FB" {
+  refdes "FB"
+  body cylinder d 3 h 7
+  pins 2 horizontal pitch 12.7
+  lead wire d 0.6
+}
+footprint "AXIAL-X" {
+  refdes "F"
+  body cylinder d 3 h 7
+  pins 2 horizontal pitch 12.7
+  lead wire d 0.6
+}
+footprint "AXIAL-UNDER" {
+  refdes "R"
+  body cylinder d 2 h 8
+  pins 2 horizontal pitch 5
+  lead wire d 0.5
+}
+
+# Chips along y, each family
+footprint "CHIP-R-Y" {
+  refdes "R"
+  body 0.8 x 1.6 x 0.45
+  pins 2 vertical
+  lead endcap 0.3
+}
+footprint "CHIP-C-Y" {
+  refdes "C"
+  body 0.8 x 1.6 x 0.8
+  pins 2 vertical
+  lead endcap 0.35
+  polarized
+}
+footprint "CHIP-L-Y" {
+  refdes "L"
+  body 1.25 x 2.0 x 0.9
+  pins 2 vertical
+  lead endcap 0.5
+}
+footprint "CHIP-D-Y" {
+  refdes "D"
+  body 0.8 x 1.6 x 0.6
+  pins 2 vertical
+  lead endcap 0.3
+  polarized
+}
+footprint "CHIP-X-Y" {
+  refdes "F"
+  body 0.8 x 1.6 x 0.6
+  pins 2 vertical
+  lead endcap 0.3
+}
+footprint "CHIP-SHORT" {
+  refdes "R"
+  body 0.6 x 0.3 x 0.23
+  pins 2 horizontal
+  lead endcap 0.29
+}
+
+# Cans: small sleeved (no vent), SMD sleeved and vented, polarized; radial along y
+footprint "CAN-SMALL" {
+  refdes "C"
+  body cylinder d 2 h 3
+  pins 2 horizontal pitch 1.5
+  lead wire d 0.4
+  polarized
+}
+footprint "CAN-SMD" {
+  refdes "C"
+  body cylinder d 6.3 h 5.4
+  pins 2 horizontal
+  lead flat 0.65 x 2.3 span 7.3
+  polarized
+  model { body color "#2a2f3a" }
+}
+footprint "CAN-RADIAL-Y" {
+  refdes "C"
+  body cylinder d 5 h 7
+  pins 2 vertical pitch 2
+  lead wire d 0.5
+  polarized
+}
+footprint "CAN-PADS-ONLY" {
+  body cylinder d 5 h 5
+  pad 1 rect 1 x 1
+  pad 1 at (-1, 0)
+  pad 2 rect 1 x 1
+  pad 2 at (1, 0)
+}
+
+# Radial boxes: plain, and with a draft
+footprint "RADIAL-BOX" {
+  refdes "C"
+  body 7.2 x 3.5 x 9
+  pins 2 horizontal pitch 5
+  lead wire d 0.6
+}
+footprint "RADIAL-BOX-DRAFT" {
+  refdes "C"
+  body 7.2 x 3.5 x 9
+  pins 2 horizontal pitch 5
+  lead wire d 0.6
+  model { draft 5 }
+}
+
+# Molded leads that can't bend: a gull-wing with no room, a J-lead too short
+footprint "GULLWING-CRAMPED" {
+  body 4 x 4 x 1.2
+  pins 8 dual pitch 1.27
+  lead gullwing 0.4 x 0.3 span 4.3
+}
+footprint "JLEAD-SHORT" {
+  body 1 x 1 x 1
+  pins 2 horizontal pitch 0.6
+  lead jlead 0.3 x 0.2 span 0.9
+}
+footprint "JLEAD-FINE" {
+  body 6 x 6 x 3
+  pins 20 quad pitch 0.8
+  lead jlead 0.4 x 0.8 span 7.2
+  pin1 dot
+}
+footprint "GULLWING-COARSE" {
+  body 6 x 6 x 2
+  pins 4 dual pitch 2.54
+  lead gullwing 0.8 x 1 span 9
+  pin1 notch
+}
+
+# Through-hole: round header pins, a socket, round DIP leads, a square DIP lead box,
+# plain pins on a block, a wire into a cylinder
+footprint "HEADER-ROUND" {
+  refdes "J"
+  body 2.54 x 5.08 x 8.5
+  pins grid 1 x 2 pitch 2.54
+  lead pin d 0.6
+  default pad tht circle 1.7 drill 1.0
+}
+footprint "HEADER-SOCKET" {
+  refdes "J"
+  body 2.54 x 5.08 x 4
+  pins grid 1 x 2 pitch 2.54
+  lead pin 0.64 x 0.64
+  default pad tht circle 1.7 drill 1.0
+}
+footprint "HEADER-ABOVE" {
+  refdes "J"
+  body 2.54 x 5.08 x 11
+  pins grid 1 x 2 pitch 2.54
+  lead pin 0.64 x 0.64
+  default pad tht circle 1.7 drill 1.0
+  model {
+    leads above 3
+    leads below 2.5
+  }
+}
+footprint "DIP-ROUND" {
+  body 6.35 x 9.8 x 3.3
+  pins 8 dual pitch 2.54 span 7.62
+  lead pin d 0.46
+  default pad tht circle 1.6 drill 0.8
+  pin1 notch
+}
+footprint "THT-BLOCK" {
+  body 4 x 4 x 2
+  pad 1 tht circle 1.6 drill 0.9
+  pad 1 at (-1.27, 0)
+  pad 2 tht circle 1.6 drill 0.9
+  pad 2 at (1.27, 0)
+  lead 1 pin 0.5 x 0.5
+  lead 2 pin d 0.5
+}
+
+# Land grid: flat contacts on a grid, with no side
+footprint "LGA-9" {
+  body 3 x 3 x 0.9
+  pins grid 3 x 3 pitch 1
+  lead flat 0.5 x 0.5
+  default pad rect 0.6 x 0.6
+  pin1 dot
+}
+
+# Tabs: a sized tab, an unsized tab, on a molded body
+footprint "TAB-SIZED" {
+  body 6.5 x 6 x 2.3
+  pins {
+    bottom: 1, 2 pitch 4.56
+    top: 3
+  }
+  lead gullwing 0.8 x 1 span 9.9
+  lead 3 tab 5.4 x 5
+}
+footprint "TAB-UNSIZED" {
+  body 4.5 x 3 x 1.5
+  pins {
+    bottom: 1, 2 pitch 2.5
+    top: 3
+  }
+  lead gullwing 0.6 x 0.8 span 6
+  lead 3 tab
+}
+
+# Modules: a shield can, no shield (too thin), and a castellated module too small for one
+footprint "MODULE-SHIELD" {
+  body 16 x 20 x 3
+  pins 10 dual pitch 1.27
+  lead castellated d 0.7
+  pin1 dot
+}
+footprint "MODULE-THIN" {
+  body 12 x 14 x 1
+  pins 8 dual pitch 1.27
+  lead castellated d 0.6
+}
+
+# Model block marks on several bodies
+footprint "MARK-DOT-ON-MOLDED" {
+  body 3.9 x 4.9 x 1.5
+  pins 8 dual pitch 1.27
+  lead gullwing 0.41 x 1.04 span 6
+  model { pin1 dot }
+}
+footprint "MARK-NOTCH-ON-SAWN" {
+  body 3 x 3 x 0.9
+  pins 16 quad pitch 0.5
+  lead flat 0.25 x 0.4
+  pin1 notch
+}
+footprint "MARK-STRIPE-ON-SAWN" {
+  body 3 x 3 x 0.9
+  pins 16 quad pitch 0.5
+  lead flat 0.25 x 0.4
+  model { pin1 stripe }
+}
+footprint "MARK-NONE" {
+  body 3 x 3 x 0.9
+  pins 16 quad pitch 0.5
+  lead flat 0.25 x 0.4
+  pin1 dot
+  model { pin1 none }
+}
+footprint "MARK-BAR" {
+  body 3 x 3 x 0.9
+  pins 16 quad pitch 0.5
+  lead flat 0.25 x 0.4
+  pin1 bar
+}
+footprint "MARK-DIMPLE-BLOCK" {
+  body 4 x 4 x 2
+  pad 1 rect 1 x 1
+  pad 1 at (-1.5, 1.5)
+  pad 2 rect 1 x 1
+  pad 2 at (1.5, -1.5)
+  pin1 dot
+}
+footprint "MARK-CHAMFER-BLOCK" {
+  body 4 x 4 x 2
+  pad 1 rect 1 x 1
+  pad 1 at (-1.5, 1.5)
+  pad 2 rect 1 x 1
+  pad 2 at (1.5, -1.5)
+  pin1 chamfer
+  model { draft 4 }
+}
+footprint "MARK-DIMPLE-DIP" {
+  body 6.35 x 9.8 x 3.3
+  pins 8 dual pitch 2.54 span 7.62
+  lead pin 0.46 x 0.25
+  default pad tht circle 1.6 drill 0.8
+  pin1 dot
+  model { pin1 dimple }
+}
+
+# Exposed pads on molded and block bodies, a thermal pad on a sawn body with color
+footprint "EP-MOLDED" {
+  body 3.9 x 4.9 x 1.5
+  pins 8 dual pitch 1.27
+  lead gullwing 0.41 x 1.04 span 6
+  thermal pad "9" 2.3 x 2.3
+  pin1 dot
+  model { pin1 dimple }
+}
+footprint "EP-BLOCK" {
+  body 4 x 4 x 1
+  pad 1 rect 0.5 x 0.5
+  pad 1 at (-1.5, 0)
+  thermal pad "2" 2 x 2
+  body at (0, 0)
+}
+footprint "EP-SAWN-COLORS" {
+  body 4 x 4 x 0.9
+  pins 24 quad pitch 0.5
+  lead flat 0.25 x 0.4
+  thermal pad "25" 2.6 x 2.6
+  model {
+    body color "#3a3a40"
+    leads color gold
+  }
+}
+
+# Heights and standoffs: no height, a standoff above the top, a standoff with a height
+footprint "NO-HEIGHT" {
+  body 3 x 3
+  pins 8 quad pitch 0.65
+  lead flat 0.3 x 0.4
+}
+footprint "STANDOFF-CLAMPED" {
+  body 3 x 3 x 1
+  pins 8 quad pitch 0.65
+  lead flat 0.3 x 0.4
+  model { standoff 5 }
+}
+footprint "HEIGHT-AND-STANDOFF" {
+  body 3.9 x 4.9 x 1.5
+  pins 8 dual pitch 1.27
+  lead gullwing 0.41 x 1.04 span 6
+  model {
+    standoff 0.2
+    height 1.75
+    leads thickness 0.25
+  }
+}
+
+# A short BGA
+footprint "BGA-SHORT" {
+  body 2 x 2 x 0.3
+  balls 3 x 3 pitch 0.5
+  lead ball 0.25
+}
+
+# Extra solids: rotated at an odd angle, on the body, at a height; no body
+footprint "SOLIDS" {
+  body 4 x 4 x 1
+  pins 8 quad pitch 0.8
+  lead flat 0.3 x 0.4
+  model {
+    box 1 x 2 x 0.5 on body color red
+    cylinder d 1 h 2 at (1, 1, 2) rotate (30, 45, 10)
+    box 0.5 x 0.5 x 0.5 at (-1.5, 1.5)
+    cylinder d 0.8 h 0.3 at (0, -1) on body color gold
+  }
+}
+footprint "SOLIDS-NO-BODY" {
+  pad 1 rect 1 x 1
+  model {
+    box 2 x 2 x 1
+    cylinder d 1 h 1 at (0, 0, 1) color tin
+  }
+}
+footprint "STEP-ONLY" {
+  body 2 x 2 x 1
+  pins 2 horizontal
+  lead endcap 0.4
+  model { step "part.step" }
+}
+footprint "NO-MODEL" {
+  body 2 x 2 x 1
+  pins 2 horizontal
+  lead endcap 0.4
+  no model
+}
+
+# Molded leads straight out, L-bends with a draft, coarse gull-wings in tin
+footprint "STRAIGHT-LEADS" {
+  body 2.7 x 1.7 x 1
+  pins 2 horizontal
+  lead straight 0.8 x 0.5 span 3.6
+  polarized
+  refdes "D"
+}
+footprint "LBEND-C" {
+  refdes "C"
+  body 3.5 x 2.8 x 1.9
+  pins 2 horizontal
+  lead lbend 2.2 x 0.8 span 3.5
+  polarized
+}
+footprint "PLAIN-BLOCK" {
+  body 5 x 3 x 2
+  pad 1 rect 1 x 2
+  pad 1 at (-3, 0)
+  pad 2 rect 1 x 2
+  pad 2 at (3, 0)
+}

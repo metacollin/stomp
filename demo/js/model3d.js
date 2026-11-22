@@ -545,7 +545,8 @@
         if (md.solids && md.solids.length) notes.push('No body, so only the model block\'s solids are shown.');
         else notes.push('No body. Add `body W x L x H` to generate a model.');
         this.extraSolids(null, 0);
-        out.summary = md.solids && md.solids.length ? `${md.solids.length} solid${md.solids.length > 1 ? 's' : ''}` : null;
+        const nx = md.extras != null ? md.extras : (md.solids || []).length;
+        out.summary = nx ? `${nx} part${nx > 1 ? 's' : ''}` : null;
         return;
       }
       const style = res.style;
@@ -731,7 +732,8 @@
       const fl = Object.entries(formCount).map(([f, k]) => `${k} ${FORM_NAME[f] || f}${k > 1 ? 's' : ''}`);
       if (fl.length) parts2.push(fl.join(', '));
       if (mark !== 'none') parts2.push(mark === 'stripe' ? 'polarity stripe' : `pin-1 ${mark}`);
-      if (md.solids && md.solids.length) parts2.push(`${md.solids.length} extra solid${md.solids.length > 1 ? 's' : ''}`);
+      const nx = md.extras != null ? md.extras : (md.solids || []).length;
+      if (nx) parts2.push(`${nx} extra part${nx > 1 ? 's' : ''}`);
       out.summary = parts2.join(' · ');
       const forms = Object.keys(formCount);
       const NOUN = { gullwing: 'gull-wings', jlead: 'J-leads', lbend: 'L-bend leads', straight: 'straight leads', column: 'columns', flat: 'terminals', endcap: 'caps', ball: 'balls', pin: 'pins', wire: 'wires', castellated: 'castellations', tab: 'tabs' };

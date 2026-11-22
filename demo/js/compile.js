@@ -64,6 +64,27 @@
   const isLib = (n) => !!(n && n.s != null && n.s >= LIB_BASE);
   const MAX_DEPTH = 32;     // features placing features
   const FUNCTIONS = 'min, max, clamp, abs, hypot, sqrt, sin, cos, tan, asin, acos, atan2, mix and metal';
+
+  // What the engine passes to the features it calls (SPEC 13.5): values by name,
+  // each only if the feature declares it, and flags, each only if it has a section
+  // for it. Lengths are mm, angles degrees.
+  const BODY_ARGS = ['W', 'L', 'H', 'z0', 'taper', 'body_color', 'lead_color', 'e', 'rise', 'ball_d', 'cast_d', 'turn', 'T', 'sx', 'sy', 'nx', 'ny', 'ex', 'ey', 'ma'];
+  const LEAD_ARGS = ['edge', 'pad_u', 'toe', 'side_len', 'b', 'T', 'D', 'drill_d', 'pad_across', 'pad_along', 'z0', 'H', 'zp', 'housing', 'zc', 'len', 'ts', 'e', 'c', 'tail', 'lead_color'];
+  const STYLES = ['molded', 'dip', 'block', 'radial', 'sawn', 'cga', 'bga', 'chip', 'melf', 'axial', 'can', 'header', 'module'];
+  const LEAD_HOOKS = ['gullwing', 'jlead', 'lbend', 'straight', 'flat', 'endcap', 'tab', 'contact', 'ball', 'column', 'castellated', 'dip', 'axial', 'header', 'tht'];
+  const HOOKS = Object.assign(
+    Object.fromEntries(STYLES.map((st) => [`body_${st}`, { kind: 'body', args: BODY_ARGS }])),
+    Object.fromEntries(LEAD_HOOKS.map((f) => [`lead_${f}`, { kind: 'lead', args: LEAD_ARGS }])),
+    {
+      exposed_pad: { kind: 'pad', args: ['w', 'l', 'z0', 'H', 'c', 'lead_color'] },
+      polarity: { kind: 'value', args: [] },
+      pin1_dot: { kind: 'silk', args: [] },
+      pin1_bar: { kind: 'silk', args: ['len', 'depth'] },
+      polarity_bar: { kind: 'silk', args: ['len'] },
+      polarity_hatch: { kind: 'silk', args: ['radius'] },
+      polarity_plus: { kind: 'silk', args: [] },
+    },
+  );
   const JEDEC_ROWS = 'ABCDEFGHJKLMNPRTUVWY';
 
   class StompError extends Error {
@@ -569,8 +590,68 @@
         else features.set(it.name, it);
       }
     }
+    for (const f of features.values()) if (lib.features.has(f.name) || HOOKS[f.name]) checkReplacement(f, lib, diags);
     // footprints are registered by compile() once their (possibly computed) names are known
     return { lets, templates, features, footprints, lib, flagMemo: new Map() };
+  }
+
+  /**
+   * A feature that replaces the standard library's must take what the library
+   * passes it: the engine's values by name (SPEC 13.5), or the arguments the
+   * library's own features place it with. A parameter nobody gives a value gets
+   * a warning.
+   */
+  function checkReplacement(f, lib, diags) {
+    const warn = (msg, n) => diags.push({ severity: 'warning', message: msg, s: n.s, e: n.e });
+    const hook = HOOKS[f.name];
+    const name = { s: f.nameS, e: f.nameE };
+    if (hook) {
+      for (const q of f.params) {
+        if (q.def || hook.args.includes(q.name)) continue;
+        warn(`\`${f.name}\` replaces the standard library's, and the ${hook.kind === 'silk' ? 'silk' : '3D model'} never gives \`${q.name}\` a value: give it a default`, q);
+      }
+      return;
+    }
+    // every place the library places this feature
+    const calls = [];
+    const walk = (items) => {
+      for (const it of items || []) {
+        if (!it) continue;
+        if (it.type === 'Section') walk(it.body);
+        else if (it.type === 'FeatureLayer') { for (const g of it.items) if (g && g.op === 'feature' && g.feature.name === f.name) calls.push(g.feature); }
+        else if (it.type === 'FeatureModel') { for (const q of it.items) if (q && q.key === 'feature' && q.feature.name === f.name) calls.push(q.feature); }
+      }
+    };
+    for (const g of lib.features.values()) walk(g.body);
+    for (const c of calls) {
+      const values = c.args.filter((a) => !a.key && a.x && !(a.word != null && lib.features.has(f.name) && libFlags(lib, lib.features.get(f.name)).has(a.word)));
+      const keys = c.args.filter((a) => a.key).map((a) => a.key);
+      if (values.length > f.params.length) { warn(`the standard library places \`${f.name}\` with ${values.length} values, but yours takes ${f.params.length}`, name); return; }
+      const missing = f.params.filter((q, i) => !q.def && i >= values.length && !keys.includes(q.name));
+      if (missing.length) { warn(`the standard library places \`${f.name}\` without a value for ${missing.map((q) => `\`${q.name}\``).join(', ')}: give ${missing.length > 1 ? 'them defaults' : 'it a default'}`, missing[0]); return; }
+      const unknown = keys.filter((k) => !f.params.some((q) => q.name === k));
+      if (unknown.length) { warn(`the standard library places \`${f.name}\` with ${unknown.map((k) => `\`${k} = …\``).join(', ')}, which yours doesn't take`, name); return; }
+    }
+  }
+  /** A library feature's flags, within the library alone (for checkReplacement). */
+  function libFlags(lib, f) {
+    const out = new Set();
+    const seen = new Set();
+    const walk = (g) => {
+      if (!g || seen.has(g)) return;
+      seen.add(g);
+      const visit = (items) => {
+        for (const it of items || []) {
+          if (!it) continue;
+          if (it.type === 'Section') { for (const n of it.names) out.add(n.name); visit(it.body); }
+          else if (it.type === 'FeatureLayer') { for (const x of it.items) if (x && x.op === 'feature') walk(lib.features.get(x.feature.name)); }
+          else if (it.type === 'FeatureModel') { for (const q of it.items) if (q && q.key === 'feature') walk(lib.features.get(q.feature.name)); }
+        }
+      };
+      visit(g.body);
+    };
+    walk(f);
+    return out;
   }
 
   function finishDiags(diags, source) {
@@ -616,7 +697,7 @@
       let n = node || this.decl;
       // a problem in the standard library: reported at the statement that used it
       if (isLib(n)) {
-        const chain = (this.stack || []).filter((b) => b.lib).map((b) => `\`${b.f.name}\``);
+        const chain = (this.stack || []).filter((b, i, all) => b.lib && all.indexOf(b) === i).map((b) => `\`${b.f.name}\``);
         msg = `in the standard library's ${chain.length ? `${chain.join(' → ')}` : 'features'}: ${msg}`;
         n = this.trigger && !isLib(this.trigger) ? this.trigger : { s: this.decl.nameS, e: this.decl.nameE };
       }
@@ -3554,7 +3635,7 @@
     /** The merged model blocks, resolved to numbers and colors. */
     modelInfo() {
       const models = this.st.models.slice().sort((a, b) => a.level - b.level);
-      const info = { none: false, props: {}, solids: [], step: null, src: [] };
+      const info = { none: false, props: {}, solids: [], extras: 0, step: null, src: [] };
       const LABEL = {
         standoff: 'standoff', height: 'height', draft: 'draft', bodyColor: 'body color', leadsColor: 'leads color',
         thickness: 'leads thickness', below: 'leads below', above: 'leads above', pin1: 'pin1', step: 'step',
@@ -3563,7 +3644,7 @@
       let nodes = [];
       for (const it of models) {
         const m = it.s;
-        if (m.none) { Object.assign(info, { none: true, props: {}, solids: [], step: null }); nodes = [m]; continue; }
+        if (m.none) { Object.assign(info, { none: true, props: {}, solids: [], extras: 0, step: null }); nodes = [m]; continue; }
         info.none = false;
         nodes.push(m);
         const seen = new Map();
@@ -3595,7 +3676,7 @@
                 info.props[p.key] = { call: p.call, unit: p.unit, node: { s: p.s, e: p.e } };
                 break;
               }
-              case 'feature': info.solids.push(...this.modelFeatureSolids(p)); break;
+              case 'feature': info.solids.push(...this.modelFeatureSolids(p)); info.extras++; break;
               case 'pin1': info.props.pin1 = p.v; break;
               case 'step': {
                 const x = p.xform;
@@ -3604,7 +3685,7 @@
                 info.step = { file: p.file, offset: P3(x.offset), rotate: A3(x.rotate), scale: x.scale ? this.num(x.scale, p) : 1 };
                 break;
               }
-              case 'solid': info.solids.push(this.footprintSolid(p)); break;
+              case 'solid': info.solids.push(this.footprintSolid(p)); info.extras++; break;
               default: break;
             }
           });
@@ -3718,7 +3799,7 @@
             if (!f) throw new StompError(`unknown feature \`${name}\``, trigger);
             const declared = {};
             for (const q of f.params) if (values && values[q.name] !== undefined) declared[q.name] = values[q.name];
-            const call = written ? Object.assign({}, written.call, { name }) : { name, args: [], s: trigger && trigger.s, e: trigger && trigger.e };
+            const call = written ? Object.assign({}, written.call, { name, s: written.node.s, e: written.node.e }) : { name, args: [], s: trigger && trigger.s, e: trigger && trigger.e };
             const bound = self.bindFeature(call, { values: declared, flags, unit: written ? written.unit : null, scope: self.scope });
             return binding(bound, written ? written.node : trigger);
           });
@@ -3968,5 +4049,9 @@
     return best;
   }
 
-  return { compile, clearCache: () => CACHE.clear(), UNIT_MM, IPC, D, jedecRow, expandRange, formatNumber };
+  return {
+    compile, clearCache: () => CACHE.clear(), UNIT_MM, IPC, D, jedecRow, expandRange, formatNumber, HOOKS,
+    /** Line and column for diagnostics with offsets into `source`. */
+    locate: (diags, source) => finishDiags(diags, source),
+  };
 });

@@ -24,6 +24,7 @@
     'sot223.stomp': 'lead 4 gullwing',
     'do41.stomp': 'body cylinder',
     'crystal3225.stomp': 'box 2.9',
+    'custom_models.stomp': 'feature can_vent(D)',
     'chip_library.stomp': '"0603"  "1608"  1.6   0.8   0.45',
     'sot_library.stomp': '"SOT-23"           1.3',
     'sop_library.stomp': '  8    4.9',
@@ -42,7 +43,7 @@
   // Libraries open on the Library view rather than a single footprint
   const opensInLibrary = (file) => file.endsWith('_library.stomp');
   // Examples about the 3D model, which open on it
-  const OPEN_IN_3D = new Set(['sot223.stomp', 'do41.stomp', 'crystal3225.stomp']);
+  const OPEN_IN_3D = new Set(['sot223.stomp', 'do41.stomp', 'crystal3225.stomp', 'custom_models.stomp']);
   const TAB_LIMIT = 5;          // more footprints than this: a dropdown instead of tabs
 
   const store = {
@@ -52,6 +53,29 @@
   const saved = store.load();
   const examples = S.examples || [];
   const byFile = new Map(examples.map((e) => [e.file, e]));
+  // The standard library's files open as editable buffers too. Edits to them apply
+  // everywhere, and while one is open the preview shows an example that uses it.
+  const libFiles = S.stdlib || [];
+  const byLib = new Map(libFiles.map((f) => [`stdlib/${f.file}`, Object.assign({}, f, { file: `stdlib/${f.file}`, name: f.file })]));
+  const LIB_PREVIEW = {
+    'colors.stomp': 'chip_library.stomp', 'marks.stomp': 'diode_library.stomp', 'molded.stomp': 'sop_library.stomp',
+    'leadless.stomp': 'qfn_library.stomp', 'chips.stomp': 'chip_library.stomp', 'arrays.stomp': 'bga_library.stomp',
+    'cans.stomp': 'cp_radial.stomp', 'through_hole.stomp': 'header_library.stomp', 'modules.stomp': 'syntax_zoo.stomp',
+    'silk.stomp': 'tantalum_library.stomp',
+  };
+  const inLib = () => byLib.has(state.file);
+  const sourceOf = (file) => byFile.get(file) || byLib.get(file);
+  /** The standard library to compile with: null for the embedded one, else the files with their edits. */
+  function stdlibNow() {
+    let edited = false;
+    const list = libFiles.map((f) => {
+      const key = `stdlib/${f.file}`;
+      const text = key === state.file ? editor.getValue() : state.buffers[key];
+      if (text != null && text !== f.source) { edited = true; return { file: f.file, source: text }; }
+      return f;
+    });
+    return edited ? list : null;
+  }
 
   const state = {
     file: null,
@@ -83,7 +107,7 @@
   const editor = S.createEditor($('editor'), {
     id: 'stomp-source',
     onChange(text) {
-      const ex = byFile.get(state.file);
+      const ex = sourceOf(state.file);
       if (ex && text === ex.source) delete state.buffers[state.file]; else state.buffers[state.file] = text;
       markEdited();
       persist();
@@ -98,18 +122,20 @@
     },
   });
   let compileTimer = 0;
+  const srcReveal = (s, e, select) => { if (!inLib()) editor.reveal(s, e, select); };
+  const srcMark = (lines) => { if (!inLib()) editor.markLines(lines); };
 
   const viewer = S.createViewer($('viewer'), {
     onHover(ob) {
       state.hover = ob;
-      if (!ob || !ob.src) { editor.markLines([]); highlightRow(null); return; }
-      editor.markLines(linesOf(ob.src));
+      if (!ob || !ob.src) { srcMark([]); highlightRow(null); return; }
+      srcMark(linesOf(ob.src));
       highlightRow(ob);
     },
     onPick(ob) {
       if (!ob) return;
       const r = ob.def || (ob.src && ob.src[0]);
-      if (r) editor.reveal(r.s, r.s, true);
+      if (r) srcReveal(r.s, r.s, true);
       highlightRow(ob, true);
     },
     onCursor(p) {
@@ -170,6 +196,18 @@
     }
     g.appendChild(opt);
   }
+  if (libFiles.length) {
+    const g = document.createElement('optgroup');
+    g.label = 'Standard library';
+    for (const f of byLib.values()) {
+      const opt = document.createElement('option');
+      opt.value = f.file;
+      opt.textContent = f.title;
+      opt.title = `${f.blurb ? f.blurb + '. ' : ''}Edit it to change every model that uses it.`;
+      g.appendChild(opt);
+    }
+    sel.appendChild(g);
+  }
   sel.addEventListener('change', () => openExample(sel.value));
   $('reset').addEventListener('click', () => {
     delete state.buffers[state.file];
@@ -178,16 +216,21 @@
   });
 
   function openExample(file, fresh) {
-    const ex = byFile.get(file) || examples[0];
+    const ex = sourceOf(file) || examples[0];
     if (!ex) return;
     state.file = ex.file;
     sel.value = ex.file;
-    $('file-name').textContent = `examples/${ex.file}`;
     const edited = state.buffers[ex.file];
     editor.setValue(edited != null ? edited : ex.source);
     state.active = null;
-    state.view = opensInLibrary(ex.file) && edited == null ? 'lib' : 'fp';
-    if (OPEN_IN_3D.has(ex.file) && (edited == null || fresh)) state.dim = '3d';
+    if (inLib()) {
+      // a library file: show the example it previews with, in 3D (its silk marks in 2D)
+      state.view = 'fp';
+      state.dim = ex.name === 'silk.stomp' ? '2d' : '3d';
+    } else {
+      state.view = opensInLibrary(ex.file) && edited == null ? 'lib' : 'fp';
+      if (OPEN_IN_3D.has(ex.file) && (edited == null || fresh)) state.dim = '3d';
+    }
     markEdited();
     compileNow();
     if (edited == null || fresh) {
@@ -201,10 +244,12 @@
   }
 
   function markEdited() {
-    const ex = byFile.get(state.file);
+    const ex = sourceOf(state.file);
     const edited = ex && state.buffers[state.file] != null;
-    $('file-name').textContent = `examples/${state.file}${edited ? ' •' : ''}`;
-    $('file-name').title = edited ? 'Edited. Reset restores the original.' : '';
+    const lib = inLib();
+    const pv = lib ? LIB_PREVIEW[byLib.get(state.file).name] : null;
+    $('file-name').textContent = `${lib ? state.file : `examples/${state.file}`}${edited ? ' •' : ''}${pv ? ` (shown on ${pv})` : ''}`;
+    $('file-name').title = (edited ? 'Edited. Reset restores the original.' : '') + (lib ? ' A standard library file: edit it and every model that uses it follows.' : '');
     $('reset').disabled = !edited;
   }
 
@@ -213,22 +258,58 @@
     clearTimeout(compileTimer);
     const text = editor.getValue();
     const t0 = performance.now();
+    const lib = stdlibNow();
+    const opts = lib ? { stdlib: lib } : undefined;
+    // a library file shows the example it previews with
+    let src = text;
+    if (inLib()) {
+      const pv = LIB_PREVIEW[byLib.get(state.file).name] || examples[0].file;
+      src = state.buffers[pv] != null ? state.buffers[pv] : (byFile.get(pv) || examples[0]).source;
+    }
     let out;
     try {
-      out = S.compile(text);
+      out = S.compile(src, opts);
     } catch (err) {
       out = { diagnostics: [{ severity: 'error', message: 'internal error: ' + err.message, s: 0, e: 0, line: 1, col: 1, endLine: 1, endCol: 1 }], footprints: [], templates: [] };
       console.error(err);
     }
     const ms = performance.now() - t0;
     state.out = out;
+    state.srcText = src;
     $('compile-ms').textContent = `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
-    editor.setDiagnostics(out.diagnostics);
-    renderProblems(out.diagnostics);
-    if (!out.footprints.some((f) => f.name === state.active)) state.active = fpAt(state.cursor) || (out.footprints[0] && out.footprints[0].name) || null;
+    if (!out.footprints.some((f) => f.name === state.active)) state.active = (inLib() ? null : fpAt(state.cursor)) || (out.footprints[0] && out.footprints[0].name) || null;
     renderTabs();
     applyView();
     showActive();
+  }
+
+  /**
+   * The problems to show: the file's own; the 3D model's, for the footprint on
+   * screen (it's built only when shown); and those of any edited library file.
+   * Those not in the editor's text have no line.
+   */
+  function refreshProblems(shown) {
+    const out = state.out;
+    if (!out) return;
+    const lib = inLib();
+    const text = editor.getValue();
+    const libDiags = (out.library && out.library.diagnostics) || [];
+    let here, away = [];
+    if (lib) {
+      const name = byLib.get(state.file).name;
+      here = S.compiler.locate(libDiags.filter((d) => d.file === name), text);
+      away = libDiags.filter((d) => d.file !== name).map((d) => Object.assign({}, d, { message: `stdlib/${d.file}: ${d.message}` }));
+    } else {
+      here = out.diagnostics.slice();
+      away = libDiags.map((d) => Object.assign({}, d, { message: `stdlib/${d.file} (edited): ${d.message}` }));
+    }
+    if (shown && shown.model && !shown.model.none) {
+      const md = (modelFor(shown).model.diagnostics || []).map((d) => Object.assign({}, d, { footprint: state.active }));
+      if (lib) away = away.concat(md.map((d) => Object.assign({}, d, { message: `${state.active}: ${d.message}` })));
+      else here = here.concat(S.compiler.locate(md, text));
+    }
+    editor.setDiagnostics(here);
+    renderProblems(here.concat(away.map((d) => Object.assign({}, d, { line: null }))));
   }
 
   function fpAt(offset) {
@@ -250,6 +331,7 @@
   }
 
   function followCursor() {
+    if (inLib()) return;
     const name = fpAt(state.cursor);
     if (name && name !== state.active) {
       state.active = name;
@@ -260,6 +342,7 @@
   }
 
   function updateFocus() {
+    if (inLib()) { viewer.setFocus([]); view3.setFocus([]); return; }
     const text = editor.getValue();
     const a = Math.min(state.cursor, state.cursorEnd == null ? state.cursor : state.cursorEnd);
     const b = Math.max(state.cursor, state.cursorEnd == null ? state.cursor : state.cursorEnd);
@@ -287,6 +370,7 @@
     $('tb-name').textContent = fp ? fp.name : '—';
     if (state.dim === '3d' && state.view === 'fp') show3d(fp, shown);
     renderDetails(fp, shown);
+    refreshProblems(shown);
     updateFocus();
   }
 
@@ -302,6 +386,7 @@
   function errorNames() {
     return new Set((state.out ? state.out.diagnostics : []).filter((d) => d.severity === 'error' && d.footprint).map((d) => d.footprint));
   }
+
 
   function renderTabs() {
     const tabs = $('tabs');
@@ -365,7 +450,7 @@
     renderTabs();
     showActive();
     applyView();
-    editor.reveal(f.nameS, f.nameS, false);
+    srcReveal(f.nameS, f.nameS, false);
   }
   $('fp-select').addEventListener('change', (e) => openFootprint(e.target.value));
   document.querySelectorAll('#view-seg [data-view]').forEach((b) => b.addEventListener('click', () => {
@@ -479,10 +564,10 @@
         else { th._result = f.result; lazyThumbs.observe(th); }
       }
       el.addEventListener('click', () => openFootprint(f.name));
-      el.addEventListener('mouseenter', () => editor.markLines(linesOf([{ s: f.s, e: f.e }])));
-      el.addEventListener('mouseleave', () => editor.markLines([]));
+      el.addEventListener('mouseenter', () => srcMark(linesOf([{ s: f.s, e: f.e }])));
+      el.addEventListener('mouseleave', () => srcMark([]));
     });
-    box.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => editor.reveal(+b.dataset.goto, +b.dataset.goto, true)));
+    box.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => srcReveal(+b.dataset.goto, +b.dataset.goto, true)));
     markActiveCard(false);
   }
 
@@ -513,8 +598,8 @@
       li.className = d.severity;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.innerHTML = `<span class="sev" aria-label="${d.severity}"></span><span class="where">${d.line}:${d.col}</span><span class="msg">${codeify(d.message)}${multi && d.footprint ? ` <span class="fp">· ${escapeHtml(d.footprint)}</span>` : ''}</span>`;
-      btn.addEventListener('click', () => editor.reveal(d.s, d.e, true));
+      btn.innerHTML = `<span class="sev" aria-label="${d.severity}"></span><span class="where">${d.line != null ? `${d.line}:${d.col}` : '—'}</span><span class="msg">${codeify(d.message)}${multi && d.footprint ? ` <span class="fp">· ${escapeHtml(d.footprint)}</span>` : ''}</span>`;
+      if (d.line != null) btn.addEventListener('click', () => editor.reveal(d.s, d.e, true));
       li.appendChild(btn);
       list.appendChild(li);
     }
@@ -612,9 +697,9 @@
     if (s3) s3.addEventListener('click', () => { const b3 = document.querySelector('#dim-seg [data-dim="3d"]'); if (b3) b3.click(); });
     box.querySelectorAll('.padtable tbody tr').forEach((tr) => {
       const p = r.pads[+tr.dataset.i];
-      tr.addEventListener('click', () => { const d = p.def || p.src[0]; if (d) editor.reveal(d.s, d.s, true); });
-      tr.addEventListener('mouseenter', () => { editor.markLines(linesOf(p.src)); });
-      tr.addEventListener('mouseleave', () => { editor.markLines([]); });
+      tr.addEventListener('click', () => { const d = p.def || p.src[0]; if (d) srcReveal(d.s, d.s, true); });
+      tr.addEventListener('mouseenter', () => { srcMark(linesOf(p.src)); });
+      tr.addEventListener('mouseleave', () => { srcMark([]); });
     });
   }
 
@@ -630,14 +715,14 @@
   }
 
   function lineOf(offset) {
-    const text = editor.getValue();
+    const text = state.srcText || editor.getValue();
     let n = 1;
     for (let i = 0; i < offset && i < text.length; i++) if (text.charCodeAt(i) === 10) n++;
     return n;
   }
 
   function linesOf(ranges) {
-    const text = editor.getValue();
+    const text = state.srcText || editor.getValue();
     const out = new Set();
     for (const r of ranges || []) {
       let line = 0;
@@ -871,7 +956,7 @@
   })();
 
   // Start
-  const start = saved.file && byFile.has(saved.file) ? saved.file : (byFile.has('to252.stomp') ? 'to252.stomp' : (examples[0] && examples[0].file));
+  const start = saved.file && sourceOf(saved.file) ? saved.file : (byFile.has('to252.stomp') ? 'to252.stomp' : (examples[0] && examples[0].file));
   if (start) openExample(start);
   else { editor.setValue('footprint "NEW" {\n  \n}\n'); compileNow(); }
 })();

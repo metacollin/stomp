@@ -29,7 +29,7 @@ const LIB_ORDER = [
 const ORDER = [
   'to252.stomp', 'usb_microb.stomp', 'soic8.stomp', 'qfn32.stomp', 'sot23-5.stomp', 'sot223.stomp',
   'tssop20.stomp', 'soic_family.stomp', 'bga64.stomp', 'dip8.stomp', 'hdr2x5.stomp', 'r0402.stomp', 'led0603.stomp',
-  'cp_radial.stomp', 'do41.stomp', 'crystal3225.stomp', 'syntax_zoo.stomp',
+  'cp_radial.stomp', 'do41.stomp', 'crystal3225.stomp', 'custom_models.stomp', 'syntax_zoo.stomp',
   'qfn_library.stomp', 'chip_library.stomp', 'sot_library.stomp', 'sop_library.stomp', 'qfp_library.stomp',
   'dfn_library.stomp', 'bga_library.stomp', 'diode_library.stomp', 'tantalum_library.stomp', 'polymer_cap_library.stomp', 'inductor_library.stomp',
   'crystal_library.stomp', 'led_library.stomp', 'dip_library.stomp', 'header_library.stomp',

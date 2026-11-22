@@ -2441,6 +2441,89 @@
         const g = this.gen;
         if (!g || g.kind !== 'two' || !this.pads.get('2')) this.warn('`polarized` marks two-terminal parts (pins 1 and 2)', this.st.polarized.s);
       }
+      this.marks2d = this.layerBase('silk') === 'auto' ? this.evalMarks() : {};
+    }
+
+    /** The main lead form, as the 3D model takes it: the footprint's `lead`, else the
+     *  first per-pin lead (a tab only if there's nothing else). */
+    mainFormNow() {
+      if (this.lead) return this.lead.form;
+      const forms = [];
+      for (const p of this.pads.values()) {
+        if (p.thermal) continue;
+        const pl = this.pinLeads.get(p.name);
+        if (pl && pl.lead.form !== 'none') forms.push(pl.lead.form);
+      }
+      return forms.find((f) => f !== 'tab') || forms[0] || null;
+    }
+    styleNow() { return this.body ? styleOf(this.body, this.mainFormNow(), this.gen) : null; }
+
+    /** A mark feature's silk items around its own origin, or null when there's no
+     *  feature by that name. Problems are reported at `trigger`. */
+    markItems(name, values, flags, trigger) {
+      if (!this.lookupFeature(name)) return null;
+      const outer = this.trigger;
+      this.trigger = trigger;
+      try {
+        return this.guard(trigger, () => {
+          const bound = this.bindFeature({ name, args: [], s: trigger.s, e: trigger.e }, { values, flags });
+          return this.featureLayer(bound, 'silk', (q) => q);
+        }) || null;
+      } finally { this.trigger = outer; }
+    }
+
+    /** Which pin the polarity marks go by (SPEC 12): the `polarity` feature's `stripe_at`. */
+    polarityPin(trigger) {
+      if (!this.lookupFeature('polarity')) return '2';
+      const v = this.guard(trigger, () => {
+        const bound = this.bindFeature({ name: 'polarity', args: [], s: trigger.s, e: trigger.e }, { flags: [this.styleNow(), familyOf(this.st.meta.refdes ? this.st.meta.refdes.value : '')].filter(Boolean) });
+        return bound.scope.defs.has('stripe_at') ? formatValue(this.inFeature(bound, () => bound.scope.lookup('stripe_at', trigger)), null, this.env(trigger)) : '2';
+      });
+      return v == null ? '2' : v;
+    }
+
+    /** The automatic marks' items, before they're placed (silkLayer places them). */
+    evalMarks() {
+      const out = {};
+      const p1 = this.pin1, b = this.body, style = this.pin1Style;
+      const p1s = this.st.pin1 ? this.st.pin1.s : null;
+      const at1 = p1s || { s: this.decl.nameS, e: this.decl.nameE };
+      const L = (v) => ({ k: 'len', v });
+      if (p1 && (style === 'dot' || style === 'chamfer')) out.dot = { items: this.markItems('pin1_dot', {}, [], at1), src: p1s };
+      if (p1 && style === 'bar' && b && b.kind === 'box') {
+        const corner = this.pin1Corner();
+        const edge = this.pin1End(corner);
+        const tb = edge === 'top' || edge === 'bottom';
+        const len = 2 * ((tb ? b.w : b.l) / 2 + D.silkOffset);
+        out.bar = { edge, items: this.markItems('pin1_bar', { len: L(len), depth: L(tb ? b.l : b.w) }, [], at1), src: p1s };
+      }
+      const g = this.gen;
+      if (this.polarized && g && g.kind === 'two' && this.pads.get('2')) {
+        const pz = this.st.polarized.s;
+        const pin = this.polarityPin(pz);
+        const mk = this.pads.get(pin) || this.pads.get('2');
+        const other = [...this.pads.values()].find((q) => q !== mk && !q.thermal && (q.name === '1' || q.name === '2')) || null;
+        const cx = b ? b.x : (other ? (other.x + mk.x) / 2 : 0), cy = b ? b.y : (other ? (other.y + mk.y) / 2 : 0);
+        const p2 = this.pads.get('2');
+        const horiz = Math.abs(p2.x - cx) >= Math.abs(p2.y - cy);
+        const P = out.polarity = { mk, other, cx, cy, horiz, src: pz };
+        if (b && b.kind === 'cyl') {
+          P.hatch = this.markItems('polarity_hatch', { radius: L(b.w / 2 + D.silkOffset) }, [], pz);
+          if (other) P.plus = this.markItems('polarity_plus', {}, [], pz);
+        } else {
+          const half = horiz ? Math.max(b ? b.l / 2 + D.silkOffset : 0, (mk.bb.y.hi - mk.bb.y.lo) / 2 + 0.1) : Math.max(b ? b.w / 2 + D.silkOffset : 0, (mk.bb.x.hi - mk.bb.x.lo) / 2 + 0.1);
+          P.half = half;
+          P.bar = this.markItems('polarity_bar', { len: L(2 * half) }, [], pz);
+        }
+      }
+      return out;
+    }
+
+    /** The body corner nearest pin 1: 'tl', 'tr', 'bl' or 'br'. */
+    pin1Corner() {
+      const b = this.body, p1 = this.pin1;
+      if (!b || !p1 || b.kind !== 'box') return null;
+      return (p1.x <= b.x ? 'l' : 'r') === 'l' ? (p1.y >= b.y ? 'tl' : 'bl') : (p1.y >= b.y ? 'tr' : 'br');
     }
 
     // Features (SPEC 12.1)
@@ -2794,8 +2877,15 @@
       for (const fn of [this.silkLayer, this.assemblyLayer, this.courtyardLayer]) {
         try { fn.call(this); } catch (e) { if (typeof console !== 'undefined') console.error(e); }
       }
-      // manual items and footprint-level text come after the automatic ones
-      for (const k of ['silk', 'assembly', 'courtyard']) this.L[k].push(...this.manual[k]);
+      // manual items and footprint-level text come after the automatic ones; silk
+      // lines marked `clear` are cut back from the copper
+      for (const it of this.manual.silk) {
+        if (!(it.clear && it.type === 'line')) { this.L.silk.push(it); continue; }
+        for (const piece of G.clipPolylineOutside(it.pts, this.keepouts, false)) {
+          if (G.pathLength(piece) >= 2 * it.w) this.L.silk.push(Object.assign({}, it, { pts: piece }));
+        }
+      }
+      for (const k of ['assembly', 'courtyard']) this.L[k].push(...this.manual[k]);
     }
 
     landBox() {
@@ -2940,8 +3030,8 @@
         const style = this.pin1Style;
         const b = this.body;
         const p1 = this.pin1;
-        let corner = null;
-        if (b && p1 && b.kind === 'box') corner = (p1.x <= b.x ? 'l' : 'r') === 'l' ? (p1.y >= b.y ? 'tl' : 'bl') : (p1.y >= b.y ? 'tr' : 'br');
+        const corner = this.pin1Corner();
+        const marks = this.marks2d || {};
         if (b) {
           const mods = {};
           if (b.kind === 'box' && p1 && style === 'chamfer') {
@@ -2954,29 +3044,37 @@
             mods.notch = { edge, r: Math.min(1.0, 0.15 * edgeLen) };
           }
           auto.push({ pts: this.bodyOutline(D.silkOffset, mods), closed: true });
-          if (b.kind === 'box' && p1 && style === 'bar') {
-            const edge = this.pin1End(corner);
-            const inset = Math.max(0.25, 0.08 * (edge === 'top' || edge === 'bottom' ? b.l : b.w));
+          if (b.kind === 'box' && p1 && style === 'bar' && marks.bar) {
+            // drawn for the top end; turned or mirrored so the body stays below it
             const hw = b.w / 2 + D.silkOffset, hl = b.l / 2 + D.silkOffset;
-            const seg = {
-              top: [[b.x - hw, b.y + hl - inset], [b.x + hw, b.y + hl - inset]],
-              bottom: [[b.x - hw, b.y - hl + inset], [b.x + hw, b.y - hl + inset]],
-              left: [[b.x - hw + inset, b.y - hl], [b.x - hw + inset, b.y + hl]],
-              right: [[b.x + hw - inset, b.y - hl], [b.x + hw - inset, b.y + hl]],
-            }[edge];
-            auto.push({ pts: seg, closed: false });
+            const place = {
+              top: [[b.x, b.y + hl], [1, 0, 0, 1]], bottom: [[b.x, b.y - hl], [1, 0, 0, -1]],
+              left: [[b.x - hw, b.y], [0, -1, 1, 0]], right: [[b.x + hw, b.y], [0, 1, 1, 0]],
+            }[marks.bar.edge];
+            this.putMarks(marks.bar.items, place[0], place[1], marks.bar.src, auto, out);
           }
         }
         if (this.polarized) this.polarityMarks(auto, out);
         // clip against copper keep-outs
         for (const pl of auto) {
+          const lw = pl.w || w;
           for (const piece of G.clipPolylineOutside(pl.pts, this.keepouts, pl.closed)) {
-            if (G.pathLength(piece) >= 2 * w) out.push({ type: 'line', pts: piece, w, auto: true });   // no specks
+            if (G.pathLength(piece) >= 2 * lw) out.push({ type: 'line', pts: piece, w: lw, auto: true, src: pl.src });   // no specks
           }
         }
         if (p1 && style === 'feature' && this.pin1Feature) this.pin1FeatureAt(out);
         if (p1 && (style === 'dot' || (style === 'chamfer' && !(b && b.kind === 'box')))) this.pin1Dot(out);
         if (p1 && style === 'chamfer' && b && b.kind === 'box' && !this.chamferSize(corner)) this.pin1Dot(out);
+      }
+    }
+
+    /** Place a mark's items: at `at`, through the 2x2 map m (a turn or a mirror). Lines
+     *  marked `clear` join the automatic outline, to be cut back from the copper. */
+    putMarks(items, at, m, src, auto, out) {
+      const map = (q) => [at[0] + q[0] * m[0] + q[1] * m[1], at[1] + q[0] * m[2] + q[1] * m[3]];
+      for (const it of mapItems(items || [], map, src || undefined)) {
+        if (it.clear && it.type === 'line') auto.push({ pts: it.pts, closed: false, w: it.w, src: it.src });
+        else out.push(Object.assign(it, { auto: true }));
       }
     }
 
@@ -3013,20 +3111,26 @@
       return c;
     }
 
+    /** The pin-1 dot (the `pin1_dot` feature), where it clears the copper. */
     pin1Dot(out) {
-      const r = D.dot / 2;
-      const c = this.pin1Spot(r);
-      if (c) out.push({ type: 'circle', c, r, fill: true, auto: true });
+      const m = this.marks2d && this.marks2d.dot;
+      if (!m || !m.items) return;
+      const c = this.pin1Spot(Math.max(this.markExtent(m.items), D.dot / 2));
+      if (!c) return;
+      for (const it of mapItems(m.items, (q) => [c[0] + q[0], c[1] + q[1]], m.src || undefined)) out.push(Object.assign(it, { auto: true }));
+    }
+    /** How far a mark's items reach from its origin. */
+    markExtent(items) {
+      let r = 0;
+      for (const it of items) for (const q of it.pts || (it.c ? [it.c] : it.at ? [it.at] : [])) r = Math.max(r, Math.hypot(q[0], q[1]) + (it.r || 0));
+      return r;
     }
 
     /** A custom pin-1 feature, centered where the dot would go and moved out to
      *  clear the copper by its own size. */
     pin1FeatureAt(out) {
       const F = this.pin1Feature;
-      let r = 0;
-      for (const it of F.silk.concat(F.assembly)) {
-        for (const q of it.pts || (it.c ? [it.c] : it.at ? [it.at] : [])) r = Math.max(r, Math.hypot(q[0], q[1]) + (it.r || 0));
-      }
+      const r = this.markExtent(F.silk.concat(F.assembly));
       const c = this.pin1Spot(Math.max(r, D.dot / 2));
       if (!c) return;
       const map = (q) => [c[0] + q[0], c[1] + q[1]];
@@ -3062,48 +3166,33 @@
       return free || cands[0] || null;
     }
 
+    /** The polarity marks: a hatch and a "+" on a round part, else a bar beyond the
+     *  marked pin's land (the pin the `polarity` feature names). */
     polarityMarks(auto, out) {
-      const g = this.gen;
-      const p2 = this.pads.get('2');
-      const p1 = this.pads.get('1');
-      if (!g || g.kind !== 'two' || !p2) return;   // reported by manualLayers()
+      const P = this.marks2d && this.marks2d.polarity;
+      if (!P) return;   // not a two-terminal part: reported by manualLayers()
+      const { mk, other, cx, cy, horiz } = P;
       const b = this.body;
-      const cx = b ? b.x : (p1 ? (p1.x + p2.x) / 2 : 0), cy = b ? b.y : (p1 ? (p1.y + p2.y) / 2 : 0);
-      const horiz = Math.abs(p2.x - cx) >= Math.abs(p2.y - cy);
       if (b && b.kind === 'cyl') {
-        // hatched stripe on the negative (pin 2) side, '+' by pin 1
-        const R = b.w / 2 + D.silkOffset;
-        const u = horiz ? [Math.sign(p2.x - cx) || 1, 0] : [0, Math.sign(p2.y - cy) || 1];
-        const v = [-u[1], u[0]];
-        for (let t = R * 0.55; t < R - 0.05; t += 0.25) {
-          const h = Math.sqrt(R * R - t * t);
-          auto.push({ pts: [[cx + u[0] * t - v[0] * h, cy + u[1] * t - v[1] * h], [cx + u[0] * t + v[0] * h, cy + u[1] * t + v[1] * h]], closed: false });
-        }
-        if (p1) {
-          const s = 0.5;
-          const ext = (horiz ? (p1.bb.x.hi - p1.bb.x.lo) : (p1.bb.y.hi - p1.bb.y.lo)) / 2;
+        // the hatch on the marked side, a "+" by the other pin
+        const u = horiz ? [Math.sign(mk.x - cx) || 1, 0] : [0, Math.sign(mk.y - cy) || 1];
+        this.putMarks(P.hatch, [cx, cy], [u[0], -u[1], u[1], u[0]], P.src, auto, out);
+        if (other && P.plus) {
+          const ext = (horiz ? (other.bb.x.hi - other.bb.x.lo) : (other.bb.y.hi - other.bb.y.lo)) / 2;
           const k = ext + 0.55;
-          const pc = horiz ? [p1.x, p1.y + k] : [p1.x + k, p1.y];
-          out.push({ type: 'line', pts: [[pc[0] - s / 2, pc[1]], [pc[0] + s / 2, pc[1]]], w: D.silkW, auto: true });
-          out.push({ type: 'line', pts: [[pc[0], pc[1] - s / 2], [pc[0], pc[1] + s / 2]], w: D.silkW, auto: true });
+          this.putMarks(P.plus, horiz ? [other.x, other.y + k] : [other.x + k, other.y], [1, 0, 0, 1], P.src, auto, out);
         }
         return;
       }
-      // a bar beyond the marked land: the cathode (pin 2), but the positive pin 1 on a
-      // chip or molded capacitor, where its band is (as on the 3D model)
-      const refdes = String(this.st.meta.refdes ? this.st.meta.refdes.value : '').toUpperCase();
-      const mk = refdes.startsWith('C') && p1 ? p1 : p2;
       const grow = D.mask + D.silkClear + D.silkW / 2 + 0.05;
       if (horiz) {
         const sgn = Math.sign(mk.x - cx) || 1;
         const x = sgn > 0 ? mk.x + mk.bb.x.hi + grow : mk.x + mk.bb.x.lo - grow;
-        const half = Math.max(b ? b.l / 2 + D.silkOffset : 0, (mk.bb.y.hi - mk.bb.y.lo) / 2 + 0.1);
-        out.push({ type: 'line', pts: [[x, cy - half], [x, cy + half]], w: D.silkW, auto: true });
+        this.putMarks(P.bar, [x, cy], [1, 0, 0, 1], P.src, auto, out);
       } else {
         const sgn = Math.sign(mk.y - cy) || 1;
         const y = sgn > 0 ? mk.y + mk.bb.y.hi + grow : mk.y + mk.bb.y.lo - grow;
-        const half = Math.max(b ? b.w / 2 + D.silkOffset : 0, (mk.bb.x.hi - mk.bb.x.lo) / 2 + 0.1);
-        out.push({ type: 'line', pts: [[cx - half, y], [cx + half, y]], w: D.silkW, auto: true });
+        this.putMarks(P.bar, [cx, y], [0, 1, -1, 0], P.src, auto, out);
       }
     }
 
@@ -3413,9 +3502,10 @@
       let leads3d = [];
       try { leads3d = this.leads3d(); } catch (e) { if (!(e instanceof StompError)) throw e; }
       const L0 = this.lead;
-      const mainForm = L0 ? L0.form : ((leads3d.find((l) => l.form !== 'tab') || leads3d[0] || {}).form || null);
+      const mainForm = this.mainFormNow();
       const res = {
         style: bodyOut ? styleOf(bodyOut, mainForm, this.gen) : null, family: familyOf(meta.refdes), mainForm,
+        markSrc: ranges([this.st.pin1 && this.st.pin1.s, this.st.polarized && this.st.polarized.s]),
         leads: leads3d, polarized: !!this.polarized,
         lead: L0 ? { form: L0.form, w: L0.w != null ? L0.w : null, l: L0.l != null ? L0.l : null, d: L0.d != null ? L0.d : null, v: L0.v != null ? L0.v : null, src: ranges([L0.node]) } : null,
         name: this.name, meta, density: this.density, pads, holes, body: bodyOut, coreBox: core,

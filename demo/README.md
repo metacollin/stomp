@@ -19,9 +19,9 @@ step. The page works straight from disk.
   script and style into one HTML page you can send around.
 
 The example picker loads the files in [`examples/`](../examples/), with the libraries
-(`*_library.stomp`) in a group of their own that opens on the Library view. Your edits
-to each example are kept in the browser's local storage, and **Reset** restores the
-original.
+(`*_library.stomp`) in a group of their own that opens on the Library view, and the
+standard library's files in [`stdlib/`](../stdlib/) in another. Your edits to each file
+are kept in the browser's local storage, and **Reset** restores the original.
 
 ## Using it
 
@@ -48,6 +48,15 @@ original.
   millimeters. When the page is embedded in a host that saves files for it (the bundle
   built with `--fragment`), **Save .zip** saves both in one archive. With no such host,
   **Copy VRML** copies the text instead.
+- The models are drawn by stomp's **standard library** (SPEC §13.5). Its files are in
+  the example picker, under *Standard library*. Edit one and every model that uses it
+  changes: the preview shows an example that uses the file, and your edits apply to the
+  other examples too, until you press Reset. To change a model in your own file
+  instead, define a feature with the library's name (`feature can_vent(D) { … }`), or
+  give a footprint its own with `model { body shape NAME }`.
+  `examples/custom_models.stomp` does both.
+- Problems found while building the 3D model (a feature of your own that fails, say)
+  are listed under Problems with the rest, for the footprint on screen.
 - **Export to KiCad** saves every footprint in the file as a KiCad library: a zipped
   `.pretty` folder with one `.kicad_mod` per footprint and a README. Each footprint
   carries its own 3D model, so there's no model folder. Footprints with errors are left
@@ -68,8 +77,8 @@ The engine prototypes the whole draft, from `grammar.peg` to finished layers:
 |---|---|
 | `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4) |
 | `js/parser.js` | recursive descent in `grammar.peg`'s choice order; recovers from errors one statement at a time |
-| `js/compile.js` | units (per file, footprint or template), `let` and `{...}` interpolation; custom features; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks; `model` blocks merged down `extends`; diagnostics (§15); a build cache |
-| `js/model3d.js` | the 3D model (SPEC §13): a body for each lead form (molded with draft, sawn, chip, MELF, BGA, DIP, header, can, axial, module), swept gull-wing, J and L-bend leads, straight leads, terminals, balls, solder columns, pins and wires, bare polymer cans, pin-1 and polarity marks, extra solids; the board under it; VRML and STL export |
+| `js/compile.js` | units (per file, footprint or template), `let` and `{...}` interpolation; functions and colors; custom features with sections and flags, and the standard library they're looked up in; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks (from library features); `model` blocks merged down `extends`, and their solids as descriptors for the 3D model; diagnostics (§15); a build cache |
+| `js/model3d.js` | the 3D model (SPEC §13): measures the part, calls the library's body, lead, exposed-pad and polarity features (SPEC §13.5), works out the flags they ask for, and turns the solids they draw into meshes; the board under it; VRML and STL export |
 | `js/kicad.js` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded, and whole `.pretty` libraries |
 | `js/geom.js` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
 | `js/view.js` | SVG viewer: layers at true width, pan and zoom, hover details, dimension overlays |
@@ -77,10 +86,12 @@ The engine prototypes the whole draft, from `grammar.peg` to finished layers:
 | `js/editor.js` | a code editor with no dependencies: a textarea over highlighting from the lexer |
 | `js/app.js` | ties it all together; examples and saved edits |
 | `js/examples.js` | **generated** from `examples/*.stomp` by `tools/build.mjs` |
+| `js/stdlib.js` | **generated** from `../stdlib/*.stomp`, the standard library, by `tools/build.mjs` |
 
 Not covered: `step` files aren't loaded. A footprint that names one shows the generated
 model instead, and its KiCad export points to the file rather than embedding a model.
-Castellated leads get a temporary land (SPEC §17.7). Export is for KiCad 9 and later only.
+Castellated leads get a temporary land (SPEC §17.7), though the model draws their
+plating. Export is for KiCad 9 and later only.
 
 ## KiCad export
 
@@ -124,8 +135,11 @@ on purpose: its checksum ignores a final 12-15 bytes it can't fill out to 16, so
 ## Tests
 
 ```sh
-node --test demo/test/*.test.mjs     # engine, 3D and KiCad tests
-node demo/tools/build.mjs            # rebuild js/examples.js after editing examples/
+node --test demo/test/*.test.mjs     # engine, library, 3D and KiCad tests
+node demo/tools/build.mjs            # rebuild js/examples.js and js/stdlib.js after editing
+                                     # examples/ or stdlib/
+node demo/tools/snapshot.mjs         # compare every model with the recorded snapshot
+node demo/tools/snapshot.mjs --write # record it again, after a change you meant
 ```
 
 The tests check:
@@ -143,6 +157,16 @@ The tests check:
   (gull-wing toes at the span, terminals flush with the body, balls collapsed to the
   standoff, leads 3 mm below the board); per-pin leads and their lands; the `model`
   block and its diagnostics; both export formats; and fuzzing of the model builder;
+- a snapshot of every example's model and automatic marks, and of a corpus of
+  footprints for cases the examples miss (`test/fixtures/corpus.stomp`): each mesh's
+  name, color, counts, extent, centroid and moments, and how the VRML export reuses
+  shapes. The library was written to match the JavaScript that drew the models before
+  it, and this is how that was checked;
+- for the standard library: that it parses cleanly; that every feature the model calls
+  exists and needs only what the model passes; sections, flags, functions and colors;
+  every solid; replacing library features and the warnings for ones it can't call;
+  `body shape` and `leads shape`; problems in library code reported where it was used;
+  and fuzzing of the library's own sources;
 - for KiCad: the checksum against MurmurHash3's published test value and fixed vectors;
   zstd frames that round-trip; every example's export parsed as KiCad would (keywords,
   unique UUIDs, pads and their properties, margins, paste windows, via pads); and each
@@ -162,6 +186,11 @@ The file recompiles every time you pause typing, so big libraries need two thing
 
 For a 150-row QFN table in Chromium, a cold compile takes about 165 ms, and typing in
 one row recompiles in about 6 ms. Editing the template rebuilds every row.
+
+The standard library is parsed once. A model is built when it's first shown, in about a
+millisecond for most parts. A lead's feature runs once for each different lead, and the
+result is copied for the others, so a 484-ball BGA's model takes about 16 ms in Node
+and its VRML still writes the ball once.
 
 ## Semantic decisions
 
@@ -227,10 +256,30 @@ The draft leaves some meanings open. The demo picks these, and the page's
     is then a rectangle, with its length along the pins and its diameter across.
 15. **The polarity marks follow the part family** (SPEC §13.1). The cathode of a diode
     or LED and the negative lead of a can are pin 2, but a chip or molded capacitor's
-    band marks pin 1, the way tantalums are marked. The silk bar and the 3D stripe go on
-    the same end.
+    band marks pin 1, the way tantalums are marked. The library's `polarity` feature
+    says which, and the silk bar and the 3D stripe both ask it, so an axial or MELF
+    capacitor's bar is at pin 2 like its band.
 16. **Model blocks merge down `extends`.** A child's `model { standoff 0.2 }` changes
     one setting and keeps the parent's solids. `no model` ends the model at that level.
+17. **Sections, not `if`.** A feature chooses with sections turned on by flags (SPEC
+    §12.1), and the engine turns flags on from measurements by asking the library: a
+    feature's `let bent_if = …` above zero means `bent`. So the thresholds and formulas
+    (when a gull-wing has room to bend, when a can gets a vent) are library code, and
+    only the comparison with zero is the engine's.
+18. **Two ways to place a solid.** In a feature, `at` puts the solid's own origin (a
+    box's bottom center) at a point of the feature, which composes cleanly. In a
+    footprint's model block it keeps the earlier meaning: the solid's center over the
+    point and its bottom at z, on the board or on the body.
+19. **Leads on the left and top are mirror images.** A lead is drawn once in its side's
+    frame and copied to every lead like it, through a frame that mirrors x for the left
+    side and y for the top, as the JavaScript drew the leads that bend outward. A lead
+    drawn asymmetric across its width would show the mirroring.
+20. **Castellations are drawn per lead.** Each castellated lead draws its half-hole's
+    plating, so the model's lead count includes them and the export reuses one shape for
+    all of them. The board cuts its notches with `slab … castellated`.
+21. **Library errors point at your file.** The library's code isn't in the editor, so a
+    problem inside it is reported at the statement that used it, with the chain of
+    library features it went through.
 
 ## Notes on the spec from implementing it
 

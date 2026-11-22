@@ -147,3 +147,21 @@ footprint "ZOO-FEATURES" {
   feature arrow at pad 4 rotate 180    # at a point or an object, turned
   courtyard { rect (0, 0) 220 x 140 }  # a courtyard is always one rectangle
 }
+
+# 8. A lead of your own for every lead of a footprint, with a flag, and computed colors
+feature zoo_lead(edge, pad_u, toe = pad_u, b = 15, c = 6) {
+  section thin { c = 4 }
+  model {
+    sweep b x c fillet 2 * c step 15 along (edge - 10, 3 * c), (edge + 10, 3 * c), (toe - 20, c / 2), (toe, c / 2) color metal("#b08d57")
+  }
+}
+
+footprint "ZOO-MODEL" {
+  body 200 x 200 x 60
+  pins 8 dual pitch 50 span 300
+  lead gullwing 15 x 40
+  model {
+    leads shape zoo_lead(thin)
+    body color mix(black, "#304050", 0.4)
+  }
+}

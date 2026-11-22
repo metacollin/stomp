@@ -697,9 +697,18 @@
       let n = node || this.decl;
       // a problem in the standard library: reported at the statement that used it
       if (isLib(n)) {
+        // A problem in the library is reported at the statement that used it, once:
+        // one bad value can surface in several places that use it.
+        const at = this.trigger && !isLib(this.trigger) ? this.trigger : { s: this.decl.nameS, e: this.decl.nameE };
+        const sink = this.diagSink || this.diags;
+        const seen = this.libSeen || (this.libSeen = new WeakMap());
+        if (!seen.has(sink)) seen.set(sink, new Set());
+        const key = `${sev}|${at.s}|${at.e}|${msg}`;
+        if (seen.get(sink).has(key)) return;
+        seen.get(sink).add(key);
         const chain = (this.stack || []).filter((b, i, all) => b.lib && all.indexOf(b) === i).map((b) => `\`${b.f.name}\``);
         msg = `in the standard library's ${chain.length ? `${chain.join(' → ')}` : 'features'}: ${msg}`;
-        n = this.trigger && !isLib(this.trigger) ? this.trigger : { s: this.decl.nameS, e: this.decl.nameE };
+        n = at;
       }
       if (sev === 'error' && !this.diagSink) this.errorCount = (this.errorCount || 0) + 1;
       const d = {

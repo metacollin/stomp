@@ -9,7 +9,9 @@ meaning, the spec states the default and marks it as a decision. Open items are
 collected in [§17 Open questions](#17-open-questions).
 
 The formal grammar is in [`grammar.peg`](grammar.peg), and worked examples are in
-[`examples/`](examples/). Every construct in this spec appears in at least one example
+[`examples/`](examples/). The 3D models and the automatic silk marks are drawn by a
+standard library written in stomp itself, in [`stdlib/`](stdlib/)
+([§13.5](#135-the-standard-library)). Every construct in this spec appears in at least one example
 file. Most appear in real parts; the rare ones are in
 [`examples/syntax_zoo.stomp`](examples/syntax_zoo.stomp), which isn't a real part and
 can double as a parser test later. Not every keyword *variant* is used; the grammar file
@@ -89,6 +91,9 @@ origin by hand.
 6. **Reads like English, but small.** Statements read aloud (`pad 3 is 4.56 right of
    pad 1`), yet the keyword set is closed and the grammar is a deterministic PEG. There
    are no optional filler words, and there's one way to write each construct.
+7. **The models are stomp too.** Every body, lead and mark the tool draws comes from a
+   standard library of stomp features. A file can replace any of them, so the way a
+   part looks is code you can read and change, not something built into the tool.
 
 ## 3. Quick tour
 
@@ -175,15 +180,18 @@ footprints from qfn {
 - **Strings:** `"…"` with `\"`, `\\`, `\{` and `\}` escapes. A `{…}` in any string
   interpolates an expression ([§7](#7-values-expressions-let)), so a literal brace is
   written `\{`. Strings end at the end of the line.
-- **Numbers:** decimal only: `1`, `0.65`, `.5`. No exponents (footprints don't need
-  them). A number can carry a suffix, attached with no space:
+- **Numbers:** decimal, with an optional exponent: `1`, `0.65`, `.5`, `1e-9`, `2.5E3`.
+  A number can carry a suffix, attached with no space:
   - the length units `mm` `um` `nm` `mil` `in` (e.g. `50mil`, `0.65mm`);
   - `%` for ratios (`25%`);
   - `deg` (the default) or `rad` for angles;
   - a side mark, `w` or `h`, after any unit: `1.1w`, `43milw` (§7). A closing
     parenthesis can carry one too: `(a + b)h`.
-- **Reserved single letters:** `x` (the size separator, §7) and `d` and `h` (the
-  diameter and height markers) can't be `let` names.
+- **Reserved single letters:** `x` (the size separator, §7) and `d`, `h` and `r` (the
+  diameter, height and radius markers) can't be `let` names. The 3D solids and feature
+  sections reserve `disc`, `face`, `hatch`, `loft`, `prism`, `section`, `slab`, `sphere`
+  and `sweep`. `along`, `clear`, `fillet`, `kind`, `open` and `segments` are words only
+  where a solid or a line expects them, so they stay free as names.
 
 ## 5. Files, footprints, metadata
 
@@ -274,7 +282,27 @@ tags qfn, leadless, ipc
   `box` is always `W x L x H`.
 - **Points:** `(x, y)`. 3D points `(x, y, z)` appear only in `model` blocks.
 - **Percentages:** `25%`, used for the round-rect corner ratio and paste coverage.
-- **Angles:** `45`, `45deg`, `0.7854rad`. Only `rotate` and arcs use them.
+- **Angles:** degrees, counterclockwise: `45`, `45deg`, `0.7854rad`, or any expression
+  (`a + 90`, `atan2(1, 2)`). `rotate`, arcs, `draft` and the 3D solids use them.
+- **Functions:** a name touching its `(` is a call, so a table cell `D (D - 1)` is
+  still two cells:
+
+  | function | gives |
+  |---|---|
+  | `min(a, …)`, `max(a, …)`, `clamp(v, lo, hi)`, `abs(a)`, `hypot(a, …)` | as `+` would combine the arguments: lengths, or plain numbers |
+  | `sqrt(a)` | of a plain number or a ratio, not a length |
+  | `sin(a)`, `cos(a)`, `tan(a)` | of an angle in degrees; exact at right angles |
+  | `asin(a)`, `acos(a)`, `atan2(y, x)` | an angle in degrees |
+  | `mix(c1, c2, t)` | a color part way, t from 0 to 1, from c1 to c2 |
+  | `metal(c)` | the color, rendered as a shiny metal |
+
+  `pi` is a name for 3.14159…. Neither it nor the function names are reserved; a `let`
+  of the same name hides `pi`.
+- **Colors** are values too: `"#rrggbb"`, a built-in name (`tin`, `gold`, `black`;
+  §13.2), a palette name from the standard library (`can_blue`,
+  `ferrite`, [§13.5](#135-the-standard-library)), `metal(…)` or `mix(…)`. A name is
+  looked up as a `let` or parameter first, then as a built-in color, then in the
+  palette. Colors can't take part in arithmetic.
 - **`let`:** named dimensions, for the whole file or for one footprint:
 
   ```stomp
@@ -284,7 +312,8 @@ tags qfn, leadless, ipc
   pins 20 dual pitch e # ...then use them by name
   ```
 
-  A `let` name can be assigned only once. A footprint's `let`s shadow the file's.
+  A `let` name can be assigned only once. A footprint's `let`s shadow the file's, and a
+  feature's sections can give its `let`s other values ([§12.1](#121-custom-features)).
   (Names like `A1` look like BGA ball names but never mean them: a ball reference
   always has its prefix, as in `ball A1`.)
 - **Text:** a `"string"` is a value too: `let part = "TPS7A02"`, a template argument or
@@ -659,6 +688,13 @@ polarized         # two-terminal polarity: pin 1 is positive (the anode); adds a
 density most      # IPC density level: least | nominal | most
 ```
 
+The silk marks these draw (the dot, the bar, a polarized part's bar, or a round part's
+hatching and "+") are features of the standard library, `pin1_dot`, `pin1_bar`,
+`polarity_bar`, `polarity_hatch` and `polarity_plus`, and which end a polarity mark
+goes on is its `polarity` feature's to say ([§13.5](#135-the-standard-library)). A file
+can replace any of them. The chamfer and the notch reshape the outline itself, so
+they stay built in.
+
 ## 12. Graphic layers
 
 Everything here defaults to `auto` and rarely needs writing:
@@ -684,8 +720,12 @@ Manual additions and overrides:
 silk {
   outline body offset 0.15            # follow the body outline, pushed out
   line (-2.5, 1.0) (-2.5, -1.0) width 0.12
+  line (-3, 0) (3, 0) clear           # cut back from the copper, as the auto outline is
   arc (0,0) r 1.5 from 30 to 150 width 0.12
   circle (0, 2.1) d 0.3 fill
+  hatch (0, 0) d 4 from 1 to 2 pitch 0.25   # chords across x of the circle (0, 0) d 4,
+                                            # at x = 1, 1.25, ... while x < 2
+  feature plus at (1.8, 1.8)          # a feature's items on this layer (§12.1)
   text ">CATHODE" at (1.8, 0) size 0.6
 }
 silk none                             # or turn it off entirely
@@ -698,9 +738,9 @@ text value at (0, -1.2) size 0.8 layer assembly
 
 ### 12.1 Custom features
 
-A feature is a named piece of graphics, drawn around its own origin, that any
-footprint in the file can use. Define it at the top level with `silk` and `assembly`
-blocks, and give it parameters as a template has:
+A feature is a named piece of graphics and solids, drawn around its own origin, that
+any footprint in the file can use. Define it at the top level with `silk`, `assembly`
+and `model` blocks ([§13.3](#133-solids)), and give it parameters as a template has:
 
 ```stomp
 feature plus(s = 0.7) {
@@ -727,11 +767,59 @@ template call ([§14.1](#141-templates-are-functions)): a plain number takes the
 the feature's statements, so pass `40mil` from a footprint in other units. `outline body`
 can't go in a feature, since a feature has no body.
 
+Inside a block, `feature NAME at (x, y)` places another feature's items for that layer,
+and in a `model` block, `feature NAME at (x, y, z) rotate (rx, ry, rz)` places its
+solids. A feature can place itself only so deep: 32 levels is an error.
+
+A feature can also hold `let`s, which see its parameters, and **sections**: blocks
+that are included only when the call passes a **flag** with the section's name.
+Sections are how a feature makes choices; stomp has no `if`.
+
+```stomp
+feature tick(len = 1, w2 = 0.12) {
+  let half = len / 2
+  section long {
+    len = 2                           # with the flag, a new default for len
+    section bold { len = 3 }          # both flags: nested sections need all of theirs
+  }
+  section bold, heavy { w2 = 0.3 }    # either flag turns it on
+  silk { line (-half, 0) (half, 0) width w2 }
+  section boxed {
+    silk { rect (0, 0) len x 0.5 }    # drawn only with the flag
+  }
+}
+
+footprint "T" {
+  …
+  feature tick(long, bold) at (0, 2)  # len 3, w2 0.3
+  feature tick(0.5, boxed) at (0, 3)  # len 0.5: the value given wins
+}
+```
+
+- **Flags** are words in the call, before or after the values but never between them,
+  in any order: `tick(long, 0.5)` or `tick(0.5, long)`. A flag is any word that names a
+  section of the feature, or of a feature it places, so keywords work (`dot`,
+  `gullwing`). A lone word that names no section is a value; to pass a value whose name
+  is also a flag, put it in parentheses: `tick((long))`.
+- **Flags flow down.** A feature placed by another sees the flags of everything that
+  placed it, so a flag given once reaches every feature that needs it.
+- **`NAME = value` in a section** gives a parameter (or a `let`) of the feature that
+  value while the section is on. A value the call gives wins; otherwise the innermost
+  section that's on; otherwise the default. Two sections that are both on and set the
+  same name must be nested, one in the other; side by side, they're an error.
+- A section holds `NAME = value` lines, other sections, and layer blocks; `let`s go at
+  the top of the feature. Footprints and templates have no sections.
+
+A feature named like one of the standard library's replaces it for the whole file,
+including where the library uses it itself ([§13.5](#135-the-standard-library)).
+
 ## 13. 3D model
 
 A footprint with a `body` has a 3D model without another line: the body, the pins and
 the lead form already describe the part. A `model { … }` block adjusts what that
-description can't say and adds anything else; `no model` turns it off.
+description can't say and adds anything else; `no model` turns it off. Every part of
+the model is drawn by a stomp feature from the standard library
+([§13.5](#135-the-standard-library)), which a file can replace.
 
 ### 13.1 The generated model
 
@@ -740,7 +828,7 @@ up from the board surface: z = 0 is the top of the board. The body's H is the se
 height, JEDEC *A*: the top of the part above the board. The body's bottom sits at the
 standoff, JEDEC *A1*. A body without an H is drawn as a flat plate.
 
-The lead form picks the rest:
+The lead form picks the rest. This table is what the standard library draws:
 
 | lead | body | leads | standoff | pin-1 mark |
 |---|---|---|---|---|
@@ -772,7 +860,8 @@ The lead form picks the rest:
   and its mark is a dark segment on the lid instead of a stripe on a sleeve.
 - **Colors** follow the part family, from the `refdes` letter. Chip resistors are white
   ceramic with a black top, chip capacitors are tan, inductors gray, and chip LEDs white
-  with a clear lens. Molded bodies are black.
+  with a clear lens. Molded bodies are black. The colors are the standard library's
+  palette ([§13.5](#135-the-standard-library)).
 
 Omitted pins have no lead. Per-pin `lead` statements ([§11.3](#113-leads)) change one
 pin's lead, remove it (`lead 2 none`), or, in land mode, put leads on explicit pads.
@@ -786,22 +875,75 @@ model {
   standoff 0.05             # the body's bottom above the board (JEDEC A1)
   height 0.85               # the model's height, where it isn't the body's H
   draft 0                   # molded-body side draft (0: a straight-sided block)
-  body color "#20232a"      # "#rrggbb", or a name (below)
+  body color "#20232a"      # any color (§7): "#rrggbb", a name, mix(…), metal(…)
   leads color gold
   leads thickness 0.2       # lead-frame thickness (JEDEC c)
   leads below 3.5           # through-hole leads: length below the board
   leads above 0             # grid pins: height above the housing (0: a socket)
   pin1 dot                  # the body mark: dimple | dot | notch | stripe | none
+  body shape drum(shielded) # draw the body with this feature (§13.5)
+  leads shape thin_lead     # draw every lead with this one
 }
 ```
 
 Named colors: `black`, `gray`, `white`, `red`, `green`, `blue`, `yellow`, `orange`,
 `brown`, `tan`, `ceramic`, and the metals `tin`, `silver`, `gold`, `copper` and
-`aluminum`. Metals render shiny.
+`aluminum`. Metals render shiny. The standard library's palette adds names of its own.
 
-### 13.3 Extra solids
+`body shape NAME(…)` and `leads shape NAME(…)` draw this footprint's body or leads with
+a feature of your own instead of the library's. The feature gets the values and flags
+the library's would ([§13.5](#135-the-standard-library)); the arguments written in the
+statement come first.
 
-Anything the lead form doesn't describe can be built from boxes and cylinders:
+### 13.3 Solids
+
+Anything the lead form doesn't describe can be built from solids, in a footprint's
+`model` block or in a feature's:
+
+| solid | draws |
+|---|---|
+| `box W x L x H` | a box |
+| `cylinder d D h H` | an upright cylinder; `cylinder d D to D2 h H` is a cone |
+| `sphere d D` | a sphere; `sphere d D h H` is squashed to H |
+| `disc d D` | a flat disc; `disc d D to D2` is a ring from D to D2 |
+| `prism PATH h H` | a flat outline, H thick |
+| `face PATH` | a flat outline with no thickness, facing up |
+| `loft W x L at Z, W x L at Z, …` | a solid through rectangles stacked at heights Z |
+| `sweep W x T along PATH` | a W x T strip along a path in x and z, as a lead is |
+| `wire d D along PATH` | a round wire along a path in x and z |
+| `slab W x L x T castellated` | a board, with a half-hole cut wherever the part has a castellated lead |
+
+A PATH is points and arcs, joined by commas:
+`(0, 0), (1, 0), arc (1, 1) r 1 from -90 to 0 segments 8, (2, 2)`. A prism's or face's
+path is an outline in x and y; a sweep's or wire's runs in x and z. `fillet R` before
+`along` rounds the corners between points with radius R, in steps of 10° (`fillet R
+step 8` for 8°); an arc's own points stay as they are.
+
+Each solid takes these, in any order:
+
+- `at (x, y)` or `at (x, y, z)`: where it goes (below);
+- `rotate (rx, ry, rz)` in degrees, about x, then y, then z; `rotate A` turns it about z;
+- `color C`: any color (§7);
+- `name "…"`: the name of its mesh in the model and the exports;
+- `kind body`, `kind lead` or `kind mark`, in a feature: what it's highlighted with, and
+  where it goes in the model's order (§13.5);
+- `segments N`: how many sides a round solid has;
+- `open`, `open top` or `open bottom`: a cylinder without its ends, or one of them;
+- `from A to B`: part of a cylinder or disc, between two angles;
+- `down`: a disc or face that faces down.
+
+**In a feature,** `at` puts the solid's own origin at a point of the feature, then
+`rotate` turns it about that point. A box's, cylinder's or sphere's origin is the
+middle of its bottom; a path's is (0, 0). A size of zero or less draws nothing, so a
+feature can leave out a part with arithmetic. In a footprint's model block,
+`feature NAME(…) at (x, y, z) rotate (…)` places a feature's solids, with its origin at
+that point (z from the board, or from the body's top with `on body`).
+
+**In a footprint's model block,** a solid starts centered on the body (or on the
+origin, if there's no body), resting on the board. `at (x, y)` moves its center; a
+third coordinate sets the height of its bottom, and `on body` rests it on the body top
+instead. `rotate` turns the solid about its center before it's placed. A solid takes
+the body's color unless it names one.
 
 ```stomp
 model {
@@ -809,15 +951,9 @@ model {
   box 6.6 x 6.6 x 0.5 color black                  # a base plate on the board
   cylinder d 0.8 h 0.2 at (1.0, 0.6) on body       # at (x, y): the solid's center
   cylinder d 2 h 6 at (0, 0, 1) rotate (0, 90, 0)  # at (x, y, z): z is its bottom
+  feature heatsink(5, 5, 3) on body                # a feature's solids (examples/custom_models.stomp)
 }
 ```
-
-`box W x L x H` and `cylinder d D h H` (upright) start centered on the body (or on the
-origin, if there's no body), resting on the board. `at (x, y)` moves the center. A
-third coordinate sets the height of the solid's bottom, and `on body` rests it on the
-body top instead. `rotate (rx, ry, rz)` turns the solid about its center, in degrees
-(about x, then y, then z), before it is placed. A solid takes the body's color unless
-it names one.
 
 ### 13.4 External models, inheritance
 
@@ -832,6 +968,93 @@ no model                           # no 3D output at all
 frame. Model blocks merge down an `extends` chain: a later level's settings replace
 earlier ones, and its solids add to theirs. `no model` at any level ends the model
 there, and a later `model { … }` starts it again.
+
+### 13.5 The standard library
+
+The model in §13.1 and the automatic silk marks of §11.5 are drawn by the **standard
+library**: stomp files of features and `let`s in [`stdlib/`](stdlib/), loaded before
+every file. It's written in `units mm`, so the values the 3D model passes are mm, and
+its angles are degrees.
+
+| file | holds |
+|---|---|
+| [`colors.stomp`](stdlib/colors.stomp) | the palette: `epoxy`, `can_blue`, `ferrite`, `solder`, … |
+| [`marks.stomp`](stdlib/marks.stomp) | `top_marks` and the marks it draws; `polarity` |
+| [`molded.stomp`](stdlib/molded.stomp) | molded, DIP, block and radial bodies; gull-wing, J-lead, L-bend, straight and tab leads |
+| [`leadless.stomp`](stdlib/leadless.stomp) | sawn bodies; flat, end-cap and grid-contact leads; exposed pads |
+| [`chips.stomp`](stdlib/chips.stomp) | chip, MELF and axial bodies |
+| [`arrays.stomp`](stdlib/arrays.stomp) | BGA and CGA bodies; balls and columns |
+| [`cans.stomp`](stdlib/cans.stomp) | cans, and their vent, stripe and lid mark |
+| [`through_hole.stomp`](stdlib/through_hole.stomp) | header housings; header, DIP, axial and plain through-hole leads |
+| [`modules.stomp`](stdlib/modules.stomp) | module boards and castellations |
+| [`silk.stomp`](stdlib/silk.stomp) | the silk's pin-1 and polarity marks |
+
+**Replacing a feature.** A feature in your file named like one of the library's
+replaces it everywhere in your file, including where the library's own features place
+it. So `feature can_vent(D) { … }` changes the vent of every can, and
+`feature pin1_dot(dia = 0.3) { … }` every `pin1 dot`. A replacement must take what the
+library passes it; a parameter the library never gives a value gets a warning unless it
+has a default. Library features see the library's `let`s; your file sees them too,
+after its own names, so `color can_blue` works anywhere.
+
+**What the model calls.** The 3D model measures the part, then calls one feature for
+the body and one per lead, by name:
+
+| feature | for | values passed (by name, each only if the feature declares it) |
+|---|---|---|
+| `body_STYLE` | the body: `body_molded`, `body_dip`, `body_block`, `body_radial`, `body_sawn`, `body_chip`, `body_melf`, `body_axial`, `body_bga`, `body_cga`, `body_can`, `body_header`, `body_module` | `W`, `L`, `H` (the body), `z0` (the standoff), `taper` (a `draft`), `body_color`, `lead_color`, `e` (the pitch), `rise` (`leads above`), `ball_d`, `cast_d` (the widest castellation), `turn` (0, or 90 for a part along y), `T` (an end cap's length), and for the marks `sx`, `sy` (toward pin 1's corner), `nx`, `ny` (toward the notched end), `ex`, `ey` (toward the striped end) and `ma` (the striped lead's direction, in degrees) |
+| `lead_FORM` | each lead: `lead_gullwing`, `lead_jlead`, `lead_lbend`, `lead_straight`, `lead_flat`, `lead_endcap`, `lead_tab`, `lead_contact` (no side), `lead_ball`, `lead_column`, `lead_castellated`, and for pins and wires `lead_dip`, `lead_axial`, `lead_header` or `lead_tht` | `edge` (the body's edge), `pad_u` (the pad's center), `toe` (the lead's tip, if the span gives it), `side_len` (the body's side), `b`, `T`, `D` (the lead statement's sizes), `drill_d`, `pad_across`, `pad_along`, `z0`, `H`, `e`, `c` (`leads thickness`), `tail` (`leads below`), `lead_color`, and what the body exports: `zp`, `housing`, `zc`, `len`, `ts` |
+| `exposed_pad` | each thermal pad | `w`, `l` (the pad), `z0`, `H`, `c`, `lead_color` |
+| `polarity` | which pin a stripe or bar marks: its `stripe_at` | (flags only) |
+
+The silk's marks are called the same way: `pin1_dot`, `pin1_bar(len, depth)`,
+`polarity_bar(len)`, `polarity_hatch(radius)` and `polarity_plus`.
+
+A body is drawn with the body's center at the origin. A lead with a side is drawn in
+its side's frame: x outward from the body's center, y along the side, z up, so `edge`,
+`pad_u` and `toe` are x positions; the left and top sides are mirror images of the
+right and bottom. A ball, column, grid contact, header pin or plain pin is drawn around
+its pad's center. An end cap of a chip or MELF is drawn by the body, not by a lead.
+
+**Flags passed.** The style (`molded`, `chip`, …), the main lead form (`gullwing`, …),
+the family (`resistor`, `capacitor`, `inductor`, `diode`, from the refdes), the mark
+asked for (`dimple`, `dot`, `notch` or `stripe`), `bare` or `sleeved` (whether the body
+color is a metal), and `silk_mark` when the silk marks pin 1 with a dot or a chamfer. A
+lead gets its form and the style, and a pin or wire `round` or `square`. A feature gets
+only the flags it has sections for; a mark it can't draw is reported as none.
+
+**Flags worked out.** Some flags depend on the part's measurements in ways the library
+decides. A feature that defines `let NAME_if = …` gets flag NAME when that value is
+above zero, and its partner, if it has one, otherwise; one it can't work out (a value
+nobody gave) gets neither. They're worked out in this order, each seeing the ones
+before it:
+
+- for bodies: `drafted` / `plain`, `tall`, `shield` / `unshielded`, `vented`;
+- for leads: `fine`, `wide`, `coarse` (pitch classes), `straddle`, `flush`,
+  `bent` / `cramped`, `under` / `beyond`, `socket`.
+
+For example, a gull-wing lead with no room to bend lies flat:
+
+```stomp
+let foot = min(T, room - max(1.2 * c, 0.25 * room))
+let bent_if = min(room - 2.5 * c, foot - c)
+section bent { model { sweep b x c fillet 1.5 * c along … } }
+section cramped { model { sweep b x c along … } }
+```
+
+**Values read back.** Before drawing, the model reads the body feature's `z0` (the
+standoff, then lowered if it reaches the top), `body_color`, and `pin1_mark` (the mark a
+style gets by default, as text). After it, it reads what the body exports to the leads:
+`zp` (where leads leave a molded body), `housing` (a header's), `zc` (an axial body's
+center), `len` (its length), `ts` (a module board's thickness), and `top_z` (where
+`on body` rests, if not H).
+
+**Meshes.** Solids of one name, kind and color in one feature call form one mesh. A
+body's solids are named `body` unless they say otherwise; a lead's are `lead N` (or
+`NAME N` with `name "NAME"`), and an exposed pad's `exposed pad N`. A body's solids of
+`kind mark` come after the leads and exposed pads, then the model block's own. A body's
+solids highlight with the `body` statement, a lead's with its `lead` statement, and
+marks with `pin1`, `polarized` and the model block.
 
 ## 14. Templates, tables and inheritance
 
@@ -858,7 +1081,8 @@ are positional, named, or both (`qfn(32, 5, D2 = 3.45)`), and a parameter withou
 default must be given. A call can also carry a `{ … }` block of extra overrides. There's
 no control flow (conditionals or loops) in v1: a template is a footprint body with
 parameters, and a table ([§14.3](#143-tables-footprints-from)) is how one template
-makes many footprints.
+makes many footprints. The one way to choose is a feature's sections, turned on by
+flags ([§12.1](#121-custom-features)); a template takes values only, never flags.
 
 ### 14.2 Naming: `name`
 
@@ -940,7 +1164,10 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 - an error inside a template body, reported on the call or table row whose arguments cause it, and once at the template when every call has it;
 - a courtyard that isn't one rectangle, and a courtyard set twice in one footprint (a warning); an unknown feature (with the nearest name suggested), a feature defined twice, and missing or unknown feature arguments;
 - a side mark outside a 2D size, in the middle of a side, or on both sides with the same letter; `units` after other statements in a footprint or template;
-- 3D: a per-pin `lead` naming a pin that doesn't exist or was omitted; `leads below` or `leads above` on leads that can't use them; a solid or color that can't be built; a model property given twice in one block.
+- 3D: a per-pin `lead` naming a pin that doesn't exist or was omitted; `leads below` or `leads above` on leads that can't use them; a solid or color that can't be built; a model property given twice in one block;
+- features: an unknown flag (with the nearest flag suggested), a flag between values or given twice, two sections that are both on and set one name side by side, a section setting a name the feature doesn't have, a feature placing itself too deep; an unknown function (with the nearest suggested), a wrong number of arguments, a value of the wrong kind (`sqrt` of a length, `asin(2)`, a color in arithmetic); an unknown color (with the nearest suggested);
+- a feature that replaces the standard library's but has a parameter the library never gives a value (a warning);
+- a problem inside the standard library's code is reported at the statement that used it (the `body`, the `lead`, the `pin1`, a `body shape`), naming the library features it went through. The 3D model's problems are found when it's built, so the demo lists them for the footprint on screen.
 
 ## 16. Formal grammar
 
@@ -966,9 +1193,9 @@ spec wins for *meaning*.
    `extends` plus `delete` covers them. Is that enough?
 6. **Should the letter and number order of `balls` be overridable** for non-JEDEC grids
    (some FPGAs)? Probably `numbering bga letters "ABCDEFGHJK…"` later.
-7. **Castellated semantics.** The `lead castellated` syntax is reserved, but the
-   plating and paste rules for half-holes need their own mini-spec before they're
-   implemented.
+7. **Castellated semantics.** The `lead castellated` syntax is reserved, and the 3D
+   model draws each half-hole's plating, but the land's plating and paste rules for
+   half-holes need their own mini-spec.
 8. **Embedded checks.** A `check` statement (`check gap pad 1 to pad 2 is 0.4`) that
    asserts a redundant datasheet dimension without constraining anything. Cheap to add,
    and great for confidence in a transcription. Leaning: yes, in v1.1.
@@ -979,10 +1206,21 @@ spec wins for *meaning*.
     (`QFN50P500X500X90-33N`) can be built with arithmetic (`{e * 100}`). Zero padding or
     unit conversion in the format may be wanted later.
 11. **Body detail.** Molded bodies have one draft angle and square edges; real ones also
-    have a pin-1 bevel, rounded corners and ejector-pin marks. A `model` property per
-    feature would be additive, but past some point `step` may be the right answer.
-12. **Polarity conventions.** Settled: the silk bar follows the same family rule as the
-    3D stripe (§13.1), so a tantalum's band and bar both mark pin 1.
+    have a pin-1 bevel, rounded corners and ejector-pin marks. These can now be written
+    as library features (§13.5); past some point `step` may still be the right answer.
+12. **Polarity conventions.** Settled: the silk bar follows the same `polarity` feature
+    as the 3D stripe (§13.5), so a tantalum's band and bar both mark pin 1, and an axial
+    or MELF capacitor's both mark pin 2.
+13. **Repetition.** Sections choose; nothing repeats. Five heatsink fins are five
+    solids, and a feature can't draw n of something. A `repeat N` for solids, or arrays
+    of placements, would be the smallest addition; loops in general stay out.
+14. **Library versions.** The standard library is part of the language: a file that
+    replaces `can_vent` relies on the library still calling it with `D`. The hook tables
+    in §13.5 should be versioned with the spec, and the library could say which version
+    it implements.
+15. **Outlines from the library.** The chamfered and notched silk outlines are still
+    built in, since they change the outline the rest of the silk is cut against. A hook
+    that returns an outline would move them into the library too.
 
 ## 18. Example index
 
@@ -1005,6 +1243,7 @@ spec wins for *meaning*.
 | [`examples/sot223.stomp`](examples/sot223.stomp) | per-pin lead: the wide tab lead widens its own land and 3D lead |
 | [`examples/do41.stomp`](examples/do41.stomp) | axial through-hole: a cylinder body lying down, bent wires, a cathode band |
 | [`examples/crystal3225.stomp`](examples/crystal3225.stomp) | extra 3D solids: a ceramic package with a metal lid |
+| [`examples/custom_models.stomp`](examples/custom_models.stomp) | features of your own: replacing the library's `can_vent` and `pin1_dot`, a `body shape` with sections and flags, a feature placed in a model block |
 | [`examples/syntax_zoo.stomp`](examples/syntax_zoo.stomp) | not a real part: covers everything else, and can double as a parser test |
 
 Libraries, each a template or two and a table per family:
@@ -1025,3 +1264,6 @@ Libraries, each a template or two and a table per family:
 | [`examples/led_library.stomp`](examples/led_library.stomp) | chip LEDs and PLCC LEDs with a lens |
 | [`examples/dip_library.stomp`](examples/dip_library.stomp) | DIPs from 6 to 48 pins, written in mils with `units mil` in the template |
 | [`examples/header_library.stomp`](examples/header_library.stomp) | 2.54, 2.0 and 1.27 mm pin headers in one and two rows |
+
+The standard library ([§13.5](#135-the-standard-library)) is in [`stdlib/`](stdlib/):
+every body, lead and mark in these examples comes from it.

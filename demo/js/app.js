@@ -202,7 +202,7 @@
     for (const f of byLib.values()) {
       const opt = document.createElement('option');
       opt.value = f.file;
-      opt.textContent = f.title;
+      opt.textContent = `stdlib: ${f.title}`;
       opt.title = `${f.blurb ? f.blurb + '. ' : ''}Edit it to change every model that uses it.`;
       g.appendChild(opt);
     }

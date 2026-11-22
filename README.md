@@ -109,13 +109,38 @@ footprint "SOT-223" {
 }
 ```
 
+## Models in stomp
+
+stomp draws its own 3D models. Every body, lead and mark the tool generates comes from a
+standard library of stomp features in [`stdlib/`](stdlib/), so the vent in a can's lid
+is a few lines you can read:
+
+```stomp
+feature can_vent(D) {
+  let vl = D / 2 * 0.9
+  let vw = max(0.06, D / 2 * 0.04)
+  model {
+    box vl x vw x 0.006 color vent_metal name "vent"
+    box vw x vl x 0.006 color vent_metal name "vent"
+  }
+}
+```
+
+Define a feature with the same name in your file and every can in it gets yours. A
+feature chooses between versions of itself with **sections**, turned on by flags in the
+call, with no `if` needed: the library's can is `bare` or `sleeved`, `vented` or not,
+and the model passes the flags that fit the part. `model { body shape NAME }` gives one
+footprint a body of your own. See SPEC §12.1 and §13.5, and
+[`examples/custom_models.stomp`](examples/custom_models.stomp).
+
 ## Repository layout
 
 | path | contents |
 |---|---|
 | [`SPEC.md`](SPEC.md) | the language spec: design, meaning, and every statement |
 | [`grammar.peg`](grammar.peg) | the formal PEG grammar, written to map onto PEGTL |
-| [`examples/`](examples/) | 17 single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 15 libraries with over 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
+| [`examples/`](examples/) | 18 single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 15 libraries with over 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
+| [`stdlib/`](stdlib/) | the standard library: the features that draw every 3D model and the automatic silk marks |
 | [`demo/`](demo/) | the browser editor and its JavaScript engine, with tests |
 
 ## Name

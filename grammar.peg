@@ -31,10 +31,21 @@ units_stmt      <- 'units' unit_name
 
 template_decl   <- 'template' IDENT '(' param_list? ')' block
 
-# A feature: graphics around its own origin, used by `pin1 NAME` or placed with
-# `feature NAME at ...` (SPEC 12.1)
+# A feature: graphics and solids around its own origin, used by `pin1 NAME`,
+# placed with `feature NAME at ...`, or called by the 3D model (SPEC 12.1, 13.5).
+# A section is included only when a flag names it (SPEC 12.1).
 feature_decl    <- 'feature' IDENT ('(' param_list? ')')? feature_block
-feature_block   <- '{' EOS? (units_stmt EOS)? (('silk' / 'assembly') gfx_block EOS)* '}'
+feature_block   <- '{' EOS? (units_stmt EOS)? (feature_item EOS)* '}'
+feature_item    <- let_stmt
+                 / section
+                 / ('silk' / 'assembly') gfx_block
+                 / 'model' feature_model
+section         <- 'section' flag (',' flag)* '{' EOS? (section_item EOS)* '}'
+section_item    <- section
+                 / ('silk' / 'assembly') gfx_block
+                 / 'model' feature_model
+                 / IDENT '=' expr                        # a parameter's or let's value while the section is on
+flag            <- WORD                                  # any word, keywords included: `section dot`
 param_list      <- param (',' param)*
 param           <- IDENT ('=' expr)?
 
@@ -45,7 +56,10 @@ footprint_decl  <- 'footprint' ( name ( 'extends' name block
                                / 'from' call block? )
 call            <- IDENT '(' arg_list? ')'
 arg_list        <- arg (',' arg)*
-arg             <- (IDENT '=')? expr
+arg             <- IDENT '=' expr
+                 / WORD &(',' / ')')                     # a lone word: a flag, if the feature called has a
+                                                         # section of that name, else a value (SPEC 12.1)
+                 / expr
 
 # Tables: one footprint per row (SPEC 14.3). The header row names template
 # parameters. Cells are separated by spaces, so arithmetic needs parentheses
@@ -116,9 +130,10 @@ delete_stmt     <- 'delete' objref
 expr            <- term (add_op term)*
 term            <- factor (mul_op factor)*
 factor          <- '-'? ( NUMBER unit_name? SIDE_MARK?   # no space before the unit or mark
-                        / IDENT                          # a let name or template parameter
+                        / IDENT '(' (expr (',' expr)*)? ')'   # a function, the name touching its '(' (SPEC 7)
+                        / IDENT                          # a let name, a parameter, `pi` or a color name
                         / '(' expr ')' SIDE_MARK? )
-                 / STRING                     # text, only usable inside a string's {...}
+                 / STRING                     # text: inside a string's {...}, or a color
 add_op          <- '+' / '-'
 mul_op          <- '*' / '/'
 
@@ -128,7 +143,7 @@ side            <- expr                       # its last token can carry a SIDE_
 point           <- '(' expr ',' expr ')'
 point3          <- '(' expr ',' expr ',' expr ')'
 percent         <- NUMBER '%'
-angle           <- '-'? NUMBER ('deg' / 'rad')?   # a bare number is degrees
+angle           <- expr ('deg' / 'rad')?     # degrees; inside it, a NUMBER can carry deg or rad
 length_or_pct   <- percent / expr
 
 unit_name       <- 'mm' / 'um' / 'nm' / 'mil' / 'in'
@@ -266,7 +281,7 @@ density_stmt    <- 'density' ('least' / 'nominal' / 'most')
 polarized_stmt  <- 'polarized'
 pin1_stmt       <- 'pin1' ('dot' / 'chamfer' / 'notch' / 'bar' / 'none'
                          / IDENT ('(' arg_list? ')')?)  # a feature, where the dot would go
-feature_stmt    <- 'feature' IDENT ('(' arg_list? ')')? 'at' (point / objref) ('rotate' angle)?
+feature_stmt    <- 'feature' IDENT ('(' arg_list? ')')? 'at' (point / objref) ('rotate' angle)?   # its silk and assembly
 
 omit_stmt       <- 'omit' region_or_name (',' region_or_name)*
 only_stmt       <- 'only' region_or_name (',' region_or_name)*
@@ -283,12 +298,15 @@ courtyard_stmt  <- 'courtyard' ( 'auto' expr?
                                / gfx_block )   # one rect, or a four-corner polygon (SPEC 12)
 
 gfx_block       <- '{' EOS? (gfx_stmt EOS)* '}'
+# `clear` cuts a line back from the copper, as the automatic outline is (SPEC 12)
 gfx_stmt        <- 'outline' 'body' ('offset' expr)?
-                 / 'line' point point ('width' expr)?
-                 / 'arc' point 'r' expr 'from' angle 'to' angle ('width' expr)?
+                 / 'line' point point ('width' expr)? 'clear'?
+                 / 'arc' point 'r' expr 'from' angle 'to' angle ('width' expr)? 'clear'?
                  / 'circle' point 'd' expr ('fill' / 'width' expr)?
-                 / 'rect' point size ('fill' / 'width' expr)?
-                 / 'polygon' point point point+ 'fill'?
+                 / 'rect' point size ('fill' / 'width' expr 'clear'? / 'clear')?
+                 / 'polygon' point point point+ ('fill' / 'clear')?
+                 / 'hatch' point 'd' expr 'from' expr 'to' expr 'pitch' expr ('width' expr)? 'clear'?
+                 / feature_stmt                          # that feature's items on this layer
                  / text_stmt
 
 text_stmt       <- 'text' ('ref' / 'value' / STRING)
@@ -302,34 +320,64 @@ model_stmt      <- 'no' 'model'
 model_prop      <- 'standoff' expr
                  / 'height' expr
                  / 'draft' angle                         # molded-body side draft
-                 / 'body'  'color' color
+                 / 'body'  ( 'color' color
+                           / 'shape' call_or_name )      # this footprint's body feature (SPEC 13.5)
                  / 'leads' ( 'color' color
                            / 'thickness' expr
                            / 'below' expr                # through-hole: length below the board
-                           / 'above' expr )              # grid pins: height above the housing
+                           / 'above' expr                # grid pins: height above the housing
+                           / 'shape' call_or_name )      # this footprint's lead feature
                  / 'pin1' ('dimple' / 'dot' / 'notch' / 'stripe' / 'none')
+                 / model_feature
                  / solid
                  / 'step' STRING step_xform*
-solid           <- ( 'box' expr 'x' expr 'x' expr        # W x L x H
-                   / 'cylinder' 'd' expr 'h' expr )       # upright
+call_or_name    <- IDENT ('(' arg_list? ')')?
+feature_model   <- '{' EOS? ((model_feature / solid) EOS)* '}'   # a feature's own model block
+model_feature   <- 'feature' call_or_name ('at' (point3 / point) / 'rotate' rotation / 'on' 'body')*
+
+# Solids (SPEC 13.3). A feature's solids are drawn around its origin; `on body`
+# is for a footprint's model block only.
+solid           <- ( 'box' expr 'x' expr 'x' expr                    # W x L x H
+                   / 'cylinder' 'd' expr ('to' expr)? 'h' expr       # a cone with `to`
+                   / 'sphere' 'd' expr ('h' expr)?                   # an ellipsoid with `h`
+                   / 'disc' 'd' expr ('to' expr)?                    # a ring with `to`
+                   / 'prism' path 'h' expr
+                   / 'face' path
+                   / 'loft' ring (',' ring)+
+                   / 'sweep' expr 'x' expr fillet? 'along' path      # a W x T strip along an (x, z) path
+                   / 'wire' 'd' expr fillet? 'along' path            # round, along an (x, z) path
+                   / 'slab' expr 'x' expr 'x' expr 'castellated'? )  # a board, half-holes at castellations
                    solid_opt*
-solid_opt       <- 'at' (point3 / point)                 # center; z is the solid's bottom
+ring            <- expr 'x' expr 'at' expr               # W x L at z
+fillet          <- 'fillet' expr ('step' angle)?         # corners rounded, in steps of at most the angle
+path            <- path_item (',' path_item)*
+path_item       <- 'arc' point 'r' expr 'from' angle 'to' angle ('segments' expr)?
+                 / point
+solid_opt       <- 'at' (point3 / point)                 # see SPEC 13.3 for where this puts the solid
                  / 'on' 'body'                           # sits on top of the body
-                 / 'rotate' point3                       # degrees, about the center
+                 / 'rotate' rotation
                  / 'color' color
+                 / 'name' STRING
+                 / 'kind' ('body' / 'lead' / 'mark')
+                 / 'open' ('top' / 'bottom')?            # a cylinder without its ends
+                 / 'from' angle 'to' angle               # part of a cylinder or disc
+                 / 'segments' expr
+                 / 'down'                                # a disc or face that faces down
+rotation        <- point3 / angle                        # (rx, ry, rz), or one angle about z
 step_xform      <- 'offset' point3 / 'rotate' point3 / 'scale' expr
 color           <- STRING                                # "#20232a"
-                 / IDENT                                 # a name: black, tin, gold, ... (SPEC 13.2)
-                 / 'copper'                              # the one color name that is also a keyword
+                 / WORD !'('                             # a name: a parameter, a let, tin, can_blue, ...
+                 / expr                                  # mix(a, b, t), metal("#…")
 
 # Tokens. Spaces and tabs between tokens are implied in all the rules above.
 
 IDENT           <- !keyword [A-Za-z_] [A-Za-z0-9_]*
 INT             <- [0-9]+ !'.'                 # really !('.' !'.'), so INT '..'
                                                # still lexes as a range
-NUMBER          <- [0-9]+ ('.' [0-9]*)? / '.' [0-9]+
+NUMBER          <- ([0-9]+ ('.' [0-9]*)? / '.' [0-9]+) ([eE] [+-]? [0-9]+)?
                                                # a unit, '%' or 'deg' suffix only
                                                # counts with no space before it
+WORD            <- [A-Za-z_] [A-Za-z0-9_]*     # an IDENT or a keyword
 STRING          <- '"' ( '\\' ["\\{}] / interp / !(["{] / NEWLINE) . )* '"'
 interp          <- '{' expr (':' '.' [0-9])? '}'   # SPEC 7. The expr is lexed like code,
                                                     # with no strings or newlines
@@ -363,6 +411,8 @@ EOF             <- !.
 #   straight stripe tab tags template text thermal thickness tht to top top-left
 #   top-right um units up value vertical vertically vias width wire with x y
 #   zigzag
+#   and for 3D solids and feature sections:
+#   disc face hatch loft prism section slab sphere sweep
 #
 # Notes:
 #  - 'x', 'd', 'h' and 'r' are reserved (size, diameter, height, radius), so
@@ -373,3 +423,7 @@ EOF             <- !.
 #    but the ranges `1..4` and `1 .. 4` both work.
 #  - `w` isn't reserved. Right after a number or ')' it's a side mark, so a
 #    name used as a side is marked in parentheses: (D)w.
+#  - `along`, `clear`, `fillet`, `kind`, `open` and `segments` are words only
+#    where the rules above expect them, so they stay free as names.
+#  - Function names and `pi` aren't reserved: a let of the same name hides `pi`,
+#    and a call is always a function.

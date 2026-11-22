@@ -1,9 +1,10 @@
 /* stomp live demo: 3D models (SPEC 13).
  *
- * build(res) turns a compiled footprint into meshes: a body chosen by the lead
- * form, a lead per pin, the pin-1 mark, exposed pads and any extra solids.
- * board(res) builds the board under it for the viewer. toVRML and toSTL export
- * the part, not the board.
+ * build(res) turns a compiled footprint into meshes. The shapes come from stomp
+ * features, the standard library's (stdlib/*.stomp) or the user's: the engine
+ * here measures the part, picks the body and lead features to call (SPEC 13.5),
+ * and its kernel turns the solids they draw into meshes. board(res) builds the
+ * board under it for the viewer. toVRML and toSTL export the part, not the board.
  *
  * Units are mm: x and y as in the footprint, z up from the board (z = 0).
  * A mesh is { name, kind, color: [r, g, b], metal: 0 | 1, pos, nrm, idx, src }:
@@ -24,37 +25,9 @@
     const n = parseInt(h.slice(1), 16);
     return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
   };
-  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-  const MAT = {
-    molded: { color: hex('#26272b'), metal: 0 },
-    tin: { color: hex('#c6cad0'), metal: 1 },
-    gold: { color: hex('#d6af57'), metal: 1 },
-    solder: { color: hex('#c9ccd1'), metal: 1 },
-    aluminum: { color: hex('#cdd0d4'), metal: 1 },
-    ceramic: { color: hex('#ece9df'), metal: 0 },
-    resistorTop: { color: hex('#18191b'), metal: 0 },
-    mlcc: { color: hex('#bf9a6c'), metal: 0 },
-    inductor: { color: hex('#4d5055'), metal: 0 },
-    ledBody: { color: hex('#f1efe7'), metal: 0 },
-    ledLens: { color: hex('#f1e4a2'), metal: 0 },
-    ledMark: { color: hex('#2f8a52'), metal: 0 },
-    substrate: { color: hex('#46512f'), metal: 0 },
-    module: { color: hex('#23436a'), metal: 0 },
-    can: { color: hex('#2b3a52'), metal: 0 },
-    rubber: { color: hex('#2a2b2d'), metal: 0 },
-    stripe: { color: hex('#d9dcdf'), metal: 0 },
-    band: { color: hex('#c8ccd1'), metal: 0 },
-    dot: { color: hex('#8e9197'), metal: 0 },
-    vent: { color: hex('#7d8186'), metal: 1 },
-    axialR: { color: hex('#d8c29c'), metal: 0 },
-    axialD: { color: hex('#232427'), metal: 0 },
-    axialC: { color: hex('#2f63a8'), metal: 0 },
-    axialL: { color: hex('#3d6e43'), metal: 0 },
-    melfR: { color: hex('#5f8fb5'), metal: 0 },
-    melfD: { color: hex('#c4552f'), metal: 0 },
-    glassBand: { color: hex('#141517'), metal: 0 },
-  };
-  const matOf = (c) => ({ color: hex(c.hex), metal: c.metal ? 1 : 0 });
+  // colors the engine falls back on when a hook names none
+  const TIN = { color: hex('#c6cad0'), metal: 1 };
+  const EPOXY = { color: hex('#26272b'), metal: 0 };
 
   // Meshes
   class Mesh {
@@ -89,7 +62,7 @@
     }
     append(o) {
       const base = this.p.length / 3;
-      this.p.push(...o.p); this.n.push(...o.n);
+      for (let k = 0; k < o.p.length; k++) { this.p.push(o.p[k]); this.n.push(o.n[k]); }
       for (const k of o.i) this.i.push(base + k);
       return this;
     }
@@ -191,15 +164,30 @@
     return m;
   }
 
-  /** Part of a cylinder wall, from angle a0 to a1 (radians): a stripe on a can. */
-  function shell(m, cx, cy, z0, z1, r, a0, a1, seg) {
+  /** Part of a cylinder or cone wall, from angle a0 to a1 (radians): a stripe on a can. */
+  function shell(m, cx, cy, z0, z1, r0, r1, a0, a1, seg) {
+    const slope = (r0 - r1) / Math.max(z1 - z0, 1e-9);
+    const nz = slope / Math.hypot(1, slope), nr = 1 / Math.hypot(1, slope);
     const base = m.p.length / 3;
     for (let k = 0; k <= seg; k++) {
       const a = a0 + ((a1 - a0) * k) / seg, c = Math.cos(a), s = Math.sin(a);
-      m.v(cx + r * c, cy + r * s, z0, c, s, 0);
-      m.v(cx + r * c, cy + r * s, z1, c, s, 0);
+      m.v(cx + r0 * c, cy + r0 * s, z0, c * nr, s * nr, nz);
+      m.v(cx + r1 * c, cy + r1 * s, z1, c * nr, s * nr, nz);
     }
     for (let k = 0; k < seg; k++) { const a = base + 2 * k; m.quad(a, a + 2, a + 3, a + 1); }
+    return m;
+  }
+
+  /** Part of a flat ring, from angle a0 to a1 (radians). */
+  function ringSector(m, cx, cy, z, r0, r1, a0, a1, seg, up) {
+    const base = m.p.length / 3;
+    const nz = up ? 1 : -1;
+    for (let k = 0; k <= seg; k++) {
+      const a = a0 + ((a1 - a0) * k) / seg;
+      m.v(cx + r0 * Math.cos(a), cy + r0 * Math.sin(a), z, 0, 0, nz);
+      m.v(cx + r1 * Math.cos(a), cy + r1 * Math.sin(a), z, 0, 0, nz);
+    }
+    for (let k = 0; k < seg; k++) { const a = base + 2 * k; m.quad(a, a + 1, a + 3, a + 2); }
     return m;
   }
 
@@ -226,12 +214,14 @@
     return m;
   }
 
-  /** Round a polyline's corners with arcs of radius r (limited by the segments). */
-  function fillet(pts, r, stepDeg) {
+  /** Round a polyline's corners with arcs of radius r (limited by the segments).
+   *  `keep[i]` true leaves point i as it is: an arc's own points. */
+  function fillet(pts, r, stepDeg, keep) {
     const step = (stepDeg || 10) * D2R;
     const out = [pts[0]];
     for (let i = 1; i < pts.length - 1; i++) {
       const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+      if (keep && keep[i]) { out.push(p1); continue; }
       const L1 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), L2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
       if (L1 < 1e-9 || L2 < 1e-9) { out.push(p1); continue; }
       const d1 = [(p1[0] - p0[0]) / L1, (p1[1] - p0[1]) / L1], d2 = [(p2[0] - p1[0]) / L2, (p2[1] - p1[1]) / L2];
@@ -346,38 +336,478 @@
     return m;
   }
 
-  /** A solid lying along x or y: build it along z and turn it over. */
-  function lay(m, axis, cx, cy, cz) {
-    // local: built around (0, 0) with its axis along z, from z = -len/2 to len/2
-    if (axis === 'x') m.transform((x, y, z) => [cx + z, cy + y, cz - x], (x, y, z) => [z, y, -x]);
-    else m.transform((x, y, z) => [cx + x, cy + z, cz - y], (x, y, z) => [x, z, -y]);
-    return m;
-  }
-
   // The part
   const fmt = (v) => (Math.round(v * 1000) / 1000).toString();
 
-  function familyOf(res) {
-    const r = ((res.meta && res.meta.refdes) || '').toUpperCase();
-    if (/^LED/.test(r)) return 'D';
-    if (/^FB/.test(r)) return 'L';
-    return r.charAt(0);
+  // The kernel: solid descriptors (compile.js solidDesc) to meshes
+
+  /** Put a mesh's points and normals through a frame (G.frame3's layout). */
+  function applyFrame(m, M) {
+    if (G.isIdentity3(M)) return m;
+    return m.transform(
+      (x, y, z) => [M[0] * x + M[1] * y + M[2] * z + M[3], M[4] * x + M[5] * y + M[6] * z + M[7], M[8] * x + M[9] * y + M[10] * z + M[11]],
+      (x, y, z) => [M[0] * x + M[1] * y + M[2] * z, M[4] * x + M[5] * y + M[6] * z, M[8] * x + M[9] * y + M[10] * z]);
+  }
+  const circlePts = (cx, cy, r, seg) => Array.from({ length: seg }, (_, k) => [cx + r * Math.cos((2 * Math.PI * k) / seg), cy + r * Math.sin((2 * Math.PI * k) / seg)]);
+
+  /**
+   * One descriptor as a mesh: built around its `at` point, turned by `rot` about
+   * it, then put through its frame M. `kx.castellations` are the notches a
+   * castellated slab cuts: [{ side, at, r }] in the frame the body is drawn in.
+   */
+  function descMesh(d, kx) {
+    const m = new Mesh('', '', { color: [0, 0, 0], metal: 0 });
+    if (d.empty) return m;
+    const turned = !!(d.rot && (d.rot[0] || d.rot[1] || d.rot[2]));
+    const at = d.at || [0, 0, 0];
+    const o = turned ? [0, 0, 0] : [at[0], at[1], at[2] || 0];
+    const seg = (n) => d.segments || n;
+    const rad = (a) => a * D2R;
+    switch (d.op) {
+      case 'box': boxC(m, o[0], o[1], o[2], d.w, d.l, d.h); break;
+      case 'slab': slab(m, o, d.w, d.l, d.h, d.castellated ? (kx && kx.castellations) || [] : []); break;
+      case 'cylinder': {
+        const z1 = o[2] + d.h;
+        if (d.from != null) shell(m, o[0], o[1], o[2], z1, d.d / 2, d.d2 / 2, rad(d.from), rad(d.to), seg(32));
+        else frustum(m, o[0], o[1], o[2], z1, d.d / 2, d.d2 / 2, seg(32), d.open === 'both' ? false : d.open === 'top' ? 'bottom' : d.open === 'bottom' ? 'top' : true);
+        break;
+      }
+      case 'sphere': {
+        const n = seg(16);
+        ellipsoid(m, o[0], o[1], o[2] + d.h / 2, d.d / 2, d.d / 2, d.h / 2, n, Math.max(2, Math.round(n / 2)));
+        break;
+      }
+      case 'disc':
+        if (d.from != null) ringSector(m, o[0], o[1], o[2], d.r0, d.r1, rad(d.from), rad(d.to), seg(32), !d.down);
+        else if (d.r0 > 0) ring(m, o[0], o[1], o[2], d.r0, d.r1, seg(32), !d.down);
+        else m.cap(circlePts(o[0], o[1], d.r1, seg(32)), o[2], !d.down);
+        break;
+      case 'prism': {
+        const pts = G.ensureCCW(d.path.map((q) => [o[0] + q[0], o[1] + q[1]]));
+        loft(m, [{ z: o[2], pts }, { z: o[2] + d.h, pts }]);
+        break;
+      }
+      case 'face': m.cap(d.path.map((q) => [o[0] + q[0], o[1] + q[1]]), o[2], !d.down); break;
+      case 'loft': loft(m, d.rings.map((r) => ({ z: o[2] + r.z, pts: rectPts(o[0], o[1], r.w, r.l) }))); break;
+      case 'sweep': {
+        const path = d.fillet ? fillet(d.path, d.fillet, d.step, d.keep) : d.path;
+        sweepRect(m, path, d.w, d.t, (u, v, z) => [o[0] + u, o[1] + v, o[2] + z], (x, y, z) => [x, y, z]);
+        break;
+      }
+      case 'wire': {
+        const path = d.fillet ? fillet(d.path, d.fillet, d.step, d.keep) : d.path;
+        tube(m, path.map((q) => [o[0] + q[0], o[1], o[2] + q[1]]), d.d / 2, seg(12));
+        break;
+      }
+      default: break;
+    }
+    if (turned) applyFrame(m, G.frame3(at.map((v) => v || 0), d.rot));
+    if (d.M) applyFrame(m, d.M);
+    return m;
   }
 
-  function styleOf(res, form) {
-    const b = res.body;
-    switch (form) {
-      case 'gullwing': case 'jlead': case 'lbend': case 'straight': return 'molded';
-      case 'column': return 'cga';
-      case 'flat': case 'tab': return b.kind === 'cyl' ? 'can' : 'sawn';
-      case 'endcap': return b.axial ? 'melf' : 'chip';
-      case 'ball': return 'bga';
-      case 'pin': return res.generator && res.generator.kind === 'dual' ? 'dip' : 'header';
-      case 'wire': return b.axial ? 'axial' : (b.kind === 'cyl' ? 'can' : 'radial');
-      case 'castellated': return 'module';
-      default: return b.kind === 'cyl' ? 'can' : 'block';
+  /** A board W x L x T from o.z up, with a half-hole cut into its edge at each notch. */
+  function slab(m, o, w, l, t, notches) {
+    const cx = o[0], cy = o[1], hw = w / 2, hl = l / 2, z0 = o[2], zt = o[2] + t;
+    const bySide = { bottom: [], right: [], top: [], left: [] };
+    for (const n of notches) bySide[n.side].push(n);
+    const pts = [], notchEdge = [];
+    const corner = { bottom: [cx - hw, cy - hl], right: [cx + hw, cy - hl], top: [cx + hw, cy + hl], left: [cx - hw, cy + hl] };
+    const dirs = { bottom: [1, 0], right: [0, 1], top: [-1, 0], left: [0, -1] };
+    for (const side of ['bottom', 'right', 'top', 'left']) {
+      const c = corner[side], dv = dirs[side];
+      pts.push(c); notchEdge.push(false);
+      const along = (q) => (dv[0] !== 0 ? (q - c[0]) * dv[0] : (q - c[1]) * dv[1]);
+      const list = bySide[side].slice().sort((a, b2) => along(a.at) - along(b2.at));
+      const inward = [-dv[1], dv[0]];
+      for (const n of list) {
+        const t0 = along(n.at);
+        const P0 = [c[0] + dv[0] * t0, c[1] + dv[1] * t0];
+        const segs = 12;
+        for (let k = 0; k <= segs; k++) {
+          const a = Math.PI - (Math.PI * k) / segs;
+          pts.push([P0[0] + n.r * (Math.cos(a) * dv[0] + Math.sin(a) * inward[0]), P0[1] + n.r * (Math.cos(a) * dv[1] + Math.sin(a) * inward[1])]);
+          notchEdge.push(k < segs);
+        }
+      }
+    }
+    // the plain edges: a castellation's own hole is drawn by its lead
+    for (let i = 0; i < pts.length; i++) {
+      if (notchEdge[i]) continue;
+      const a = pts[i], c = pts[(i + 1) % pts.length];
+      m.face4([a[0], a[1], z0], [c[0], c[1], z0], [c[0], c[1], zt], [a[0], a[1], zt]);
+    }
+    m.cap(pts, z0, false);
+    m.cap(pts, zt, true);
+    return m;
+  }
+
+  /** Meshes by name, kind and color, in the order each first appears. */
+  class Parts {
+    constructor() { this.list = []; this.map = new Map(); }
+    add(name, kind, mat, src, m) {
+      if (!m.i.length) return null;
+      const key = `${name}\u0000${kind}\u0000${mat.color.join(',')}\u0000${mat.metal}`;
+      let t = this.map.get(key);
+      if (!t) { t = new Mesh(name, kind, mat, src); this.map.set(key, t); this.list.push(t); }
+      t.append(m);
+      return t;
     }
   }
+  const matOfValue = (c) => ({ color: c.rgb.slice(), metal: c.metal ? 1 : 0 });
+  /** A frame as a matrix: map(u, v, z) of frame() below. */
+  function frameMatrix(b, l) {
+    const s = SIGN[l.side];
+    if (l.side === 'left' || l.side === 'right') return [s, 0, 0, b.x, 0, 1, 0, l.y, 0, 0, 1, 0];
+    return [0, 1, 0, l.x, s, 0, 0, b.y, 0, 0, 1, 0];
+  }
+  /** A copy of a mesh through a frame. */
+  function cloneThrough(src, M, name, kind, mat, srcRanges) {
+    const m = new Mesh(name, kind, mat, srcRanges);
+    m.p = src.p.slice(); m.n = src.n.slice(); m.i = src.i.slice();
+    return applyFrame(m, M);
+  }
+
+  // The engine: measures the part, asks the standard library (or the user's
+  // features) to draw it, and builds the meshes.
+
+  // Flags the engine works out by asking a hook, in this order: a hook that
+  // declares `NAME_if` gets flag NAME when it's above zero, else the second flag.
+  const DERIVED = {
+    body: [['drafted', 'plain'], ['tall'], ['shield', 'unshielded'], ['vented']],
+    lead: [['fine'], ['wide'], ['coarse'], ['straddle'], ['flush'], ['bent', 'cramped'], ['under', 'beyond'], ['socket']],
+  };
+  // what a body hook exports to the leads
+  const EXPORTS = ['zp', 'housing', 'zc', 'len', 'ts'];
+  const len = (v) => ({ k: 'len', v });
+  const num = (v) => ({ k: 'num', v });
+  const colorVal = (c) => ({ k: 'color', v: c });
+
+  function build(res, opts) {
+    opts = opts || {};
+    const md = res.model || { props: {}, solids: [] };
+    const out = { none: !!md.none, meshes: [], notes: [], style: null, summary: null, H: 0, standoff: 0, diagnostics: [] };
+    if (md.none) return finalize(out);
+    try { new Engine(res, opts, out).run(); } catch (err) {
+      if (opts.strict) throw err;
+      if (!err.hook) {
+        out.diagnostics.push({ severity: 'error', message: `internal error while building the 3D model: ${err && err.message}`, s: 0, e: 0 });
+        if (typeof console !== 'undefined') console.error(err);
+      }
+    }
+    out.diagnostics.push(...md.hooks.take());
+    if (opts.strict && out.diagnostics.some((d) => d.severity === 'error')) {
+      throw new Error(`3D model: ${out.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message).join('; ')}`);
+    }
+    return finalize(out);
+  }
+
+  class Engine {
+    constructor(res, opts, out) {
+      this.res = res; this.opts = opts; this.out = out;
+      this.md = res.model; this.hooks = res.model.hooks; this.P = res.model.props || {};
+      this.memo = new Map();
+    }
+
+    /** Bind a hook, working out the derived flags it asks for. */
+    bind(kind, name, values, flags, trigger, written) {
+      const fl = flags.filter(Boolean);
+      let B = this.hooks.bind(name, values, fl, trigger, written);
+      for (const [flag, other] of DERIVED[kind]) {
+        if (!B.has(`${flag}_if`)) continue;
+        const v = B.test(`${flag}_if`);
+        if (v != null && v > 0) fl.push(flag); else if (other) fl.push(other); else continue;
+        B = this.hooks.bind(name, values, fl, trigger, written);
+      }
+      return B;
+    }
+
+    /** A hook's solids as meshes in its own frame: [{ name, kind, mat, mesh }]. */
+    meshesOf(B, defaults, kx) {
+      const parts = new Parts();
+      for (const d of B.solids(null)) {
+        const kind = d.kind || defaults.kind;
+        const name = d.name || defaults.name(kind);
+        const mat = d.color ? matOfValue(d.color) : defaults.mat;
+        parts.add(name, kind, mat, [], descMesh(d, kx));
+      }
+      return parts.list;
+    }
+
+    run() {
+      const { res, P, out, md } = this;
+      const b = res.body;
+      const notes = out.notes;
+      const leads = (res.leads || []).filter((l) => l.form !== 'none');
+      if (md.step) notes.push(`Uses the STEP file ${md.step.file}, which the demo can't load, so this is the generated model.`);
+      this.solidColor = (() => { try { return matOfValue(this.hooks.libColor('solid_color')); } catch (e) { return EPOXY; } })();
+      if (!b) {
+        if (md.solids && md.solids.length) notes.push('No body, so only the model block\'s solids are shown.');
+        else notes.push('No body. Add `body W x L x H` to generate a model.');
+        this.extraSolids(null, 0);
+        out.summary = md.solids && md.solids.length ? `${md.solids.length} solid${md.solids.length > 1 ? 's' : ''}` : null;
+        return;
+      }
+      const style = res.style;
+      out.style = style;
+      const fam = res.family;
+      const pitch = (res.generator && res.generator.pitch) || (leads.find((l) => l.pitch) || {}).pitch || null;
+      const ballD = (() => { const l = leads.find((x) => x.form === 'ball'); return l ? (l.v != null ? l.v : l.d != null ? l.d : (l.padAcross || 0.5) / 0.8) : 0.5; })();
+      const bodySrc = b.src || [];
+      const bodyTrigger = bodySrc[0] || null;
+      const shape = P.bodyShape || null;
+      const bodyHook = shape ? shape.call.name : `body_${style}`;
+
+      // what the body is drawn from
+      const V = { W: len(b.w), L: len(b.l), ball_d: len(ballD) };
+      if (P.draft != null) V.taper = num(P.draft);
+      if (P.bodyColor) V.body_color = colorVal(P.bodyColor);
+      if (P.leadsColor) V.lead_color = colorVal(P.leadsColor);
+      if (pitch != null) V.e = len(pitch);
+      if (P.above != null) V.rise = len(P.above);
+      let castD = 0;
+      for (const l of leads) if (l.form === 'castellated' && l.side) castD = Math.max(castD, l.castellated || l.d || l.v || 0.6);
+      V.cast_d = len(castD);
+      const turnOf = (ax) => (ax === 'y' ? 90 : 0);
+      if (style === 'chip') {
+        V.turn = num(turnOf(chipAxis({ res, b })));
+        const L0 = res.lead || leads.find((l) => l.form === 'endcap');
+        const T = L0 ? (L0.l != null ? L0.l : L0.v != null ? L0.v : L0.d) : null;
+        if (T != null) V.T = len(T);
+      } else if (style === 'melf' || style === 'axial') {
+        V.turn = num(turnOf(b.axial || 'x'));
+        if (style === 'melf' && res.lead && res.lead.v != null) V.T = len(res.lead.v);
+      }
+      const baseFlags = [style, res.mainForm, fam];
+      const p1 = res.pin1;
+      if (p1 && (p1.style === 'dot' || p1.style === 'chamfer')) baseFlags.push('silk_mark');
+
+      // the standoff and height
+      let B0 = this.hooks.bind(bodyHook, V, baseFlags, bodyTrigger, shape);
+      let H = P.height != null ? P.height : b.h;
+      let z0 = P.standoff != null ? P.standoff : (B0.has('z0') ? B0.len('z0') : 0);
+      if (H == null) {
+        notes.push('The body has no height, so it\'s drawn as a thin plate. Add one: `body W x L x H`.');
+        H = z0 + 0.1;
+      }
+      if (z0 >= H - 0.02) {
+        if (P.standoff != null) notes.push(`The standoff (${fmt(z0)}) reaches the body top (${fmt(H)}), so it was lowered.`);
+        z0 = Math.max(0, Math.min(z0, H * 0.5));
+      }
+      out.H = H; out.standoff = z0;
+      V.H = len(H); V.z0 = len(z0);
+      B0 = this.hooks.bind(bodyHook, V, baseFlags, bodyTrigger, shape);
+
+      // the mark: from the model block, the polarity, or pin 1's silk
+      let mark = P.pin1 || null;
+      if (!mark) {
+        if (res.polarized) mark = 'stripe';
+        else if (!p1 || (p1.explicit && p1.style === 'none')) mark = 'none';
+        else if (p1.style === 'notch') mark = 'notch';
+        else if (p1.style === 'bar') mark = 'stripe';
+        else mark = B0.has('pin1_mark') ? B0.str('pin1_mark') : 'none';
+      }
+      const flags = baseFlags.slice();
+      const bodyColor = P.bodyColor || (B0.has('body_color') ? B0.color('body_color') : null);
+      flags.push(bodyColor && bodyColor.metal ? 'bare' : 'sleeved');
+      // where the marks point
+      const top = { cx: b.x, cy: b.y };
+      if (p1) {
+        V.sx = num(Math.sign(Math.round((p1.x - top.cx) * 1e6)));
+        V.sy = num(Math.sign(Math.round((p1.y - top.cy) * 1e6)));
+        const g = res.generator;
+        const rowsLR = g && (g.kind === 'dual' || leads.some((l) => l.side === 'left' || l.side === 'right'));
+        if (rowsLR) { V.nx = num(0); V.ny = num(V.sy.v || 1); } else { V.nx = num(V.sx.v || -1); V.ny = num(0); }
+      }
+      if (mark === 'stripe') {
+        const to = this.stripeEnd();
+        if (to) {
+          const dx = to[0] - b.x, dy = to[1] - b.y;
+          const ax = style === 'chip' ? chipAxis({ res, b }) : (style === 'melf' || style === 'axial') ? (b.axial || 'x') : (Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y');
+          const sgn = (ax === 'x' ? dx : dy) < 0 ? -1 : 1;
+          V.ex = num(ax === 'x' ? sgn : 0); V.ey = num(ax === 'y' ? sgn : 0);
+          V.ma = num(Math.atan2(dy, dx) / D2R);
+        } else mark = 'none';
+      }
+      if (mark !== 'none') flags.push(mark);
+      const B = this.bind('body', bodyHook, V, flags, bodyTrigger, shape);
+      if (mark !== 'none' && !B.flags.has(mark)) mark = 'none';
+      const exp = {};
+      for (const k of EXPORTS) if (B.has(k)) exp[k] = B.len(k);
+      const bodyTop = B.has('top_z') ? B.len('top_z') : H;
+      this.bodyColor = B.has('body_color') ? matOfValue(B.color('body_color')) : (bodyColor ? matOfValue(bodyColor) : this.solidColor);
+      const leadColor = P.leadsColor ? matOfValue(P.leadsColor) : (B.has('lead_color') ? matOfValue(B.color('lead_color')) : TIN);
+      const markSrc = (md.src || []).concat(this.markNodes());
+
+      // the body's meshes; its marks go after the leads
+      const castellations = [];
+      for (const l of leads) {
+        if (l.form !== 'castellated' || !l.side) continue;
+        const lr = l.side === 'left' || l.side === 'right';
+        castellations.push({ side: l.side, at: (lr ? l.y - b.y : l.x - b.x), r: (l.castellated || l.d || l.v || 0.6) / 2 });
+      }
+      const leadSrc = res.lead ? res.lead.src : [];
+      const marks = [];
+      const bodyParts = this.meshesOf(B, {
+        kind: 'body', mat: this.bodyColor,
+        name: (k) => (k === 'lead' ? 'lead' : k === 'mark' ? 'mark' : 'body'),
+      }, { castellations });
+      for (const p of bodyParts) {
+        const m = cloneThrough(p, [1, 0, 0, b.x, 0, 1, 0, b.y, 0, 0, 1, 0], p.name, p.kind, { color: p.color, metal: p.metal },
+          p.kind === 'body' ? bodySrc : p.kind === 'lead' ? leadSrc : markSrc);
+        if (p.kind === 'mark') marks.push(m); else out.meshes.push(m);
+      }
+
+      // leads
+      let nLeads = 0;
+      const leadShape = P.leadsShape || null;
+      for (const l of leads) {
+        const hook = leadShape ? leadShape.call.name : leadHookOf(style, l);
+        if (!hook) continue;
+        const sided = !!l.side && SIDED.has(hook) || (leadShape && !!l.side);
+        const F = l.side ? frame(b, l) : null;
+        const lv = {
+          z0: len(z0), H: len(H),
+          pad_across: l.padAcross ? len(l.padAcross) : undefined, pad_along: l.padAlong ? len(l.padAlong) : undefined,
+        };
+        for (const k of Object.keys(exp)) lv[k] = len(exp[k]);
+        if (F) { lv.edge = len(F.uEdge); lv.pad_u = len(F.uPad); if (F.uToe != null) lv.toe = len(F.uToe); lv.side_len = len(l.side === 'left' || l.side === 'right' ? b.l : b.w); }
+        const wl = hook === 'lead_tab' || hook === 'lead_contact';
+        if (l.w != null) lv.b = len(l.w);
+        const T = wl ? l.l : (l.l != null ? l.l : l.v);
+        if (T != null) lv.T = len(T);
+        const Dm = l.form === 'castellated' ? (l.castellated || l.d || l.v) : (l.form === 'ball' || l.form === 'column') ? (l.v != null ? l.v : l.d) : (l.d != null ? l.d : l.v);
+        if (Dm != null) lv.D = len(Dm);
+        if (l.drill) lv.drill_d = len(l.drill);
+        const e = l.pitch || pitch;
+        if (e != null) lv.e = len(e);
+        if (P.thickness != null) lv.c = len(P.thickness);
+        if (P.below != null) lv.tail = len(P.below);
+        if (P.leadsColor) lv.lead_color = colorVal(P.leadsColor);
+        for (const k of Object.keys(lv)) if (lv[k] === undefined) delete lv[k];
+        const lf = [l.form, style];
+        if (l.form === 'pin' || l.form === 'wire') lf.push(l.d != null || (l.w == null && l.v != null) ? 'round' : 'square');
+        const trigger = (l.src && l.src[0]) || bodyTrigger;
+        const key = `${hook}|${JSON.stringify(lv)}|${lf.join(',')}`;
+        let parts = this.memo.get(key);
+        if (!parts) {
+          try {
+            const LB = this.bind('lead', hook, lv, lf, trigger, leadShape);
+            parts = this.meshesOf(LB, { kind: 'lead', mat: LB.has('lead_color') ? matOfValue(LB.color('lead_color')) : leadColor, name: () => null }, null);
+          } catch (err) { if (!err.hook || this.opts.strict) throw err; parts = []; }
+          this.memo.set(key, parts);
+        }
+        const M = sided && F ? frameMatrix(b, l) : [1, 0, 0, l.x, 0, 1, 0, l.y, 0, 0, 1, 0];
+        const src = (l.src || []).concat(l.generated && res.generator ? res.generator.src || [] : []);
+        let drew = false;
+        for (const p of parts) {
+          const m = cloneThrough(p, M, p.name ? `${p.name} ${l.pad}` : `lead ${l.pad}`, p.kind, { color: p.color, metal: p.metal }, p.kind === 'mark' ? markSrc : src);
+          if (m.i.length) drew = true;
+          if (p.kind === 'mark') marks.push(m); else out.meshes.push(m);
+        }
+        if (drew) nLeads++;
+      }
+
+      // exposed pads under the body
+      for (const p of res.pads) {
+        if (!p.thermal || !this.hooks.has('exposed_pad')) continue;
+        const bb = p.bbox;
+        const pv = { w: len(bb.x1 - bb.x0), l: len(bb.y1 - bb.y0), z0: len(z0), H: len(H) };
+        if (P.thickness != null) pv.c = len(P.thickness);
+        if (P.leadsColor) pv.lead_color = colorVal(P.leadsColor);
+        const EB = this.hooks.bind('exposed_pad', pv, [style], (p.src && p.src[0]) || bodyTrigger);
+        const parts = this.meshesOf(EB, { kind: 'lead', mat: EB.has('lead_color') ? matOfValue(EB.color('lead_color')) : leadColor, name: () => `exposed pad ${p.name}` }, null);
+        for (const q of parts) out.meshes.push(cloneThrough(q, [1, 0, 0, (bb.x0 + bb.x1) / 2, 0, 1, 0, (bb.y0 + bb.y1) / 2, 0, 0, 1, 0], q.name, q.kind, { color: q.color, metal: q.metal }, p.src));
+      }
+      out.meshes.push(...marks);
+
+      // extra solids
+      this.extraSolids(this.bodyColor, bodyTop);
+
+      // what was built
+      const formCount = {};
+      for (const l of leads) formCount[l.form] = (formCount[l.form] || 0) + 1;
+      const parts2 = [shape ? `body shape ${shape.call.name}` : STYLE_NAME[style]];
+      const fl = Object.entries(formCount).map(([f, k]) => `${k} ${FORM_NAME[f] || f}${k > 1 ? 's' : ''}`);
+      if (fl.length) parts2.push(fl.join(', '));
+      if (mark !== 'none') parts2.push(mark === 'stripe' ? 'polarity stripe' : `pin-1 ${mark}`);
+      if (md.solids && md.solids.length) parts2.push(`${md.solids.length} extra solid${md.solids.length > 1 ? 's' : ''}`);
+      out.summary = parts2.join(' · ');
+      const forms = Object.keys(formCount);
+      const NOUN = { gullwing: 'gull-wings', jlead: 'J-leads', lbend: 'L-bend leads', straight: 'straight leads', column: 'columns', flat: 'terminals', endcap: 'caps', ball: 'balls', pin: 'pins', wire: 'wires', castellated: 'castellations', tab: 'tabs' };
+      const nAll = leads.length;
+      out.short = [STYLE_SHORT[style], nAll ? `${nAll} ${forms.length === 1 ? (nAll === 1 ? NOUN[forms[0]].replace(/s$/, '') : NOUN[forms[0]]) : 'leads'}` : null].filter(Boolean).join(' · ');
+      out.mark = mark;
+      out.leadCount = nLeads;
+    }
+
+    /** Where a stripe goes: the pin the polarity hook names, or pin 1. */
+    stripeEnd() {
+      const res = this.res;
+      const pinOne = res.pin1;
+      let at = null;
+      if (res.polarized) {
+        let pin = '2';
+        if (this.hooks.has('polarity')) {
+          const PB = this.hooks.bind('polarity', {}, [res.style, res.family].filter(Boolean), null);
+          if (PB.has('stripe_at')) pin = PB.str('stripe_at');
+        }
+        if (pin === '1' || (pinOne && pinOne.pad === pin)) return pinOne ? [pinOne.x, pinOne.y] : null;
+        const p = res.pads.find((q) => q.name === pin) || res.pads.find((q) => pinOne && q.name !== pinOne.pad && !q.thermal);
+        at = p ? [p.x, p.y] : null;
+        return at;
+      }
+      return pinOne ? [pinOne.x, pinOne.y] : null;
+    }
+
+    /** The statements a mark comes from: pin1 and polarized. */
+    markNodes() {
+      const r = this.res;
+      return (r.markSrc || []);
+    }
+
+    /** The model block's own solids and placed features. */
+    extraSolids(bodyMat, bodyTop) {
+      const md = this.md;
+      for (const d of md.solids || []) {
+        const mat = d.color ? matOfValue(d.color) : (bodyMat || this.solidColor);
+        const m0 = descMesh(Object.assign({}, d, { M: d.place ? null : d.M }), null);
+        const m = new Mesh(d.name || d.op, d.kind || 'solid', mat, d.src || []);
+        m.p = m0.p; m.n = m0.n; m.i = m0.i;
+        if (d.place) {
+          let x0 = Infinity, y0 = Infinity, zmin = Infinity, x1 = -Infinity, y1 = -Infinity;
+          for (let k = 0; k < m.p.length; k += 3) {
+            x0 = Math.min(x0, m.p[k]); x1 = Math.max(x1, m.p[k]);
+            y0 = Math.min(y0, m.p[k + 1]); y1 = Math.max(y1, m.p[k + 1]);
+            zmin = Math.min(zmin, m.p[k + 2]);
+          }
+          const zBase = d.place.z != null ? d.place.z : (d.onBody ? bodyTop : 0);
+          const dx = d.place.x - (x0 + x1) / 2, dy = d.place.y - (y0 + y1) / 2, dz = zBase - zmin;
+          m.transform((x, y, z) => [x + dx, y + dy, z + dz], (x, y, z) => [x, y, z]);
+        } else if (d.lift) m.transform((x, y, z) => [x, y, z + bodyTop], (x, y, z) => [x, y, z]);
+        this.out.meshes.push(m);
+      }
+    }
+  }
+
+  // leads drawn in their side's frame; the others around their pad's center
+  const SIDED = new Set(['lead_gullwing', 'lead_jlead', 'lead_lbend', 'lead_straight', 'lead_flat', 'lead_endcap', 'lead_tab', 'lead_castellated', 'lead_dip', 'lead_axial']);
+  /** The hook that draws a lead, or null when the body draws it. */
+  function leadHookOf(style, l) {
+    const f = l.form;
+    if (f === 'endcap' && (style === 'chip' || style === 'melf')) return null;   // the body draws its caps
+    if (f === 'castellated') return l.side ? 'lead_castellated' : null;
+    if (f === 'pin' || f === 'wire') {
+      if (style === 'dip' && l.side) return 'lead_dip';
+      if (style === 'axial') return 'lead_axial';
+      if (style === 'header') return 'lead_header';
+      return 'lead_tht';
+    }
+    if (f === 'ball' || f === 'column' || f === 'tab') return `lead_${f}`;
+    if (!l.side) return 'lead_contact';
+    return `lead_${f}`;
+  }
+
 
   const STYLE_NAME = {
     molded: 'molded body', sawn: 'sawn (leadless) body', chip: 'chip body', melf: 'MELF body', bga: 'BGA substrate and mold cap', cga: 'ceramic body on solder columns',
@@ -392,266 +822,9 @@
     wire: 'wire', tab: 'tab', castellated: 'castellation',
   };
 
-  function build(res, opts) {
-    opts = opts || {};
-    const md = res.model || { props: {}, solids: [] };
-    const meshes = [];
-    const notes = [];
-    const out = { none: !!md.none, meshes, notes, style: null, summary: null, H: 0, standoff: 0 };
-    if (md.none) return finalize(out);
-    const P = md.props || {};
-    const b = res.body;
-    const leads = (res.leads || []).filter((l) => l.form !== 'none');
-    const mainForm = res.lead ? res.lead.form : ((leads.find((l) => l.form !== 'tab') || leads[0] || {}).form || null);
-    const fam = familyOf(res);
-
-    if (md.step) notes.push(`Uses the STEP file ${md.step.file}, which the demo can't load, so this is the generated model.`);
-    if (!b) {
-      if (md.solids && md.solids.length) notes.push('No body, so only the model block\'s solids are shown.');
-      else notes.push('No body. Add `body W x L x H` to generate a model.');
-      const bodyTop = 0;
-      for (const s of md.solids || []) meshes.push(solidMesh(s, null, bodyTop));
-      out.summary = md.solids && md.solids.length ? `${md.solids.length} solid${md.solids.length > 1 ? 's' : ''}` : null;
-      return finalize(out);
-    }
-
-    const style = styleOf(res, mainForm);
-    out.style = style;
-    const pitch = (res.generator && res.generator.pitch) || (leads.find((l) => l.pitch) || {}).pitch || null;
-    const ballD = (() => { const l = leads.find((x) => x.form === 'ball'); return l ? (l.v != null ? l.v : l.d != null ? l.d : (l.padAcross || 0.5) / 0.8) : 0.5; })();
-    const MOLDED_STANDOFF = { jlead: 0.5, lbend: 0.15, straight: 0.05 };
-    const STANDOFF = { molded: MOLDED_STANDOFF[mainForm] != null ? MOLDED_STANDOFF[mainForm] : 0.1, sawn: 0.02, chip: 0, melf: 0, bga: 0.75 * ballD, cga: 2.2, dip: 0.5, header: 0, can: 0.5, radial: 0.5, axial: 0, module: 0, block: 0 };
-    let H = P.height != null ? P.height : b.h;
-    let z0 = P.standoff != null ? P.standoff : STANDOFF[style];
-    if (H == null) {
-      notes.push('The body has no height, so it\'s drawn as a thin plate. Add one: `body W x L x H`.');
-      H = z0 + 0.1;
-    }
-    if (z0 >= H - 0.02) {
-      if (P.standoff != null) notes.push(`The standoff (${fmt(z0)}) reaches the body top (${fmt(H)}), so it was lowered.`);
-      z0 = Math.max(0, Math.min(z0, H * 0.5));
-    }
-    out.H = H; out.standoff = z0;
-    const draft = P.draft != null ? P.draft : (style === 'molded' || style === 'dip' ? 8 : 0);
-    const bodySrc = b.src || [];
-    const bodyMat = P.bodyColor ? matOf(P.bodyColor) : defaultBodyMat(style, fam);
-    const leadMat = P.leadsColor ? matOf(P.leadsColor) : (style === 'header' ? MAT.gold : MAT.tin);
-    const thick = (form, l) => {
-      if (P.thickness != null) return P.thickness;
-      const p = (l && l.pitch) || pitch;
-      if (form === 'flat') return Math.min(0.2, 0.3 * (H - 0) || 0.2);
-      if (form === 'tab') return Math.min(0.5, 0.25 * H);
-      if (form === 'jlead') return p != null && p >= 1.27 - 1e-9 ? 0.25 : 0.2;
-      if (form === 'lbend' || form === 'straight') return 0.12;
-      return p == null ? 0.2 : p < 1 - 1e-9 ? 0.15 : p < 2 - 1e-9 ? 0.2 : 0.3;
-    };
-    const below = P.below != null ? P.below : 3;
-    const zp = style === 'dip' ? z0 + 0.4 * (H - z0) : z0 + 0.5 * (H - z0);   // parting line / lead exit
-    const ctx = { res, b, H, z0, zp, draft, bodyMat, leadMat, style, fam, thick, below, pitch, notes };
-
-    // body
-    const bodyInfo = buildBody(ctx, meshes, bodySrc);
-    ctx.top = bodyInfo.top;           // the top face for marks: { cx, cy, w, l, z }
-    ctx.bodyTop = bodyInfo.z1 != null ? bodyInfo.z1 : H;
-
-    // leads
-    let nLeads = 0;
-    const leadMeshes = new Map();
-    for (const l of leads) {
-      const m = new Mesh(`lead ${l.pad}`, 'lead', leadMat, (l.src || []).concat(l.generated && res.generator ? res.generator.src || [] : []));
-      try { if (buildLead(ctx, l, m)) { meshes.push(m); leadMeshes.set(l.pad, m); nLeads++; } } catch (e) { if (opts.strict) throw e; }
-    }
-    // exposed pads under the body
-    if (style === 'sawn' || style === 'molded' || style === 'block') {
-      for (const p of res.pads) {
-        if (!p.thermal) continue;
-        const bb = p.bbox;
-        const m = new Mesh(`exposed pad ${p.name}`, 'lead', leadMat, p.src);
-        const t = style === 'sawn' ? thick('flat') : Math.max(0.05, z0 + 0.04);
-        box(m, bb.x0, bb.y0, 0, bb.x1, bb.y1, t);
-        meshes.push(m);
-      }
-    }
-    // pin-1 mark or polarity stripe
-    const mark = markOf(ctx, P);
-    if (mark !== 'none') buildMark(ctx, mark, meshes, leadMeshes);
-
-    // extra solids
-    for (const s of md.solids || []) meshes.push(solidMesh(s, bodyMat, ctx.bodyTop));
-
-    const formCount = {};
-    for (const l of leads) formCount[l.form] = (formCount[l.form] || 0) + 1;
-    const parts = [STYLE_NAME[style]];
-    const fl = Object.entries(formCount).map(([f, k]) => `${k} ${FORM_NAME[f] || f}${k > 1 ? (f === 'ball' ? 's' : f === 'flat' ? 's' : 's') : ''}`);
-    if (fl.length) parts.push(fl.join(', '));
-    if (mark !== 'none') parts.push(mark === 'stripe' ? 'polarity stripe' : `pin-1 ${mark}`);
-    if (md.solids && md.solids.length) parts.push(`${md.solids.length} extra solid${md.solids.length > 1 ? 's' : ''}`);
-    out.summary = parts.join(' · ');
-    const forms = Object.keys(formCount);
-    const NOUN = { gullwing: 'gull-wings', jlead: 'J-leads', lbend: 'L-bend leads', straight: 'straight leads', column: 'columns', flat: 'terminals', endcap: 'caps', ball: 'balls', pin: 'pins', wire: 'wires', castellated: 'castellations', tab: 'tabs' };
-    const nAll = leads.length;
-    out.short = [STYLE_SHORT[style], nAll ? `${nAll} ${forms.length === 1 ? (nAll === 1 ? NOUN[forms[0]].replace(/s$/, '') : NOUN[forms[0]]) : 'leads'}` : null].filter(Boolean).join(' · ');
-    out.mark = mark;
-    out.leadCount = nLeads;
-    return finalize(out);
-  }
-
-  function defaultBodyMat(style, fam) {
-    switch (style) {
-      case 'chip': return fam === 'C' ? MAT.mlcc : fam === 'L' ? MAT.inductor : fam === 'D' ? MAT.ledBody : MAT.ceramic;
-      case 'melf': return fam === 'R' ? MAT.melfR : fam === 'D' ? MAT.melfD : fam === 'C' ? MAT.mlcc : MAT.inductor;
-      case 'axial': return fam === 'R' ? MAT.axialR : fam === 'D' ? MAT.axialD : fam === 'C' ? MAT.axialC : fam === 'L' ? MAT.axialL : MAT.axialR;
-      case 'can': return MAT.can;
-      case 'module': return MAT.module;
-      case 'bga': return MAT.molded;
-      case 'cga': return MAT.ceramic;
-      default: return MAT.molded;
-    }
-  }
-
-  // Bodies
-  function buildBody(ctx, meshes, src) {
-    const { b, H, z0, zp, draft, bodyMat, style, fam } = ctx;
-    const m = new Mesh('body', 'body', bodyMat, src);
-    meshes.push(m);
-    const cx = b.x, cy = b.y, w = b.w, l = b.l;
-    const tanD = Math.tan(draft * D2R);
-    const top = { cx, cy, w, l, z: H };
-    if (style === 'molded' || style === 'dip' || (style === 'block' && draft > 0) || (style === 'radial' && draft > 0)) {
-      const band = Math.min(0.05, (H - z0) * 0.08);
-      const zA = Math.max(z0, zp - band), zB = Math.min(H, zp + band);
-      const inB = Math.min(tanD * (zA - z0), 0.3 * Math.min(w, l));
-      const inT = Math.min(tanD * (H - zB), 0.3 * Math.min(w, l));
-      loft(m, [
-        { z: z0, pts: rectPts(cx, cy, w - 2 * inB, l - 2 * inB) },
-        { z: zA, pts: rectPts(cx, cy, w, l) },
-        { z: zB, pts: rectPts(cx, cy, w, l) },
-        { z: H, pts: rectPts(cx, cy, w - 2 * inT, l - 2 * inT) },
-      ]);
-      top.w = w - 2 * inT; top.l = l - 2 * inT;
-      return { top, z1: H };
-    }
-    if (style === 'sawn' || style === 'block' || style === 'header' || style === 'radial' || style === 'cga') {
-      let zTop = H;
-      if (style === 'header') zTop = ctx.housing = headerHousing(ctx);
-      boxC(m, cx, cy, z0, w, l, zTop - z0);
-      top.z = zTop;
-      return { top, z1: zTop };
-    }
-    if (style === 'chip') {
-      const ax = chipAxis(ctx);
-      const len = ax === 'x' ? w : l, across = ax === 'x' ? l : w;
-      const T = chipCap(ctx, len);
-      const e = 0.012;
-      const inner = len - 2 * e;
-      const crossW = across - 2 * e;
-      if (ax === 'x') box(m, cx - inner / 2, cy - crossW / 2, e, cx + inner / 2, cy + crossW / 2, H - e);
-      else box(m, cx - crossW / 2, cy - inner / 2, e, cx + crossW / 2, cy + inner / 2, H - e);
-      // caps
-      const cm = new Mesh('end caps', 'lead', ctx.leadMat, ctx.res.lead ? ctx.res.lead.src : []);
-      for (const s of [-1, 1]) {
-        const c0 = s * (len / 2 - T / 2);
-        if (ax === 'x') boxC(cm, cx + c0, cy, 0, T, across, H);
-        else boxC(cm, cx, cy + c0, 0, across, T, H);
-      }
-      meshes.push(cm);
-      ctx.capsDone = true;
-      ctx.chip = { ax, len, across, T };
-      const midLen = len - 2 * T - 0.02;
-      if (midLen > 0) {
-        if (fam === 'R') {
-          const tm = new Mesh('resistive layer', 'body', MAT.resistorTop, src);
-          if (ax === 'x') box(tm, cx - midLen / 2, cy - crossW / 2 + 0.02, H - 0.035, cx + midLen / 2, cy + crossW / 2 - 0.02, H - 0.004);
-          else box(tm, cx - crossW / 2 + 0.02, cy - midLen / 2, H - 0.035, cx + crossW / 2 - 0.02, cy + midLen / 2, H - 0.004);
-          meshes.push(tm);
-        } else if (fam === 'D') {
-          const lm = new Mesh('lens', 'body', MAT.ledLens, src);
-          const lh = Math.min(0.45 * H, H - 0.02);
-          if (ax === 'x') box(lm, cx - midLen / 2, cy - crossW / 2 + 0.04, H - lh, cx + midLen / 2, cy + crossW / 2 - 0.04, H - 0.004);
-          else box(lm, cx - crossW / 2 + 0.04, cy - midLen / 2, H - lh, cx + crossW / 2 - 0.04, cy + midLen / 2, H - 0.004);
-          meshes.push(lm);
-        }
-      }
-      top.w = ax === 'x' ? midLen : crossW; top.l = ax === 'x' ? crossW : midLen;
-      return { top, z1: H };
-    }
-    if (style === 'melf' || style === 'axial') {
-      const ax = b.axial || 'x';
-      const d = b.d != null ? b.d : Math.min(w, l);
-      const len = ax === 'x' ? w : l;
-      const r = d / 2, zc = z0 + r;
-      ctx.axial = { ax, len, r, zc };
-      if (style === 'melf') {
-        const T = Math.min(len * 0.4, ctx.res.lead && ctx.res.lead.v != null ? ctx.res.lead.v : len * 0.2);
-        const body = new Mesh('body', 'body', bodyMat, src);
-        cylinder(body, 0, 0, -(len / 2 - 0.01), len / 2 - 0.01, r - 0.012, 32);
-        meshes[meshes.indexOf(m)] = lay(body, ax, cx, cy, zc);
-        const cm = new Mesh('end caps', 'lead', ctx.leadMat, ctx.res.lead ? ctx.res.lead.src : []);
-        cylinder(cm, 0, 0, -len / 2, -len / 2 + T, r, 32);
-        cylinder(cm, 0, 0, len / 2 - T, len / 2, r, 32);
-        meshes.push(lay(cm, ax, cx, cy, zc));
-        ctx.capsDone = true;
-        ctx.axial.T = T;
-      } else {
-        const body = new Mesh('body', 'body', bodyMat, src);
-        // a slightly waisted body with rounded shoulders
-        const k = Math.min(0.12 * len, 0.6 * r);
-        frustum(body, 0, 0, -len / 2, -len / 2 + k, r * 0.78, r, 32, 'bottom');
-        cylinder(body, 0, 0, -len / 2 + k, len / 2 - k, r, 32, false);
-        frustum(body, 0, 0, len / 2 - k, len / 2, r, r * 0.78, 32, 'top');
-        meshes[meshes.indexOf(m)] = lay(body, ax, cx, cy, zc);
-      }
-      return { top: null, z1: z0 + d };
-    }
-    if (style === 'can') {
-      const r = Math.min(w, l) / 2;
-      const z1 = H;
-      const lip = Math.min(0.12, 0.02 * (z1 - z0) + 0.04);
-      cylinder(m, cx, cy, z0 + 0.15, z1, r, 48, false);
-      frustum(m, cx, cy, z0, z0 + 0.15, r * 0.94, r, 48, false);
-      ring(m, cx, cy, z1, r * 0.82, r, 48, true);
-      cylinder(m, cx, cy, z1 - lip, z1, r * 0.82, 48, false);    // inner wall of the rolled edge
-      const bot = new Mesh('seal', 'body', MAT.rubber, src);
-      frustum(bot, cx, cy, z0, z0 + 0.001, r * 0.94, r * 0.94, 48, 'bottom');
-      meshes.push(bot);
-      const lid = new Mesh('can top', 'body', MAT.aluminum, src);
-      cylinder(lid, cx, cy, z1 - lip - 0.002, z1 - lip, r * 0.82, 48, 'top');
-      meshes.push(lid);
-      // a can in a metal color is bare (a polymer cap): no vent, and its mark goes on the lid
-      const bare = !!(ctx.bodyMat && ctx.bodyMat.metal);
-      if (r > 1.2 && !bare) {
-        const vent = new Mesh('vent', 'body', MAT.vent, src);
-        const vl = r * 0.9, vw = Math.max(0.06, r * 0.04);
-        boxC(vent, cx, cy, z1 - lip - 0.001, vl, vw, 0.006);
-        boxC(vent, cx, cy, z1 - lip - 0.001, vw, vl, 0.006);
-        meshes.push(vent);
-      }
-      ctx.can = { r, z1, lid: z1 - lip, bare };
-      return { top: null, z1 };
-    }
-    if (style === 'bga') {
-      const ts = Math.min(0.36, 0.35 * (H - z0));
-      const sub = new Mesh('substrate', 'body', MAT.substrate, src);
-      boxC(sub, cx, cy, z0, w, l, ts);
-      meshes.push(sub);
-      boxC(m, cx, cy, z0 + ts, w - 0.002, l - 0.002, H - z0 - ts);
-      return { top, z1: H };
-    }
-    if (style === 'module') {
-      return buildModule(ctx, m, meshes, src);
-    }
-    boxC(m, cx, cy, z0, w, l, H - z0);
-    return { top, z1: H };
-  }
-
-  function headerHousing(ctx) {
-    const { H, z0, pitch, res } = ctx;
-    const P = (res.model && res.model.props) || {};
-    if (P.above != null) return Math.max(z0 + 0.2, H - P.above);
-    if (pitch && H > 2 * pitch) return z0 + pitch;
-    return H;
-  }
-
+  // Leads
+  const SIGN = { left: -1, right: 1, bottom: -1, top: 1 };
+  /** The axis a chip lies along: its pins' sides, or its longer side. */
   function chipAxis(ctx) {
     const ls = ctx.res.leads || [];
     const sides = new Set(ls.map((l) => l.side));
@@ -659,91 +832,6 @@
     if (sides.has('top') || sides.has('bottom')) return 'y';
     return ctx.b.w >= ctx.b.l ? 'x' : 'y';
   }
-  function chipCap(ctx, len) {
-    const L = ctx.res.lead || (ctx.res.leads || []).find((l) => l.form === 'endcap');
-    let T = L ? (L.l != null ? L.l : L.v != null ? L.v : L.d) : null;
-    if (T == null) T = 0.2 * len;
-    return clamp(T, 0.02, 0.45 * len);
-  }
-
-  function buildModule(ctx, m, meshes, src) {
-    const { b, H, z0, res } = ctx;
-    const ts = H > 1.2 ? Math.min(1.0, 0.35 * H) : H - z0;
-    const cx = b.x, cy = b.y, hw = b.w / 2, hl = b.l / 2;
-    // board outline with a half-hole notch per castellation, walked CCW
-    const notches = { bottom: [], right: [], top: [], left: [] };
-    for (const l of res.leads || []) {
-      if (l.form !== 'castellated' || !l.side) continue;
-      const d = l.castellated || l.d || l.v || 0.6;
-      notches[l.side].push({ at: l.side === 'left' || l.side === 'right' ? l.y : l.x, r: d / 2 });
-    }
-    const pts = [], notchEdge = [];
-    const corner = { bottom: [cx - hw, cy - hl], right: [cx + hw, cy - hl], top: [cx + hw, cy + hl], left: [cx - hw, cy + hl] };
-    const dirs = { bottom: [1, 0], right: [0, 1], top: [-1, 0], left: [0, -1] };
-    const walls = [];
-    for (const side of ['bottom', 'right', 'top', 'left']) {
-      const c = corner[side], dv = dirs[side];
-      pts.push(c); notchEdge.push(false);
-      const along = (q) => (dv[0] !== 0 ? (q - c[0]) * dv[0] : (q - c[1]) * dv[1]);
-      const list = notches[side].slice().sort((a, b2) => along(a.at) - along(b2.at));
-      const inward = [-dv[1], dv[0]];
-      for (const n of list) {
-        const t0 = along(n.at);
-        const P0 = [c[0] + dv[0] * t0, c[1] + dv[1] * t0];
-        const seg = 12, arc = [];
-        for (let k = 0; k <= seg; k++) {
-          const a = Math.PI - (Math.PI * k) / seg;   // from the -dv side, around through the inside, to the +dv side
-          arc.push([P0[0] + n.r * (Math.cos(a) * dv[0] + Math.sin(a) * inward[0]), P0[1] + n.r * (Math.cos(a) * dv[1] + Math.sin(a) * inward[1])]);
-        }
-        walls.push(arc);
-        arc.forEach((q, j) => { pts.push(q); notchEdge.push(j < seg); });
-      }
-    }
-    const zt = z0 + ts;
-    // side walls: plain edges board-colored, notch walls gold
-    const gold = new Mesh('castellations', 'lead', MAT.gold, (res.leads || []).flatMap((l) => l.src || []));
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i], c = pts[(i + 1) % pts.length];
-      const tgt = notchEdge[i] ? gold : m;
-      tgt.face4([a[0], a[1], z0], [c[0], c[1], z0], [c[0], c[1], zt], [a[0], a[1], zt]);
-    }
-    m.cap(pts, z0, false);
-    m.cap(pts, zt, true);
-    // plating rings around each half-hole, top and bottom
-    for (const arc of walls) {
-      for (const z of [z0 - 0.004, zt + 0.004]) {
-        const outer = arc.map((q, j) => q);
-        const mid = arc[Math.floor(arc.length / 2)], P0 = [(arc[0][0] + arc[arc.length - 1][0]) / 2, (arc[0][1] + arc[arc.length - 1][1]) / 2];
-        const r = Math.hypot(mid[0] - P0[0], mid[1] - P0[1]);
-        const grow = (q) => { const dx = q[0] - P0[0], dy = q[1] - P0[1], L = Math.hypot(dx, dy) || 1; return [P0[0] + dx / L * (r + 0.22), P0[1] + dy / L * (r + 0.22)]; };
-        const poly = outer.concat(outer.slice().reverse().map(grow));
-        const tris = G.triangulate(poly);
-        const base = gold.p.length / 3;
-        for (const q of poly) gold.v(q[0], q[1], z, 0, 0, z > z0 ? 1 : -1);
-        for (const [a, b2, c] of tris) gold.tri(base + a, base + b2, base + c);
-      }
-    }
-    meshes.push(gold);
-    ctx.capsDone = true;
-    let z1 = zt;
-    const top = { cx, cy, w: b.w, l: b.l, z: zt };
-    if (H > 1.2 && H - zt > 0.2) {
-      let maxR = 0;
-      for (const s of Object.values(notches)) for (const n of s) maxR = Math.max(maxR, n.r);
-      const inset = Math.max(0.3, 2 * maxR + 0.35);
-      if (b.w - 2 * inset > 0.5 && b.l - 2 * inset > 0.5) {
-        const can = new Mesh('shield can', 'body', MAT.tin, src);
-        boxC(can, cx, cy, zt, b.w - 2 * inset, b.l - 2 * inset, H - zt);
-        meshes.push(can);
-        z1 = H;
-        Object.assign(top, { w: b.w - 2 * inset, l: b.l - 2 * inset, z: H });
-      }
-    }
-    return { top, z1 };
-  }
-
-  // Leads
-  const SIGN = { left: -1, right: 1, bottom: -1, top: 1 };
   /** A frame on the lead's side: u outward from the body center, v along the side. */
   function frame(b, l) {
     const s = SIGN[l.side];
@@ -759,306 +847,6 @@
       uEdge: b.l / 2, uPad: (l.y - b.y) * s, uToe: l.toe != null ? (l.toe - b.y) * s : null,
       map: (u, v, z) => [ox + v, oy + s * u, z], mapN: (nu, nv, nz) => [nv, s * nu, nz],
     };
-  }
-
-  function buildLead(ctx, l, m) {
-    const { b, z0, zp, H, style } = ctx;
-    const f = l.form;
-    if (f === 'endcap' && ctx.capsDone) return false;
-    if (f === 'castellated') return false;
-    if (f === 'ball') {
-      const d = l.v != null ? l.v : l.d != null ? l.d : (l.padAcross || 0.4) / 0.8;
-      const h = Math.max(z0, 0.05);
-      ellipsoid(m, l.x, l.y, h / 2, d / 2, d / 2, h / 2 + 0.02, 16, 8);
-      m.color = MAT.solder.color;
-      return true;
-    }
-    if (f === 'column') {
-      // a solder column from the board up into the body
-      const d = l.v != null ? l.v : l.d != null ? l.d : Math.max(0.2, (l.padAcross || 0.8) - 0.3);
-      tube(m, [[l.x, l.y, 0], [l.x, l.y, z0 + 0.02]], d / 2, 12);
-      m.color = MAT.solder.color;
-      return true;
-    }
-    if (f === 'tab') {
-      const t = ctx.thick('tab', l);
-      let w, ln;
-      if (l.w != null && l.l != null) { w = l.w; ln = l.l; } else {
-        w = Math.max((l.padAcross || 1) - 0.3, 0.5 * (l.padAcross || 1));
-        ln = Math.max((l.padAlong || 1) - 0.3, 0.5 * (l.padAlong || 1));
-      }
-      const horiz = l.side === 'left' || l.side === 'right';
-      boxC(m, l.x, l.y, 0, horiz ? ln : w, horiz ? w : ln, t);
-      return true;
-    }
-    if (f === 'pin' || f === 'wire') return buildTHT(ctx, l, m);
-    if (!l.side) {
-      // flat contacts on a grid (LGA, crystals) or a surface lead with no side
-      const w = l.w != null ? l.w : 0.8 * (l.padAcross || 0.5), ln = l.l != null ? l.l : 0.8 * (l.padAlong || 0.5);
-      boxC(m, l.x, l.y, 0, w, ln, Math.max(0.03, Math.min(0.06, z0 + 0.03)));
-      return true;
-    }
-    const F = frame(b, l);
-    const c = ctx.thick(f, l);
-    const W = l.w != null ? l.w : (f === 'endcap' ? (l.side === 'left' || l.side === 'right' ? b.l : b.w) : 0.8 * (l.padAcross || 0.5));
-    const T = l.l != null ? l.l : l.v != null ? l.v : 0.55 * (l.padAlong || 1);
-    if (f === 'flat' || f === 'endcap') {
-      let uToe = F.uToe;
-      if (uToe == null) {
-        const half = (l.padAlong || T) / 2;
-        uToe = (F.uPad - half < F.uEdge && F.uPad + half > F.uEdge) ? F.uEdge : F.uPad + T / 2;
-      }
-      const flush = Math.abs(uToe - F.uEdge) < 0.02;
-      const u1 = uToe + (flush ? 0.015 : 0), u0 = uToe - T;
-      const ht = f === 'endcap' ? H : c;
-      sweepRect(m, [[u0, ht / 2], [u1, ht / 2]], W, ht, F.map, F.mapN);
-      return true;
-    }
-    if (f === 'gullwing') {
-      const uToe = F.uToe != null ? F.uToe : F.uPad + T / 2;
-      const Dd = uToe - F.uEdge;
-      const foot = Math.min(T, Dd - Math.max(1.2 * c, 0.25 * Dd));
-      if (!(Dd > 2.5 * c) || !(foot > c)) {
-        sweepRect(m, [[Math.max(F.uEdge - 0.2, uToe - T), c / 2], [uToe, c / 2]], W, c, F.map, F.mapN);
-        return true;
-      }
-      const g = Dd - foot;
-      const sh = Math.max(0.5 * c, 0.35 * g);
-      const inside = Math.min(0.3, 0.4 * F.uEdge);
-      const zl = Math.max(zp, c * 1.5);
-      const path = fillet([[F.uEdge - inside, zl], [F.uEdge + sh, zl], [uToe - foot, c / 2], [uToe, c / 2]], 1.5 * c);
-      sweepRect(m, path, W, c, F.map, F.mapN);
-      return true;
-    }
-    if (f === 'straight') {
-      // flat out of the bottom of the body, on the board
-      const uToe = F.uToe != null ? F.uToe : F.uPad + T / 2;
-      const inside = Math.min(0.3, 0.4 * F.uEdge);
-      sweepRect(m, [[F.uEdge - inside, c / 2], [uToe, c / 2]], W, c, F.map, F.mapN);
-      return true;
-    }
-    if (f === 'lbend') {
-      // out of the end face, down it, and folded flat under the body
-      const tip = F.uToe != null ? F.uToe : F.uEdge;
-      const uOut = Math.max(tip - c / 2, F.uEdge + c / 2);
-      const uIn = Math.min(uOut - 2 * c, tip - T);
-      const zl = Math.max(z0 + 0.35 * (H - z0), 2.5 * c);
-      const inside = Math.min(0.3, 0.4 * F.uEdge);
-      const path = fillet([[F.uEdge - inside, zl], [uOut, zl], [uOut, c / 2], [uIn, c / 2]], 1.2 * c);
-      sweepRect(m, path, W, c, F.map, F.mapN);
-      return true;
-    }
-    if (f === 'jlead') {
-      const uOut = (F.uToe != null ? F.uToe : F.uPad + T / 2) - c / 2;
-      // the J curls under the body: it has to fit below the lead's exit
-      const rj = Math.max(0.6 * c, Math.min(clamp(T / 2, c, 0.45), (zp - c / 2) / 2.6));
-      const zl = Math.max(zp, rj * 2 + c);
-      const inside = Math.min(0.3, 0.4 * F.uEdge);
-      if (uOut - 2 * rj < 0) return false;
-      const start = fillet([[F.uEdge - inside, zl], [uOut, zl], [uOut, rj + c / 2]], 1.5 * c);
-      const cz = rj + c / 2, cxu = uOut - rj;
-      const K = 14;
-      for (let j = 1; j <= K; j++) { const a = -Math.PI * j / K; start.push([cxu + rj * Math.cos(a), cz + rj * Math.sin(a)]); }
-      start.push([uOut - 2 * rj, cz + 0.8 * rj]);
-      sweepRect(m, start, W, c, F.map, F.mapN);
-      return true;
-    }
-    return false;
-  }
-
-  function buildTHT(ctx, l, m) {
-    const { b, z0, H, style, below } = ctx;
-    const round = l.d != null || (l.w == null && l.v != null);
-    const dia = l.d != null ? l.d : l.v != null ? l.v : null;
-    const W = l.w != null ? l.w : dia != null ? dia : (l.drill ? l.drill - 0.2 : 0.6);
-    const Tk = l.l != null ? l.l : W;
-    const bottom = -below;
-    if (style === 'dip' && l.side && (l.side === 'left' || l.side === 'right' || l.side === 'top' || l.side === 'bottom')) {
-      const F = frame(b, l);
-      const c = Tk;
-      const zl = Math.max(ctx.zp, 2 * c);
-      const sw = Math.min(0.6 * (l.pitch || ctx.pitch || 2.54), Math.max(3.3 * W, W + 0.4));
-      const inside = Math.min(0.3, 0.4 * F.uEdge);
-      const path = fillet([[F.uEdge - inside, zl], [F.uPad, zl], [F.uPad, 0]], 1.5 * c);
-      sweepRect(m, path, sw, c, F.map, F.mapN);
-      // tail through the board
-      const t = new Mesh('', 'lead', ctx.leadMat);
-      if (round) cylinder(t, 0, 0, bottom, 0.05, W / 2, 12);
-      else boxC(t, 0, 0, bottom, c, W, 0.05 - bottom);
-      t.transform((x, y, z) => { const q = F.map(F.uPad + x, y, z); return q; }, (x, y, z) => F.mapN(x, y, z));
-      m.append(t);
-      return true;
-    }
-    if (style === 'axial' && ctx.axial) {
-      const { ax, len, zc } = ctx.axial;
-      const r = (dia != null ? dia : W) / 2;
-      const along = ax === 'x' ? l.x - b.x : l.y - b.y;
-      const s = along < 0 ? -1 : 1;
-      const start = s * Math.max(len / 2 - Math.min(0.6, len / 4), 0);
-      const rb = Math.max(2.5 * r, 0.8);
-      // local: a = position along the axis, z height
-      let pts2 = fillet([[start, zc], [along, zc], [along, bottom]], rb, 8);
-      if (Math.abs(along) < len / 2) pts2 = [[along, zc], [along, bottom]];
-      const path = pts2.map(([a, z]) => (ax === 'x' ? [b.x + a, b.y, z] : [b.x, b.y + a, z]));
-      tube(m, path, r, 12);
-      return true;
-    }
-    if (style === 'header') {
-      // pins rise to H, unless the housing fills the height (a socket); then they stop inside it
-      const housing = ctx.housing != null ? ctx.housing : H;
-      const top = housing >= H - 1e-6 ? H - Math.min(1, 0.3 * (H - z0)) : H;
-      const sz = W;
-      const bev = Math.min(0.25 * sz, 0.2);
-      if (round) {
-        frustum(m, l.x, l.y, bottom, bottom + bev, (sz / 2) * 0.55, sz / 2, 14, 'bottom');
-        cylinder(m, l.x, l.y, bottom + bev, top - bev, sz / 2, 14, false);
-        frustum(m, l.x, l.y, top - bev, top, sz / 2, (sz / 2) * 0.55, 14, 'top');
-      } else {
-        const sq = (k) => rectPts(l.x, l.y, W * k, Tk * k);
-        loft(m, [{ z: bottom, pts: sq(0.55) }, { z: bottom + bev, pts: sq(1) }, { z: top - bev, pts: sq(1) }, { z: top, pts: sq(0.55) }]);
-      }
-      return true;
-    }
-    // straight wire or pin from below the board up into the body
-    const zTop = style === 'can' || style === 'radial' ? z0 + 0.3 : Math.min(H, z0 + 0.3);
-    if (round || style === 'can') cylinder(m, l.x, l.y, bottom, zTop, (dia != null ? dia : W) / 2, 12);
-    else boxC(m, l.x, l.y, bottom, W, Tk, zTop - bottom);
-    return true;
-  }
-
-  // Marks
-  function markOf(ctx, P) {
-    const { res, style } = ctx;
-    if (P.pin1) return P.pin1;
-    if (res.polarized) return 'stripe';
-    const p1 = res.pin1;
-    if (!p1) return 'none';
-    const st = p1.style;
-    if (p1.explicit && st === 'none') return 'none';
-    if (st === 'notch') return style === 'molded' || style === 'dip' || style === 'block' || style === 'sawn' ? 'notch' : 'none';
-    if (st === 'bar') return 'stripe';
-    const dflt = { molded: 'dimple', dip: 'dimple', sawn: 'dot', bga: 'dot', cga: 'dot', module: 'dot' }[style];
-    if (dflt) return dflt;
-    if (style === 'block' && (st === 'dot' || st === 'chamfer')) return 'dot';
-    return 'none';
-  }
-
-  function buildMark(ctx, mark, meshes, leadMeshes) {
-    const { res, b, style, bodyMat, fam } = ctx;
-    const src = (res.model && res.model.src) || [];
-    const pinOne = res.pin1;
-    // the end a stripe marks: the cathode or negative lead, but the positive end of a chip capacitor
-    let stripeTo = null;
-    if (mark === 'stripe') {
-      const p2 = res.pads.find((p) => p.name === '2') || res.pads.find((p) => pinOne && p.name !== pinOne.pad && !p.thermal);
-      const tantalum = fam === 'C' && (style === 'chip' || style === 'molded' || style === 'sawn' || style === 'block');
-      const toPin1 = !res.polarized || tantalum;
-      stripeTo = toPin1 ? (pinOne ? [pinOne.x, pinOne.y] : null) : (p2 ? [p2.x, p2.y] : null);
-      if (!stripeTo) return;
-    }
-    if (mark === 'stripe' && ctx.can && ctx.can.bare) {
-      // a bare can: a dark segment across the lid on the marked side
-      const { r, lid } = ctx.can;
-      const a = Math.atan2(stripeTo[1] - b.y, stripeTo[0] - b.x);
-      const R = r * 0.8, d0 = r * 0.2, phi = Math.acos(Math.min(1, d0 / R));
-      const pts = [];
-      for (let j = 0; j <= 24; j++) { const t = a - phi + (2 * phi * j) / 24; pts.push([b.x + R * Math.cos(t), b.y + R * Math.sin(t)]); }
-      const m = new Mesh('polarity mark', 'mark', MAT.rubber, src);
-      m.cap(pts, lid + 0.004, true);
-      meshes.push(m);
-      return;
-    }
-    if (mark === 'stripe' && ctx.can) {
-      const { r, z1 } = ctx.can;
-      const a = Math.atan2(stripeTo[1] - b.y, stripeTo[0] - b.x);
-      const m = new Mesh('polarity stripe', 'mark', MAT.stripe, src);
-      shell(m, b.x, b.y, ctx.z0 + 0.25, z1 - 0.12, r + 0.015, a - 0.5, a + 0.5, 16);
-      meshes.push(m);
-      return;
-    }
-    if (mark === 'stripe' && ctx.axial) {
-      const { ax, len, r, zc } = ctx.axial;
-      const along = ax === 'x' ? stripeTo[0] - b.x : stripeTo[1] - b.y;
-      const s = along < 0 ? -1 : 1;
-      const T = ctx.axial.T || 0;
-      const bw = Math.max(0.12 * len, 0.25);
-      const c0 = s * (len / 2 - T - bw / 2 - 0.08 * len);
-      const m = new Mesh('cathode band', 'mark', style === 'melf' && fam === 'D' ? MAT.glassBand : MAT.band, src);
-      cylinder(m, 0, 0, c0 - bw / 2, c0 + bw / 2, r + 0.012, 32);
-      meshes.push(lay(m, ax, b.x, b.y, zc));
-      return;
-    }
-    const top = ctx.top;
-    if (!top || !(top.w > 0) || !(top.l > 0)) return;
-    const zt = top.z + 0.006;
-    if (mark === 'stripe') {
-      // a band across the top at the marked end
-      const ax = ctx.chip ? ctx.chip.ax : (Math.abs(stripeTo[0] - b.x) >= Math.abs(stripeTo[1] - b.y) ? 'x' : 'y');
-      const len = ax === 'x' ? top.w : top.l, across = ax === 'x' ? top.l : top.w;
-      const s = (ax === 'x' ? stripeTo[0] - top.cx : stripeTo[1] - top.cy) < 0 ? -1 : 1;
-      const bw = Math.max(Math.min(0.18 * len, 0.6), 0.06);
-      const c0 = s * (len / 2 - bw / 2 - Math.min(0.06, 0.05 * len));
-      const m = new Mesh('polarity stripe', 'mark', fam === 'D' && style === 'chip' ? MAT.ledMark : MAT.stripe, src);
-      const ac = across - Math.min(0.1, 0.1 * across);
-      if (ax === 'x') boxC(m, top.cx + c0, top.cy, zt - 0.002, bw, ac, 0.006);
-      else boxC(m, top.cx, top.cy + c0, zt - 0.002, ac, bw, 0.006);
-      meshes.push(m);
-      return;
-    }
-    if (!pinOne) return;
-    const sx = Math.sign(Math.round((pinOne.x - top.cx) * 1e6)), sy = Math.sign(Math.round((pinOne.y - top.cy) * 1e6));
-    const small = Math.min(top.w, top.l);
-    if (mark === 'notch') {
-      // a half-disc at the middle of the end nearest pin 1
-      const g = res.generator;
-      const rowsLR = g && (g.kind === 'dual' || (res.leads || []).some((l) => l.side === 'left' || l.side === 'right'));
-      const rn = clamp(0.16 * small, 0.25, 0.8);
-      const m = new Mesh('pin-1 notch', 'mark', { color: mix(bodyMat.color, [0, 0, 0], 0.55), metal: 0 }, src);
-      const seg = 16, pts = [];
-      let c, a0;
-      if (rowsLR) { c = [top.cx, top.cy + (sy || 1) * top.l / 2]; a0 = sy < 0 ? 0 : Math.PI; }
-      else { c = [top.cx + (sx || -1) * top.w / 2, top.cy]; a0 = sx < 0 ? -Math.PI / 2 : Math.PI / 2; }
-      for (let k = 0; k <= seg; k++) { const a = a0 + (Math.PI * k) / seg; pts.push([c[0] + rn * Math.cos(a), c[1] + rn * Math.sin(a)]); }
-      loft(m, [{ z: zt - 0.003, pts }, { z: zt + 0.003, pts }]);
-      meshes.push(m);
-      return;
-    }
-    const rm = clamp((mark === 'dot' ? 0.055 : 0.08) * small, mark === 'dot' ? 0.1 : 0.15, mark === 'dot' ? 0.3 : 0.5);
-    const inset = rm + Math.max(0.12, 0.06 * small);
-    const x = top.cx + sx * Math.max(0, top.w / 2 - inset), y = top.cy + sy * Math.max(0, top.l / 2 - inset);
-    const mat = mark === 'dot' ? (style === 'module' ? MAT.dot : MAT.dot) : { color: mix(bodyMat.color, [1, 1, 1], 0.1), metal: 0 };
-    const m = new Mesh(mark === 'dot' ? 'pin-1 dot' : 'pin-1 dimple', 'mark', mat, src);
-    cylinder(m, x, y, zt - 0.003, zt + 0.003, rm, 24);
-    meshes.push(m);
-  }
-
-  // Extra solids
-  function solidMesh(s, bodyMat, bodyTop) {
-    const mat = s.color ? matOf(s.color) : (bodyMat || MAT.molded);
-    const m = new Mesh(s.kind === 'box' ? 'box' : 'cylinder', 'solid', mat, s.src);
-    if (s.kind === 'box') box(m, -s.w / 2, -s.l / 2, -s.h / 2, s.w / 2, s.l / 2, s.h / 2);
-    else cylinder(m, 0, 0, -s.h / 2, s.h / 2, s.d / 2, 32);
-    if (s.rotate) {
-      const [ax, ay, az] = s.rotate.map((a) => a * D2R);
-      const R = (v) => {
-        let [x, y, z] = v;
-        [y, z] = [y * Math.cos(ax) - z * Math.sin(ax), y * Math.sin(ax) + z * Math.cos(ax)];
-        [x, z] = [x * Math.cos(ay) + z * Math.sin(ay), -x * Math.sin(ay) + z * Math.cos(ay)];
-        [x, y] = [x * Math.cos(az) - y * Math.sin(az), x * Math.sin(az) + y * Math.cos(az)];
-        return [x, y, z];
-      };
-      m.transform((x, y, z) => R([x, y, z]), (x, y, z) => R([x, y, z]));
-    }
-    let x0 = Infinity, y0 = Infinity, zmin = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (let k = 0; k < m.p.length; k += 3) {
-      x0 = Math.min(x0, m.p[k]); x1 = Math.max(x1, m.p[k]);
-      y0 = Math.min(y0, m.p[k + 1]); y1 = Math.max(y1, m.p[k + 1]);
-      zmin = Math.min(zmin, m.p[k + 2]);
-    }
-    const zBase = s.z != null ? s.z : (s.onBody ? bodyTop : 0);
-    const dx = s.x - (x0 + x1) / 2, dy = s.y - (y0 + y1) / 2, dz = zBase - zmin;
-    m.transform((x, y, z) => [x + dx, y + dy, z + dz], (x, y, z) => [x, y, z]);
-    return m;
   }
 
   // Finishing
@@ -1313,5 +1101,7 @@
     return out;
   }
 
-  return { build, board, toVRML, toSTL, toZip, BOARD_T, _prims: { fillet, triangulate: G.triangulate } };
+  return {
+    build, board, toVRML, toSTL, toZip, BOARD_T, _prims: { fillet, triangulate: G.triangulate },
+  };
 });

@@ -1,0 +1,79 @@
+# Through-hole parts: header housings, and pins and wires through the board.
+#
+# A header pin or a plain pin is drawn around its pad's center; a DIP lead or
+# an axial wire in its side's frame (see molded.stomp). tail is how far a
+# lead reaches under the board; b and T are a square pin's sides, D a round
+# one's diameter (flag `round` or `square`).
+
+units mm
+
+# A pin header's housing: one pitch tall when the header is taller than two
+# pitches, else the whole height (a socket)
+feature body_header(W, L, H, z0 = 0, e, rise = 0, body_color = epoxy, pin1_mark = "none", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0) {
+  let tall_if = H - 2 * e
+  section tall { rise = H - z0 - e }
+  let housing = max(z0 + 0.2, H - rise)
+  let top_z = housing
+  model {
+    box W x L x housing - z0 at (0, 0, z0) color body_color
+    feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, housing)
+  }
+}
+
+# A header pin, beveled at both ends: up to the top, or to just inside a socket's housing
+feature lead_header(b = D, T = b, D = drill_d - 0.2, drill_d = 0.8, H = 1, z0 = 0, housing = H, tail = 3, lead_color = gold) {
+  let socket_if = housing - (H - 1e-6)
+  let tip = H
+  section socket { tip = H - min(1, 0.3 * (H - z0)) }
+  let bev = min(0.25 * b, 0.2)
+  section round {
+    model {
+      cylinder d b * 0.55 to b h bev at (0, 0, -tail) open top segments 14 color lead_color
+      cylinder d b h tip - bev - (bev - tail) at (0, 0, bev - tail) open segments 14 color lead_color
+      cylinder d b to b * 0.55 h bev at (0, 0, tip - bev) open bottom segments 14 color lead_color
+    }
+  }
+  section square {
+    model { loft b * 0.55 x T * 0.55 at -tail, b x T at bev - tail, b x T at tip - bev, b * 0.55 x T * 0.55 at tip color lead_color }
+  }
+}
+
+# A DIP lead: out of the body at zp, bent down to the board, and a narrow tail through it
+feature lead_dip(edge, pad_u, b = D, T = b, D = drill_d - 0.2, drill_d = 0.8, z0 = 0.5, H = 1, zp = z0 + 0.4 * (H - z0), e = 2.54, tail = 3, lead_color = tin) {
+  let zl = max(zp, 2 * T)
+  let sw = min(0.6 * e, max(3.3 * b, b + 0.4))
+  let inside = min(0.3, 0.4 * edge)
+  model { sweep sw x T fillet 1.5 * T along (edge - inside, zl), (pad_u, zl), (pad_u, 0) color lead_color }
+  section round {
+    model { cylinder d b h 0.05 + tail at (pad_u, 0, -tail) segments 12 color lead_color }
+  }
+  section square {
+    model { box T x b x 0.05 + tail at (pad_u, 0, -tail) color lead_color }
+  }
+}
+
+# An axial part's wire: out of the body's end, bent down through the board. A
+# pin under the body takes the wire straight down.
+feature lead_axial(pad_u, b = D, D = drill_d - 0.2, drill_d = 0.8, len = 4, zc = 1, tail = 3, lead_color = tin) {
+  let under_if = len / 2 - pad_u
+  let u0 = max(len / 2 - min(0.6, len / 4), 0)
+  let rb = max(2.5 * (b / 2), 0.8)
+  section under {
+    model { wire d b along (pad_u, zc), (pad_u, -tail) segments 12 color lead_color }
+  }
+  section beyond {
+    model { wire d b fillet rb step 8 along (u0, zc), (pad_u, zc), (pad_u, -tail) segments 12 color lead_color }
+  }
+}
+
+# A plain pin or wire, straight down through the board from just inside the body
+feature lead_tht(b = D, T = b, D = drill_d - 0.2, drill_d = 0.8, z0 = 0, H = 1, tail = 3, lead_color = tin) {
+  let tip = min(H, z0 + 0.3)
+  section can, radial { tip = z0 + 0.3 }
+  section round {
+    model { cylinder d b h tip + tail at (0, 0, -tail) segments 12 color lead_color }
+  }
+  section square {
+    model { box b x T x tip + tail at (0, 0, -tail) color lead_color }
+  }
+}

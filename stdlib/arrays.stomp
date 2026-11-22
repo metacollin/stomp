@@ -1,0 +1,34 @@
+# Arrays: BGA and CGA bodies, and their balls and columns.
+#
+# A ball or column is drawn around its pad's center.
+
+units mm
+
+# A BGA: a laminate substrate under a molded cap, on its balls
+feature body_bga(W, L, H, ball_d = 0.5, z0 = 0.75 * ball_d, body_color = epoxy, pin1_mark = "dot", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0) {
+  let ts = min(0.36, 0.35 * (H - z0))
+  model {
+    box W - 0.002 x L - 0.002 x H - z0 - ts at (0, 0, z0 + ts) color body_color
+    box W x L x ts at (0, 0, z0) color laminate name "substrate"
+    feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+  }
+}
+
+# A CGA: a ceramic body on solder columns
+feature body_cga(W, L, H, z0 = 2.2, body_color = alumina, pin1_mark = "dot", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0) {
+  model {
+    box W x L x H - z0 at (0, 0, z0) color body_color
+    feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+  }
+}
+
+# A solder ball, squashed to the standoff
+feature lead_ball(D = pad_across / 0.8, pad_across = 0.4, z0 = 0.3, lead_color = solder) {
+  let squash = max(z0, 0.05)
+  model { sphere d D h squash + 0.04 at (0, 0, -0.02) segments 16 color lead_color }
+}
+
+# A solder column from the board up into the body
+feature lead_column(D = max(0.2, pad_across - 0.3), pad_across = 0.8, z0 = 2.2, lead_color = solder) {
+  model { wire d D along (0, 0), (0, z0 + 0.02) segments 12 color lead_color }
+}

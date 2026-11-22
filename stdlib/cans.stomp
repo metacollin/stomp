@@ -1,0 +1,57 @@
+# Cans: aluminum electrolytic and polymer capacitors, standing on the board.
+#
+# A can in a metal body color is bare (flag `bare`), as polymer caps are: no
+# vent, and its polarity mark goes on the lid. Otherwise it's sleeved, with a
+# vent when it's wide enough and a stripe down the side. ma is the direction
+# of the marked lead, in degrees.
+
+units mm
+
+feature body_can(W, L, H, z0 = 0.5, body_color = can_blue, pin1_mark = "none", ma = 0) {
+  let D = min(W, L)
+  let lip = min(0.12, 0.02 * (H - z0) + 0.04)
+  let vented_if = D - 2.4                   # wider than 2.4 mm: a vent in the lid
+  model {
+    cylinder d D h H - (z0 + 0.15) at (0, 0, z0 + 0.15) open segments 48 color body_color
+    cylinder d D * 0.94 to D h 0.15 at (0, 0, z0) open segments 48 color body_color
+    disc d D * 0.82 to D at (0, 0, H) segments 48 color body_color
+    cylinder d D * 0.82 h lip at (0, 0, H - lip) open segments 48 color body_color
+    cylinder d D * 0.94 h 0.001 at (0, 0, z0) open top segments 48 color rubber name "seal"
+    cylinder d D * 0.82 h 0.002 at (0, 0, H - lip - 0.002) open bottom segments 48 color aluminum name "can top"
+  }
+  section sleeved {
+    section vented {
+      model { feature can_vent(D) at (0, 0, H - lip - 0.001) }
+    }
+    section stripe {
+      model { feature can_stripe(D, H - 0.12 - (z0 + 0.25)) at (0, 0, z0 + 0.25) rotate ma }
+    }
+  }
+  section bare {
+    section stripe {
+      model { feature lid_mark(D) at (0, 0, H - lip + 0.004) rotate ma }
+    }
+  }
+}
+
+# The cross scored in a can's lid
+feature can_vent(D) {
+  let vl = D / 2 * 0.9
+  let vw = max(0.06, D / 2 * 0.04)
+  model {
+    box vl x vw x 0.006 color vent_metal name "vent"
+    box vw x vl x 0.006 color vent_metal name "vent"
+  }
+}
+
+# A printed stripe stripe_h tall down the sleeve, on the +x side
+feature can_stripe(D, stripe_h) {
+  model { cylinder d D + 0.03 h stripe_h from -0.5rad to 0.5rad segments 16 color marking kind mark name "polarity stripe" }
+}
+
+# A dark segment across a bare can's lid, on the +x side
+feature lid_mark(D) {
+  let R = D / 2 * 0.8
+  let phi = acos(min(1, D / 2 * 0.2 / R))
+  model { face arc (0, 0) r R from -phi to phi segments 24 color rubber kind mark name "polarity mark" }
+}

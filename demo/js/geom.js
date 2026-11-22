@@ -451,7 +451,42 @@
     return tris;
   }
 
+  // 3D frames, for placing solids: [r00, r01, r02, tx, r10, r11, r12, ty, r20, r21, r22, tz].
+  // A turn by a multiple of 90 degrees is exact.
+  function cosSin(d) {
+    const q = d / 90, k = Math.round(q);
+    if (Math.abs(q - k) < 1e-9) return [[1, 0], [0, 1], [-1, 0], [0, -1]][((k % 4) + 4) % 4];
+    const r = (d * Math.PI) / 180;
+    return [Math.cos(r), Math.sin(r)];
+  }
+  /** Turn about x, then y, then z (degrees), then move by t. */
+  function frame3(t, rot) {
+    const [cx, sx] = cosSin(rot ? rot[0] : 0), [cy, sy] = cosSin(rot ? rot[1] : 0), [cz, sz] = cosSin(rot ? rot[2] : 0);
+    // Rz * Ry * Rx
+    return [
+      cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx, t ? t[0] : 0,
+      sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx, t ? t[1] : 0,
+      -sy, cy * sx, cy * cx, t ? t[2] : 0,
+    ];
+  }
+  /** A then B: the frame that applies B first. */
+  function compose3(A, B) {
+    if (!A) return B;
+    if (!B) return A;
+    const o = new Array(12);
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) {
+        let v = A[r * 4] * B[c] + A[r * 4 + 1] * B[4 + c] + A[r * 4 + 2] * B[8 + c];
+        if (c === 3) v += A[r * 4 + 3];
+        o[r * 4 + c] = v;
+      }
+    }
+    return o;
+  }
+  const isIdentity3 = (M) => !M || (M[0] === 1 && M[1] === 0 && M[2] === 0 && M[3] === 0 && M[4] === 0 && M[5] === 1 && M[6] === 0 && M[7] === 0 && M[8] === 0 && M[9] === 0 && M[10] === 1 && M[11] === 0);
+
   return {
+    cosSin, frame3, compose3, isIdentity3,
     EPS, TAU, deg, triangulate,
     line, arc, rrectContour, circleContour, polyContour, transformContour, contourBBox,
     contourToPoly, contourToPath, polyToPath, shapeContour, mirrorShape, dshapeRadius,

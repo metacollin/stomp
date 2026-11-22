@@ -1,0 +1,35 @@
+# Modules: a board with castellated edges, under a shield can when it's tall enough.
+#
+# `slab … castellated` cuts a half-hole into the board's edge at every
+# castellated lead; each lead draws its hole's plating.
+
+units mm
+
+# A module board; over 1.2 mm tall it's a thinner board under a shield can
+feature body_module(W, L, H, z0 = 0, cast_d = 0, body_color = pcb_blue, pin1_mark = "dot", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0) {
+  let shield_if = H - 1.2
+  let ts = H - z0
+  let top_z = z0 + ts
+  let inset = max(0.3, cast_d + 0.35)
+  model { slab W x L x ts castellated at (0, 0, z0) color body_color }
+  section shield {
+    ts = min(1.0, 0.35 * H)
+    top_z = H
+    model {
+      box W - 2 * inset x L - 2 * inset x H - (z0 + ts) at (0, 0, z0 + ts) color tin name "shield can"
+      feature top_marks(W - 2 * inset, L - 2 * inset, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+    }
+  }
+  section unshielded {
+    model { feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, z0 + ts) }
+  }
+}
+
+# A castellation's plating: the half-hole's wall and a ring around it on each face
+feature lead_castellated(edge, D = 0.6, z0 = 0, ts = 1, lead_color = gold) {
+  model {
+    cylinder d D h ts at (edge, 0, z0) from 90 to 270 segments 12 color lead_color
+    disc d D to D + 0.44 at (edge, 0, z0 - 0.004) from 90 to 270 segments 12 down color lead_color
+    disc d D to D + 0.44 at (edge, 0, z0 + ts + 0.004) from 90 to 270 segments 12 color lead_color
+  }
+}

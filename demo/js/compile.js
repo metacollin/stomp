@@ -9,13 +9,13 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./geom.js'), require('./lexer.js'), require('./parser.js'));
+    module.exports = factory(require('./geom.js'), require('./lexer.js'), require('./parser.js'), require('./stdlib.js'));
   } else {
     const S = root.Stomp;
-    S.compiler = factory(S.geom, S.lexer, S.parser);
+    S.compiler = factory(S.geom, S.lexer, S.parser, S.stdlib);
     S.compile = S.compiler.compile;
   }
-})(typeof self !== 'undefined' ? self : this, function (G, Lexer, Parser) {
+})(typeof self !== 'undefined' ? self : this, function (G, Lexer, Parser, STDLIB) {
   'use strict';
 
   const UNIT_MM = { mm: 1, um: 0.001, nm: 1e-6, mil: 0.0254, in: 25.4 };
@@ -58,6 +58,12 @@
   };
   const METALS = new Set(['tin', 'silver', 'gold', 'copper', 'aluminum', 'aluminium']);
   const COLOR_NAMES = 'black, gray, white, red, green, blue, yellow, orange, brown, tan, ceramic, tin, silver, gold, copper, aluminum';
+  // Standard-library source is read at offsets from here up, so a library node is never
+  // mistaken for a place in the user's file.
+  const LIB_BASE = 1e9;
+  const isLib = (n) => !!(n && n.s != null && n.s >= LIB_BASE);
+  const MAX_DEPTH = 32;     // features placing features
+  const FUNCTIONS = 'min, max, clamp, abs, hypot, sqrt, sin, cos, tan, asin, acos, atan2, mix and metal';
   const JEDEC_ROWS = 'ABCDEFGHJKLMNPRTUVWY';
 
   class StompError extends Error {
@@ -68,9 +74,9 @@
   // Values
 
   // Value kinds: 'num' (a plain number; a length in the file's unit where one is
-  // needed), 'ratio' (length / length), 'len' (mm), and 'str' (text, only usable
-  // inside a string's {...}).
-  const KIND_NAME = { num: 'number', ratio: 'ratio', len: 'length', str: 'text' };
+  // needed), 'ratio' (length / length), 'len' (mm), 'str' (text, only usable inside
+  // a string's {...}, or as a color), and 'color' ({ rgb: [r, g, b], metal, name }).
+  const KIND_NAME = { num: 'number', ratio: 'ratio', len: 'length', str: 'text', color: 'color' };
 
   function evalExpr(x, env) {
     switch (x.type) {
@@ -78,9 +84,11 @@
       case 'id': return env.scope.lookup(x.name, x);
       case 'str': return { k: 'str', v: interpolate(x.value, env) };
       case 'paren': return evalExpr(x.x, env);
+      case 'call': return callFunction(x, env);
       case 'neg': {
         const a = evalExpr(x.x, env);
         if (a.k === 'str') throw new StompError('text can\'t be negated — text values are only for `{…}` in strings', x);
+        if (a.k === 'color') throw new StompError('a color can\'t be negated', x);
         return { k: a.k, v: -a.v };
       }
       case 'bin': {
@@ -88,6 +96,7 @@
         if (a.k === 'str' || b.k === 'str') {
           throw new StompError('text can\'t take part in arithmetic — to build a string, write the pieces into one: "{a}-{b}"', x);
         }
+        if (a.k === 'color' || b.k === 'color') throw new StompError('a color can\'t take part in arithmetic; `mix(a, b, t)` blends two', x);
         if (x.op === '+' || x.op === '-') {
           const sg = x.op === '+' ? 1 : -1;
           if (a.k === b.k) return { k: a.k, v: a.v + sg * b.v };
@@ -111,6 +120,124 @@
     }
   }
 
+  /** Two values as one kind, the way `+` combines them: { k, a, b } (numbers). */
+  function unify(a, b, env, node, what) {
+    for (const v of [a, b]) {
+      if (v.k === 'str' || v.k === 'color') throw new StompError(`${what} takes numbers and lengths, not ${v.k === 'str' ? 'text' : 'a color'}`, node);
+    }
+    if (a.k === b.k) return { k: a.k, a: a.v, b: b.v };
+    if (a.k === 'len' && b.k === 'num') return { k: 'len', a: a.v, b: b.v * env.scale };
+    if (a.k === 'num' && b.k === 'len') return { k: 'len', a: a.v * env.scale, b: b.v };
+    if (a.k !== 'len' && b.k !== 'len') return { k: 'ratio', a: a.v, b: b.v };
+    throw new StompError(`${what} can't mix a ${KIND_NAME[a.k]} and a ${KIND_NAME[b.k]}`, node);
+  }
+
+  /** The built-in functions (SPEC 7). Angles are in degrees. */
+  function callFunction(x, env) {
+    const args = x.args.map((a) => evalExpr(a, env));
+    const n = x.name;
+    const need = (lo, hi) => {
+      if (args.length < lo || args.length > hi) {
+        const want = lo === hi ? `${lo}` : hi === Infinity ? `${lo} or more` : `${lo} to ${hi}`;
+        throw new StompError(`\`${n}\` takes ${want} argument${lo === 1 && hi === 1 ? '' : 's'}, but this gives ${args.length}`, x);
+      }
+    };
+    const plain = (v, what) => {
+      if (v.k === 'num' || v.k === 'ratio') return v.v;
+      throw new StompError(`\`${n}\` needs ${what}, not a ${KIND_NAME[v.k]}`, x);
+    };
+    // the arguments as one kind, as `+` would combine them
+    const common = () => {
+      for (const v of args) unify(v, v, env, x, `\`${n}\``);
+      const k = args.some((v) => v.k === 'len') ? 'len' : args.some((v) => v.k === 'ratio') ? 'ratio' : 'num';
+      if (k === 'len' && args.some((v) => v.k === 'ratio')) unify(args.find((v) => v.k === 'len'), args.find((v) => v.k === 'ratio'), env, x, `\`${n}\``);
+      return { k, v: args.map((v) => (k === 'len' && v.k === 'num' ? v.v * env.scale : v.v)) };
+    };
+    const R = 180 / Math.PI;
+    const deg = (v) => { if (!Number.isFinite(v)) throw new StompError(`\`${n}\` is undefined here (got ${v})`, x); return { k: 'num', v }; };
+    switch (n) {
+      case 'min': case 'max': { need(1, Infinity); const c = common(); return { k: c.k, v: n === 'min' ? Math.min(...c.v) : Math.max(...c.v) }; }
+      case 'clamp': { need(3, 3); const c = common(); return { k: c.k, v: Math.max(c.v[1], Math.min(c.v[2], c.v[0])) }; }
+      case 'abs': { need(1, 1); const c = common(); return { k: c.k, v: Math.abs(c.v[0]) }; }
+      case 'hypot': { need(1, Infinity); const c = common(); return { k: c.k, v: Math.hypot(...c.v) }; }
+      case 'sqrt': {
+        need(1, 1);
+        const a = args[0];
+        if (a.k === 'len') throw new StompError('`sqrt` of a length has no unit stomp can use; take it of a ratio or a plain number', x);
+        const v = plain(a, 'a number');
+        if (v < 0) throw new StompError(`\`sqrt\` of a negative number (${v})`, x);
+        return { k: a.k, v: Math.sqrt(v) };
+      }
+      case 'sin': case 'cos': case 'tan': {
+        need(1, 1);
+        const a = plain(args[0], 'an angle in degrees');
+        const [c, sn] = G.cosSin(a);         // exact at right angles
+        return { k: 'num', v: n === 'sin' ? sn : n === 'cos' ? c : Math.tan(a * (Math.PI / 180)) };
+      }
+      case 'asin': case 'acos': {
+        need(1, 1);
+        const a = plain(args[0], 'a number from -1 to 1');
+        if (a < -1 || a > 1) throw new StompError(`\`${n}\` takes a number from -1 to 1 (got ${formatNumber(a)})`, x);
+        return deg((n === 'asin' ? Math.asin(a) : Math.acos(a)) * R);
+      }
+      case 'atan2': {
+        need(2, 2);
+        const u = unify(args[0], args[1], env, x, '`atan2`');
+        return deg(Math.atan2(u.a, u.b) * R);
+      }
+      case 'mix': {
+        need(3, 3);
+        const a = toColor(args[0], x, env), b = toColor(args[1], x, env), t = plain(args[2], 'a fraction from 0 to 1');
+        return { k: 'color', v: { rgb: a.rgb.map((c, i) => c + (b.rgb[i] - c) * t), metal: 0, name: null } };
+      }
+      case 'metal': {
+        need(1, 1);
+        const c = toColor(args[0], x, env);
+        return { k: 'color', v: { rgb: c.rgb, metal: 1, name: c.name } };
+      }
+      default: {
+        const hint = Parser.suggest(n, FUNCTIONS.replace(' and', ',').split(', '));
+        throw new StompError(`unknown function \`${n}\`${hint ? ` — did you mean \`${hint}\`?` : ''} (the functions are ${FUNCTIONS})`, { s: x.s, e: x.nameE || x.e });
+      }
+    }
+  }
+
+  /** A color from "#rrggbb", a color name, or a color value. */
+  function parseColor(text, node) {
+    const t = String(text).trim();
+    if (/^#/.test(t)) {
+      if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(t)) throw new StompError(`\`${t}\` isn't a color — write it as "#rrggbb"`, node);
+      const h = t.length === 4 ? '#' + t.slice(1).split('').map((ch) => ch + ch).join('') : t;
+      const n = parseInt(h.slice(1), 16);
+      return { rgb: [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255], metal: 0, name: h.toLowerCase() };
+    }
+    const k = t.toLowerCase();
+    if (COLORS[k]) return Object.assign(parseColor(COLORS[k], node), { metal: METALS.has(k) ? 1 : 0, name: k });
+    return null;
+  }
+  function toColor(v, node, env) {
+    if (v.k === 'color') return v.v;
+    if (v.k === 'str') {
+      const c = parseColor(v.v, node);
+      if (c) return c;
+      throw new StompError(`unknown color "${v.v}" (names: ${COLOR_NAMES}; or "#rrggbb")`, node);
+    }
+    throw new StompError(`a color is needed here, not a ${KIND_NAME[v.k]}`, node);
+  }
+  /** A color expression: a name (looked up, then the built-in colors), a string or a value. */
+  function evalColor(x, env) {
+    if (x.type === 'id' && !env.scope.has(x.name)) {
+      const c = parseColor(x.name, x);
+      if (c) return c;
+      const lib = env.scope.root().library;
+      if (lib && lib.defs.has(x.name)) return toColor(lib.lookup(x.name, x), x, env);
+      const hint = Parser.suggest(x.name.toLowerCase(), Object.keys(COLORS).concat(lib ? [...lib.defs.keys()] : []));
+      throw new StompError(`unknown color \`${x.name}\`${hint ? ` — did you mean \`${hint}\`?` : ''} (names: ${COLOR_NAMES}; or "#rrggbb")`, x);
+    }
+    return toColor(evalExpr(x, env), x, env);
+  }
+  const hexOf = (rgb) => '#' + rgb.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join('');
+
   /** A string literal: plain text, or { interp: [text | { x, fmt }] } to evaluate. */
   function interpolate(value, env) {
     if (typeof value === 'string') return value;
@@ -124,6 +251,7 @@
   function formatValue(v, fmt, env) {
     if (!v) return '';
     if (v.k === 'str') return v.v;
+    if (v.k === 'color') return v.v.name || hexOf(v.v.rgb);
     const n = v.k === 'len' ? v.v / env.scale : v.v;
     return formatNumber(n, fmt);
   }
@@ -138,17 +266,27 @@
   }
 
   class Scope {
-    constructor(parent) { this.parent = parent; this.defs = new Map(); }
+    /** A root scope may name `library`: the standard library's lets, found after everything else. */
+    constructor(parent, library) { this.parent = parent; this.defs = new Map(); this.library = library || null; }
+    root() { let sc = this; while (sc.parent) sc = sc.parent; return sc; }
+    has(name) { for (let sc = this; sc; sc = sc.parent) if (sc.defs.has(name)) return true; return false; }
     lookup(name, node) {
       for (let sc = this; sc; sc = sc.parent) {
         const d = sc.defs.get(name);
         if (!d) continue;
         if (d.value) return d.value;
+        if (d.missing) throw Object.assign(new StompError(`feature \`${d.missing}\` needs a value for \`${name}\``, node), { missing: name });
         if (d.busy) throw new StompError(`\`${name}\` is defined in terms of itself`, node);
         d.busy = true;
         try { d.value = evalExpr(d.x, { scope: d.scope || sc, scale: UNIT_MM[d.unit || 'mm'] }); } finally { d.busy = false; }
         return d.value;
       }
+      // built-in names: pi, the color names, then the standard library's lets
+      if (name === 'pi') return { k: 'num', v: Math.PI };
+      const c = parseColor(name, node);
+      if (c && !/^#/.test(name)) return { k: 'color', v: c };
+      const lib = this.root().library;
+      if (lib && lib.defs.has(name)) return lib.lookup(name, node);
       const all = [];
       for (let sc = this; sc; sc = sc.parent) all.push(...sc.defs.keys());
       const mark = /^(.+)([wh])$/.exec(name);
@@ -172,9 +310,10 @@
   function compile(source, opts) {
     const useCache = !(opts && opts.cache === false);
     const diags = [];
+    const lib = loadLibrary(opts && opts.stdlib);
     const lx = Lexer.lex(source, diags);
     const ast = Parser.parse(lx.tokens, diags);
-    const file = buildFile(ast, diags);
+    const file = buildFile(ast, diags, lib);
 
     // every footprint, with each table row as a `from` call
     const decls = [];
@@ -190,7 +329,7 @@
     }
 
     // pass 1: name every footprint (templates may compute names), then register them
-    const letsSig = JSON.stringify(ast.items.filter((i) => i.type === 'Let' || i.type === 'Feature').map((i) => [i.s, source.slice(i.s, i.e), i.unit]));
+    const letsSig = JSON.stringify([lib.id].concat(ast.items.filter((i) => i.type === 'Let' || i.type === 'Feature').map((i) => [i.s, source.slice(i.s, i.e), i.unit])));
     const builders = decls.map((d) => {
       const b = new FootprintBuilder(d, file, [], source);
       b.key = useCache ? cacheKey(d, source, file, letsSig) : null;
@@ -266,7 +405,54 @@
     // instantiations per template, for deciding where template diagnostics belong
     const instCount = new Map();
     for (const b of builders) if (b.tmpl) instCount.set(b.tmpl.name, (instCount.get(b.tmpl.name) || 0) + 1);
-    return { diagnostics: finishDiags(rehome(diags, instCount), source), footprints, templates, tables: tableInfo, tokens: lx.all, ast };
+    return {
+      diagnostics: finishDiags(rehome(diags, instCount), source), footprints, templates, tables: tableInfo, tokens: lx.all, ast,
+      library: { files: lib.sources.map((f) => f.file), diagnostics: lib.diags },
+    };
+  }
+
+  // The standard library (SPEC 13.5): stomp files of features and lets, parsed once.
+  // Each file is read at an offset of its own from LIB_BASE up.
+  const LIBS = new Map();
+  let libCount = 0;
+  function loadLibrary(files) {
+    const list = files || STDLIB || [];
+    const sig = list.map((f) => `${f.file}\n${f.source}`).join('\u0000');
+    let lib = LIBS.get(sig);
+    if (lib) return lib;
+    const lets = new Scope(null);
+    const features = new Map();
+    const diags = [], sources = [];
+    list.forEach((f, i) => {
+      const base = LIB_BASE * (i + 1);
+      const lexDiags = [], parseDiags = [];
+      const lx = Lexer.lex(f.source, lexDiags);
+      const shift = (t) => {
+        for (const k of ['s', 'e', 'open', 'close', 'codeS', 'codeE']) if (typeof t[k] === 'number') t[k] += base;
+        if (t.parts) for (const q of t.parts) { shift(q); if (q.toks) q.toks.forEach(shift); }
+      };
+      lx.tokens.forEach(shift);
+      const ast = Parser.parse(lx.tokens, parseDiags);
+      const where = (d, off) => Object.assign({}, d, { file: f.file, s: d.s - off, e: d.e - off });
+      for (const d of lexDiags) diags.push(where(d, 0));
+      for (const d of parseDiags) diags.push(where(d, base));
+      for (const it of ast.items) {
+        if (it.type === 'Let') {
+          if (lets.defs.has(it.name)) diags.push(where({ severity: 'error', message: `\`let ${it.name}\` is defined twice in the standard library`, s: it.nameS, e: it.nameE }, base));
+          else lets.defs.set(it.name, { x: it.x, unit: it.unit, scope: lets });
+        } else if (it.type === 'Feature') {
+          if (features.has(it.name)) diags.push(where({ severity: 'error', message: `feature \`${it.name}\` is defined twice in the standard library`, s: it.nameS, e: it.nameE }, base));
+          else { it.lib = f.file; features.set(it.name, it); }
+        } else if (it.type !== 'Units') {
+          diags.push(where({ severity: 'error', message: 'a library file holds features and lets only', s: it.s, e: it.e }, base));
+        }
+      }
+      sources.push({ file: f.file, base, source: f.source });
+    });
+    lib = { id: ++libCount, lets, features, diags, sources, flagMemo: new Map() };
+    LIBS.set(sig, lib);
+    if (LIBS.size > 8) LIBS.delete(LIBS.keys().next().value);
+    return lib;
   }
 
   function safely(b, fn) {
@@ -365,8 +551,8 @@
     return out;
   }
 
-  function buildFile(ast, diags) {
-    const lets = new Scope(null);
+  function buildFile(ast, diags, lib) {
+    const lets = new Scope(null, lib.lets);
     const templates = new Map();
     const features = new Map();
     const footprints = new Map();
@@ -384,7 +570,7 @@
       }
     }
     // footprints are registered by compile() once their (possibly computed) names are known
-    return { lets, templates, features, footprints };
+    return { lets, templates, features, footprints, lib, flagMemo: new Map() };
   }
 
   function finishDiags(diags, source) {
@@ -427,11 +613,17 @@
 
     // Reporting
     report(sev, msg, node, related) {
-      const n = node || this.decl;
-      if (sev === 'error') this.errorCount = (this.errorCount || 0) + 1;
+      let n = node || this.decl;
+      // a problem in the standard library: reported at the statement that used it
+      if (isLib(n)) {
+        const chain = (this.stack || []).filter((b) => b.lib).map((b) => `\`${b.f.name}\``);
+        msg = `in the standard library's ${chain.length ? `${chain.join(' → ')}` : 'features'}: ${msg}`;
+        n = this.trigger && !isLib(this.trigger) ? this.trigger : { s: this.decl.nameS, e: this.decl.nameE };
+      }
+      if (sev === 'error' && !this.diagSink) this.errorCount = (this.errorCount || 0) + 1;
       const d = {
         severity: sev, message: msg, s: n.s, e: n.e, footprint: this.name,
-        related: (related || []).filter((r) => r && r.node).map((r) => ({ message: r.message, s: r.node.s, e: r.node.e })),
+        related: (related || []).filter((r) => r && r.node && !isLib(r.node)).map((r) => ({ message: r.message, s: r.node.s, e: r.node.e })),
       };
       // inside the template body of a `from` call: remember the call (see rehome())
       const t = this.tmpl;
@@ -439,7 +631,7 @@
         const c = this.decl.callS != null ? [this.decl.callS, this.decl.callE] : [this.decl.nameS, this.decl.nameE];
         d.inst = { s: c[0], e: c[1], tmpl: t.name };
       }
-      this.diags.push(d);
+      (this.diagSink || this.diags).push(d);
     }
     err(msg, node, related) { this.report('error', msg, node, related); }
     warn(msg, node, related) { this.report('warning', msg, node, related); }
@@ -607,7 +799,10 @@
     bindParams(list) {
       for (const { template: t, decl } of list) {
         const given = new Map();
-        const pos = decl.args.filter((a) => !a.key);
+        for (const a of decl.args) {
+          if (a.word != null && a.kw) this.err(`\`${a.word}\` is a keyword: a template takes values, not flags`, a);
+        }
+        const pos = decl.args.filter((a) => !a.key && a.x);
         if (pos.length > t.params.length) this.err(`template \`${t.name}\` takes ${t.params.length} parameter(s), got ${pos.length}`, pos[t.params.length]);
         pos.forEach((a, i) => { if (i < t.params.length) given.set(t.params[i].name, a); });
         for (const a of decl.args.filter((x) => x.key)) {
@@ -802,7 +997,7 @@
 
     applyProp(spec, p, stmt) {
       switch (p.prop) {
-        case 'rotate': spec.rot = p.angle.deg; break;
+        case 'rotate': spec.rot = this.angleOf(p.angle, stmt); break;
         case 'mask':
           spec.mask = p.mode === 'expand' ? { mode: 'expand', v: p.value.sign * this.len(p.value.x, stmt) } : { mode: p.mode };
           break;
@@ -2235,7 +2430,7 @@
             const inf = this.info(u.at.ref, u);
             at = AXES.map((a) => this.anchor(inf, a, this.whichStatic(u.at.ref, a)).f(this.V[a]) - this.O[a]);
           }
-          const r = u.rotate ? rad(u.rotate.deg) : 0, cs = Math.cos(r), sn = Math.sin(r);
+          const [cs, sn] = G.cosSin(u.rotate ? this.angleOf(u.rotate, u) : 0);
           const map = (q) => [at[0] + q[0] * cs - q[1] * sn, at[1] + q[0] * sn + q[1] * cs];
           this.manual.silk.push(...mapItems(items.silk, map, u));
           this.manual.assembly.push(...mapItems(items.assembly, map, u));
@@ -2248,43 +2443,318 @@
       }
     }
 
+    // Features (SPEC 12.1)
+
+    /** A feature by name: the file's own first, then the standard library's. */
+    lookupFeature(name) { return this.file.features.get(name) || this.file.lib.features.get(name) || null; }
+    featureNames() { return [...new Set([...this.file.features.keys(), ...this.file.lib.features.keys()])]; }
+
+    /** Every flag a feature takes: the names of its sections, and of the sections of
+     *  every feature it places, at any depth. */
+    flagsOf(f, visiting) {
+      const memo = this.file.flagMemo;
+      if (memo.has(f)) return memo.get(f);
+      const seen = visiting || new Set();
+      const out = new Set();
+      if (seen.has(f)) return out;
+      seen.add(f);
+      const sub = (name) => { const g = this.lookupFeature(name); if (g) for (const x of this.flagsOf(g, seen)) out.add(x); };
+      const walk = (items) => {
+        for (const it of items) {
+          if (!it) continue;
+          if (it.type === 'Section') { for (const n of it.names) out.add(n.name); walk(it.body); }
+          else if (it.type === 'FeatureLayer') { for (const g of it.items) if (g && g.op === 'feature') sub(g.feature.name); }
+          else if (it.type === 'FeatureModel') { for (const q of it.items) if (q && q.key === 'feature') sub(q.feature.name); }
+        }
+      };
+      walk(f.body);
+      seen.delete(f);
+      memo.set(f, out);
+      return out;
+    }
+
+    /**
+     * Bind a call of a feature: its parameters and lets in a scope of its own, the
+     * flags in effect (those passed down to it, and its own) and the sections they
+     * turn on. Returns { f, scope, flags, active, depth, lib }.
+     *   call  { name, args, s, e } as written; args may hold flags (lone words)
+     *   o     values  { NAME: value } from the 3D engine, for parameters not written
+     *         flags   [NAME] from the 3D engine; flags the feature doesn't take are dropped
+     *         inherit the flags in effect where the feature is placed
+     *         unit, scope  where the written arguments are evaluated
+     *         depth   how many features deep this call is
+     */
+    bindFeature(call, o) {
+      o = o || {};
+      const f = this.lookupFeature(call.name);
+      if (!f) {
+        const hint = Parser.suggest(call.name, this.featureNames());
+        throw new StompError(`unknown feature \`${call.name}\`${hint ? ` — did you mean \`${hint}\`?` : ` — define it with \`feature ${call.name} { silk { … } }\``}`, call);
+      }
+      const depth = o.depth || 0;
+      if (depth > MAX_DEPTH) throw new StompError(`features place each other more than ${MAX_DEPTH} deep: does \`${f.name}\` place itself?`, call);
+      const accepted = this.flagsOf(f);
+      const callScope = o.scope || this.scope;
+      const own = new Set();
+      for (const w of o.flags || []) if (accepted.has(w)) own.add(w);
+      const pos = [], keys = new Map();
+      let seenPos = false, flagAfterPos = null;
+      for (const a of call.args || []) {
+        if (a.key) {
+          if (keys.has(a.key)) throw new StompError(`parameter \`${a.key}\` is given twice`, a);
+          keys.set(a.key, a);
+          continue;
+        }
+        if (a.word != null && accepted.has(a.word)) {
+          if (own.has(a.word) && !(o.flags || []).includes(a.word)) throw new StompError(`flag \`${a.word}\` is given twice`, a);
+          own.add(a.word);
+          if (seenPos) flagAfterPos = flagAfterPos || a;
+          continue;
+        }
+        if (a.word != null) {
+          const known = !a.kw && (callScope.has(a.word) || a.word === 'pi' || parseColor(a.word, a) || (callScope.root().library && callScope.root().library.defs.has(a.word)));
+          const hint = Parser.suggest(a.word, [...accepted]);
+          if (a.kw || (!known && hint)) {
+            const list = accepted.size ? ` (its flags: ${[...accepted].sort().join(', ')})` : ' (it has no sections, so it takes no flags)';
+            throw new StompError(`feature \`${f.name}\` has no flag \`${a.word}\`${hint ? ` — did you mean \`${hint}\`?` : list}`, a);
+          }
+        }
+        if (flagAfterPos) throw new StompError(`a flag goes before or after the values, not between them: move \`${flagAfterPos.word}\``, flagAfterPos);
+        seenPos = true;
+        pos.push(a);
+      }
+      const flags = new Set(o.inherit || []);
+      for (const w of own) flags.add(w);
+      if (pos.length > f.params.length) {
+        throw new StompError(`feature \`${f.name}\` takes ${f.params.length} value${f.params.length === 1 ? '' : 's'}, but this gives ${pos.length}`, pos[f.params.length]);
+      }
+      const given = new Map();
+      pos.forEach((a, i) => given.set(f.params[i].name, a));
+      for (const [k, a] of keys) {
+        if (!f.params.some((q) => q.name === k)) {
+          const hint = Parser.suggest(k, f.params.map((q) => q.name));
+          throw new StompError(`feature \`${f.name}\` has no parameter \`${k}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, a);
+        }
+        if (given.has(k)) throw new StompError(`parameter \`${k}\` is given twice`, a);
+        given.set(k, a);
+      }
+      // the sections that are on, and the values they set: the innermost wins
+      const active = new Set(), sets = new Map();
+      const within = (a, b) => a.length <= b.length && a.every((x, i) => b[i] === x);
+      const label = (sec) => `\`${sec.names.map((n) => n.name).join(', ')}\``;
+      const walk = (items, path) => {
+        for (const it of items) {
+          if (!it || it.type !== 'Section' || !it.names.some((n) => flags.has(n.name))) continue;
+          active.add(it);
+          const inner = path.concat([it]);
+          for (const st of it.body) {
+            if (!st || st.type !== 'Set') continue;
+            const prev = sets.get(st.name);
+            if (prev && prev.path.length === inner.length && within(prev.path, inner)) throw new StompError(`\`${st.name}\` is set twice in this section`, st);
+            if (prev && !within(prev.path, inner) && !within(inner, prev.path)) {
+              throw new StompError(`sections ${label(prev.sec)} and ${label(it)} are both on and both set \`${st.name}\`: nest one inside the other, or set it in one`, st);
+            }
+            if (!prev || inner.length > prev.path.length) sets.set(st.name, { st, path: inner, sec: it });
+          }
+          walk(it.body, inner);
+        }
+      };
+      walk(f.body, []);
+      const sc = new Scope(f.lib ? this.file.lib.lets : this.file.lets);
+      const unit = f.unit || 'mm';
+      for (const q of f.params) {
+        const g = given.get(q.name), st = sets.get(q.name);
+        if (g) sc.defs.set(q.name, { x: g.x, unit: o.unit || 'mm', scope: callScope });
+        else if (o.values && o.values[q.name] !== undefined) sc.defs.set(q.name, { value: o.values[q.name] });
+        else if (st) sc.defs.set(q.name, { x: st.st.x, unit: st.st.unit || unit, scope: sc });
+        else if (q.def) sc.defs.set(q.name, { x: q.def, unit, scope: sc });
+        else sc.defs.set(q.name, { missing: f.name });
+      }
+      for (const l of f.body) {
+        if (!l || l.type !== 'Let') continue;
+        if (sc.defs.has(l.name)) {
+          throw new StompError(f.params.some((q) => q.name === l.name)
+            ? `\`let ${l.name}\` has the name of a parameter of \`${f.name}\``
+            : `\`let ${l.name}\` is already defined in \`${f.name}\``, { s: l.nameS, e: l.nameE });
+        }
+        const st = sets.get(l.name);
+        sc.defs.set(l.name, st ? { x: st.st.x, unit: st.st.unit || unit, scope: sc } : { x: l.x, unit: l.unit || unit, scope: sc });
+      }
+      for (const [name, v] of sets) {
+        if (!f.params.some((q) => q.name === name) && !f.body.some((l) => l && l.type === 'Let' && l.name === name)) {
+          throw new StompError(`section ${label(v.sec)} sets \`${name}\`, which isn't a parameter or a \`let\` of \`${f.name}\``, { s: v.st.nameS, e: v.st.nameE });
+        }
+      }
+      return { f, scope: sc, flags, active, depth, lib: !!f.lib, call };
+    }
+
+    /** A bound feature's statements in order, those of its sections that are on in place. */
+    eachItem(bound, fn) {
+      const walk = (items) => {
+        for (const it of items) {
+          if (!it) continue;
+          if (it.type === 'Section') { if (bound.active.has(it)) walk(it.body); } else if (it.type !== 'Let' && it.type !== 'Set') fn(it);
+        }
+      };
+      walk(bound.f.body);
+    }
+
+    /** Run fn evaluating names in a bound feature, with library errors reported at the
+     *  statement that placed it. */
+    inFeature(bound, fn) {
+      const outer = this.scope, outerTrigger = this.trigger;
+      this.scope = bound.scope;
+      if (!isLib(bound.call)) this.trigger = bound.call;
+      (this.stack || (this.stack = [])).push(bound);
+      try { return fn(); } finally { this.stack.pop(); this.scope = outer; this.trigger = outerTrigger; }
+    }
+
+    /** The items a bound feature draws on one 2D layer, through `map` (local point to footprint). */
+    featureLayer(bound, layer, map) {
+      const out = [];
+      this.inFeature(bound, () => this.eachItem(bound, (it) => {
+        if (it.type === 'FeatureLayer' && it.layer === layer) this.gfx(it.items, layer, out, layer === 'silk' ? D.silkW : D.fabW, map, bound);
+      }));
+      return out;
+    }
+
     /** A feature's graphics around its own origin: { silk: [...], assembly: [...] }.
      *  Its parameters take the arguments like a template's; plain numbers in them
      *  take the unit of the feature's statements. */
     featureItems(use, node) {
-      const f = this.file.features.get(use.name);
-      if (!f) {
-        const hint = Parser.suggest(use.name, [...this.file.features.keys()]);
-        throw new StompError(`unknown feature \`${use.name}\`${hint ? ` — did you mean \`${hint}\`?` : ` — define it with \`feature ${use.name} { silk { … } }\``}`, use);
-      }
-      const sc = new Scope(this.file.lets);
-      const given = new Map();
-      const pos = use.args.filter((a) => !a.key);
-      if (pos.length > f.params.length) throw new StompError(`feature \`${f.name}\` takes ${f.params.length} argument${f.params.length === 1 ? '' : 's'}, but this gives ${pos.length}`, use);
-      pos.forEach((a, i) => given.set(f.params[i].name, a));
-      for (const a of use.args.filter((x) => x.key)) {
-        if (!f.params.some((q) => q.name === a.key)) {
-          const hint = Parser.suggest(a.key, f.params.map((q) => q.name));
-          throw new StompError(`feature \`${f.name}\` has no parameter \`${a.key}\`${hint ? ` — did you mean \`${hint}\`?` : ''}`, a);
+      const bound = this.bindFeature(use, { unit: node.unit, scope: this.scope });
+      const id = (q) => q;
+      return { silk: this.featureLayer(bound, 'silk', id), assembly: this.featureLayer(bound, 'assembly', id), bound };
+    }
+
+    /** The solids a bound feature draws, as descriptors for the 3D kernel, in frame M. */
+    featureSolids(bound, M) {
+      const out = [];
+      this.inFeature(bound, () => this.eachItem(bound, (it) => {
+        if (it.type !== 'FeatureModel') return;
+        for (const q of it.items) {
+          this.guard(q, () => {
+            if (q.key === 'feature') {
+              const sub = this.bindFeature(q.feature, { inherit: bound.flags, depth: bound.depth + 1, unit: q.unit, scope: this.scope });
+              out.push(...this.featureSolids(sub, G.compose3(M, this.placement3(q, true))));
+            } else out.push(this.solidDesc(q, M, true));
+          });
         }
-        if (given.has(a.key)) throw new StompError(`parameter \`${a.key}\` is given twice`, a);
-        given.set(a.key, a);
+      }));
+      return out;
+    }
+
+    /** The frame a model-block `feature … at … rotate …` puts its feature in. */
+    placement3(q, inFeature) {
+      const at = q.at ? [this.len(q.at.x, q), this.len(q.at.y, q), q.at.z ? this.len(q.at.z, q) : 0] : [0, 0, 0];
+      const rot = q.rotate ? [this.deg(q.rotate.x, q), this.deg(q.rotate.y, q), this.deg(q.rotate.z, q)] : null;
+      return G.frame3(at, rot);
+    }
+
+    /** An angle node in degrees: a constant, or an expression to evaluate. */
+    angleOf(a, stmt) { return a.deg != null ? a.deg : this.deg(a.x, stmt); }
+    /** A whole number from lo to hi. */
+    countIn(x, stmt, lo, hi, what) {
+      const v = this.num(x, stmt);
+      const n = Math.round(v);
+      if (Math.abs(v - n) > 1e-9 || n < lo || n > hi) throw new StompError(`${what} is a whole number from ${lo} to ${hi} (got ${formatNumber(v)})`, x);
+      return n;
+    }
+    /** A color expression as { rgb, metal, name }. */
+    colorValue(c, node) { return evalColor(c, this.env(node)); }
+
+    /** A path's points: [[a, b], ...], arcs filled in. `pts.arc[i]` is true for an
+     *  arc's own points, which a fillet leaves as they are. */
+    pathPts(path, stmt) {
+      const pts = [];
+      pts.arc = [];
+      for (const it of path) {
+        if (it.pt) { pts.push([this.len(it.pt.x, stmt), this.len(it.pt.y, stmt)]); pts.arc.push(false); continue; }
+        const c = [this.len(it.c.x, stmt), this.len(it.c.y, stmt)], r = this.len(it.r, stmt);
+        const a0 = this.angleOf(it.from, stmt), a1 = this.angleOf(it.to, stmt);
+        const n = it.segments ? this.countIn(it.segments, stmt, 1, 1024, 'an arc\'s `segments`') : Math.max(2, Math.ceil(Math.abs(a1 - a0) / 10));
+        for (let j = 0; j <= n; j++) {
+          const a = ((a0 + ((a1 - a0) * j) / n) * Math.PI) / 180;
+          pts.push([c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]);
+          pts.arc.push(true);
+        }
       }
-      for (const q of f.params) {
-        const a = given.get(q.name);
-        if (a) sc.defs.set(q.name, { x: a.x, unit: node.unit, scope: this.scope });
-        else if (q.def) sc.defs.set(q.name, { x: q.def, unit: f.unit, scope: sc });
-        else throw new StompError(`feature \`${f.name}\` needs a value for \`${q.name}\``, use);
+      return pts;
+    }
+
+    /**
+     * A solid as a descriptor for the 3D kernel (model3d.js). In a feature, `at` is
+     * where the solid's own origin goes (a box, cylinder or sphere's is the middle
+     * of its bottom) and a size of zero or less draws nothing. At the footprint
+     * level the sizes must be positive, and the solid is placed as SPEC 13.3 says.
+     */
+    solidDesc(p, M, inFeature) {
+      const d = { op: p.kind, M: M || null, node: { s: p.s, e: p.e }, name: p.name != null ? p.name : null, kind: p.solidKind || null };
+      const what = (k) => `${p.kind} ${k}`;
+      const size = (x, k) => {
+        const v = this.len(x, p);
+        if (inFeature) { if (!(v > 0)) d.empty = true; } else if (v < 0) throw new StompError(`the ${what(k)} must not be negative (got ${fmtMM(v)})`, x);
+        else if (v === 0) this.warn(`the ${what(k)} is zero`, x);
+        return v;
+      };
+      const nonNeg = (x, k) => { const v = this.len(x, p); if (v < 0) throw new StompError(`the ${what(k)} must not be negative (got ${fmtMM(v)})`, x); return v; };
+      switch (p.kind) {
+        case 'box': case 'slab':
+          d.w = size(p.w, 'width'); d.l = size(p.l, 'length'); d.h = size(p.h, 'height');
+          if (p.castellated) d.castellated = true;
+          break;
+        case 'cylinder':
+          d.d = size(p.d, 'diameter');
+          d.d2 = p.d2 ? nonNeg(p.d2, 'top diameter') : d.d;
+          d.h = size(p.h, 'height');
+          break;
+        case 'sphere':
+          d.d = size(p.d, 'diameter');
+          d.h = p.h ? size(p.h, 'height') : d.d;
+          break;
+        case 'disc':
+          if (p.d2) { d.r0 = nonNeg(p.d, 'inner diameter') / 2; d.r1 = size(p.d2, 'outer diameter') / 2; if (!(d.r1 > d.r0)) d.empty = true; } else { d.r0 = 0; d.r1 = size(p.d, 'diameter') / 2; }
+          break;
+        case 'prism':
+          d.path = this.pathPts(p.path, p);
+          d.h = size(p.h, 'height');
+          if (d.path.length < 3) throw new StompError('a prism\'s outline needs three points or more', p);
+          break;
+        case 'face':
+          d.path = this.pathPts(p.path, p);
+          if (d.path.length < 3) throw new StompError('a face needs three points or more', p);
+          break;
+        case 'loft':
+          d.rings = p.rings.map((r) => ({ w: size(r.w, 'ring width'), l: size(r.l, 'ring length'), z: this.len(r.z, p) }));
+          break;
+        case 'sweep': case 'wire':
+          if (p.kind === 'sweep') { d.w = size(p.w, 'width'); d.t = size(p.t, 'thickness'); } else d.d = size(p.d, 'diameter');
+          d.path = this.pathPts(p.path, p);
+          d.keep = d.path.arc;
+          if (d.path.length < 2) throw new StompError(`a ${p.kind} needs a path of two points or more`, p);
+          if (p.fillet) {
+            d.fillet = nonNeg(p.fillet, 'fillet radius');
+            d.step = p.step ? this.angleOf(p.step, p) : 10;
+            if (!(d.step > 0)) throw new StompError('a fillet\'s `step` is an angle above zero', p.step);
+          }
+          break;
+        default: throw new StompError(`unknown solid \`${p.kind}\``, p);
       }
-      const outer = this.scope;
-      this.scope = sc;
-      try {
-        const out = { silk: [], assembly: [] };
-        for (const L of f.body) if (L.type === 'FeatureLayer') this.gfx(L.items, L.layer, out[L.layer], L.layer === 'silk' ? D.silkW : D.fabW, (q) => q);
-        return out;
-      } finally {
-        this.scope = outer;
-      }
+      const only = (key, kinds, text) => { if (p[key] != null && p[key] !== false && !kinds.includes(p.kind)) throw new StompError(`\`${text}\` works on ${kinds.join(' and ')} solids, not on a ${p.kind}`, p); };
+      only('open', ['cylinder'], 'open');
+      only('from', ['cylinder', 'disc'], 'from … to …');
+      only('down', ['disc', 'face'], 'down');
+      only('segments', ['cylinder', 'disc', 'sphere', 'wire'], 'segments');
+      if (!inFeature && p.solidKind) throw new StompError('`kind` is for solids in a feature; a model block\'s own solids are extra parts', p);
+      d.at = p.at ? [this.len(p.at.x, p), this.len(p.at.y, p), p.at.z ? this.len(p.at.z, p) : null] : null;
+      if (inFeature && d.at && d.at[2] == null) d.at[2] = 0;
+      d.rot = p.rotate ? [this.deg(p.rotate.x, p), this.deg(p.rotate.y, p), this.deg(p.rotate.z, p)] : null;
+      d.color = p.color != null ? this.colorValue(p.color, p) : null;
+      d.open = p.open || null;
+      if (p.from) { d.from = this.angleOf(p.from, p); d.to = this.angleOf(p.to, p); }
+      d.segments = p.segments ? this.countIn(p.segments, p, 3, 1024, '`segments`') : null;
+      d.down = !!p.down;
+      return d;
     }
 
     /** The rectangle a `courtyard { ... }` block draws: one `rect`, or a polygon with
@@ -2709,14 +3179,24 @@
     }
 
     /** Graphics statements to items. `map` takes local points to the footprint (a
-     *  feature's frame); without it, points are footprint coordinates. */
-    gfx(items, layer, out, defW, map) {
+     *  feature's frame); without it, points are footprint coordinates. `bound` is
+     *  the feature being drawn, if any. A `clear` item is cut back from the copper
+     *  when the layers are finished. */
+    gfx(items, layer, out, defW, map, bound) {
       const M = map || ((q) => this.shift(q));
       const at = (pt, s) => [this.len(pt.x, s), this.len(pt.y, s)];
       const P = (pt, s) => M(at(pt, s));
       for (const g of items) {
         this.guard(g, () => {
           const wOf = () => (g.width ? this.plen(g.width, g, 'line width') : defW);
+          const start = out.length;
+          this.gfxItem(g, layer, out, defW, M, map, bound, at, P, wOf);
+          if (g.clear) for (let i = start; i < out.length; i++) if (out[i].type === 'line') out[i].clear = true;
+        });
+      }
+    }
+
+    gfxItem(g, layer, out, defW, M, map, bound, at, P, wOf) {
           switch (g.op) {
             case 'outline': {
               if (map) throw new StompError('`outline body` draws around a footprint\'s body, so it can\'t go in a feature', g);
@@ -2729,7 +3209,7 @@
             case 'line': out.push({ type: 'line', pts: [P(g.a, g), P(g.b, g)], w: wOf(), src: g }); break;
             case 'arc': {
               const c = at(g.c, g), r = this.plen(g.r, g, 'arc radius');
-              let a0 = g.from.deg, a1 = g.to.deg;
+              let a0 = this.angleOf(g.from, g), a1 = this.angleOf(g.to, g);
               while (a1 <= a0) a1 += 360;
               out.push({ type: 'line', pts: G.arcPoints(c, r, rad(a0), rad(a1)).map(M), w: wOf(), src: g });
               break;
@@ -2750,14 +3230,45 @@
               out.push(g.fill ? { type: 'poly', pts, fill: true, src: g } : { type: 'line', pts: pts.concat([pts[0]]), w: defW, src: g });
               break;
             }
+            case 'hatch': {
+              // chords across x of the circle (c) d D, from x = A while x < B, every P
+              const c = at(g.c, g), R = this.plen(g.d, g, 'hatch diameter') / 2;
+              const t0 = this.len(g.from, g), t1 = this.len(g.to, g), step = this.plen(g.pitch, g, 'hatch pitch');
+              if (!(step > 0)) throw new StompError('a hatch\'s pitch must be more than zero', g.pitch);
+              const w = wOf();
+              let n = 0;
+              for (let t = t0; t < t1 && t < R; t += step) {
+                if (++n > 1000) throw new StompError('this hatch would draw more than 1000 lines', g);
+                const h = Math.sqrt(R * R - t * t);
+                out.push({ type: 'line', pts: [M([c[0] + t, c[1] - h]), M([c[0] + t, c[1] + h])], w, src: g });
+              }
+              break;
+            }
+            case 'feature': {
+              // another feature's items on this layer, at a point, turned
+              const u = g;
+              if (map && !u.at.point) throw new StompError('in a feature, place another feature at a point: `feature NAME at (x, y)`', u.at.ref || u);
+              const sub = this.bindFeature(u.feature, { inherit: bound ? bound.flags : null, depth: bound ? bound.depth + 1 : 0, unit: u.unit, scope: this.scope });
+              let o;
+              if (u.at.point) o = at(u.at.point, u);
+              else if (u.at.ref.kind === 'origin') o = null;
+              else {
+                const inf = this.info(u.at.ref, u);
+                o = AXES.map((a) => this.anchor(inf, a, this.whichStatic(u.at.ref, a)).f(this.V[a]) - this.O[a]);
+              }
+              const [cs, sn] = G.cosSin(u.rotate ? this.angleOf(u.rotate, u) : 0);
+              const local = (q) => [q[0] * cs - q[1] * sn, q[0] * sn + q[1] * cs];
+              const to = u.at.point || !o ? (q) => { const r = local(q); return M([(o ? o[0] : 0) + r[0], (o ? o[1] : 0) + r[1]]); }
+                : (q) => { const r = local(q); return [o[0] + r[0], o[1] + r[1]]; };
+              out.push(...this.featureLayer(sub, layer, to));
+              break;
+            }
             case 'text':
               if (map) out.push({ type: 'text', at: P(g.at, g), size: g.size ? this.plen(g.size, g, 'text size') : 1.0, str: this.textOf(g), src: g });
               else this.textItem(g, layer, out);
               break;
             default: break;
           }
-        });
-      }
     }
 
     textItem(t, layerDefault, outDefault) {
@@ -2902,7 +3413,9 @@
       let leads3d = [];
       try { leads3d = this.leads3d(); } catch (e) { if (!(e instanceof StompError)) throw e; }
       const L0 = this.lead;
+      const mainForm = L0 ? L0.form : ((leads3d.find((l) => l.form !== 'tab') || leads3d[0] || {}).form || null);
       const res = {
+        style: bodyOut ? styleOf(bodyOut, mainForm, this.gen) : null, family: familyOf(meta.refdes), mainForm,
         leads: leads3d, polarized: !!this.polarized,
         lead: L0 ? { form: L0.form, w: L0.w != null ? L0.w : null, l: L0.l != null ? L0.l : null, d: L0.d != null ? L0.d : null, v: L0.v != null ? L0.v : null, src: ranges([L0.node]) } : null,
         name: this.name, meta, density: this.density, pads, holes, body: bodyOut, coreBox: core,
@@ -2955,6 +3468,7 @@
       const LABEL = {
         standoff: 'standoff', height: 'height', draft: 'draft', bodyColor: 'body color', leadsColor: 'leads color',
         thickness: 'leads thickness', below: 'leads below', above: 'leads above', pin1: 'pin1', step: 'step',
+        bodyShape: 'body shape', leadsShape: 'leads shape',
       };
       let nodes = [];
       for (const it of models) {
@@ -2964,7 +3478,7 @@
         nodes.push(m);
         const seen = new Map();
         for (const p of m.props) {
-          if (p.key !== 'solid') {
+          if (p.key !== 'solid' && p.key !== 'feature') {
             const prev = seen.get(p.key);
             if (prev) this.warn(`\`${LABEL[p.key]}\` is given twice in this model block — the later one wins`, p, [{ message: 'first given here', node: prev }]);
             seen.set(p.key, p);
@@ -2979,13 +3493,19 @@
               case 'below': info.props.below = nonNeg('`leads below`'); break;
               case 'above': info.props.above = nonNeg('`leads above`'); break;
               case 'draft': {
-                const a = p.angle.deg;
-                if (!(a >= 0 && a < 45)) throw new StompError(`a draft is between 0 and 45 degrees (got ${a})`, p.angle);
+                const a = this.angleOf(p.angle, p);
+                if (!(a >= 0 && a < 45)) throw new StompError(`a draft is between 0 and 45 degrees (got ${formatNumber(a)})`, p.angle);
                 info.props.draft = a;
                 break;
               }
-              case 'bodyColor': info.props.bodyColor = this.colorOf(p.color, p); break;
-              case 'leadsColor': info.props.leadsColor = this.colorOf(p.color, p); break;
+              case 'bodyColor': info.props.bodyColor = this.colorValue(p.color, p); break;
+              case 'leadsColor': info.props.leadsColor = this.colorValue(p.color, p); break;
+              case 'bodyShape': case 'leadsShape': {
+                if (!this.lookupFeature(p.call.name)) this.bindFeature(p.call);   // reports an unknown name now
+                info.props[p.key] = { call: p.call, unit: p.unit, node: { s: p.s, e: p.e } };
+                break;
+              }
+              case 'feature': info.solids.push(...this.modelFeatureSolids(p)); break;
               case 'pin1': info.props.pin1 = p.v; break;
               case 'step': {
                 const x = p.xform;
@@ -2994,7 +3514,7 @@
                 info.step = { file: p.file, offset: P3(x.offset), rotate: A3(x.rotate), scale: x.scale ? this.num(x.scale, p) : 1 };
                 break;
               }
-              case 'solid': info.solids.push(this.solidOf(p)); break;
+              case 'solid': info.solids.push(this.footprintSolid(p)); break;
               default: break;
             }
           });
@@ -3010,7 +3530,112 @@
       info.src = nodes.filter((n) => n.s != null).map((n) => ({ s: n.s, e: n.e }));
       info.generated = !info.none && !info.step && !!this.body;
       info.props.pin1 = info.props.pin1 || null;
+      info.hooks = this.hooksApi();
       return info;
+    }
+
+    /** A model block's `feature NAME … at (x, y, z)`: its solids in footprint
+     *  coordinates (z from the board, or from the body's top with `on body`). */
+    modelFeatureSolids(p) {
+      const bound = this.bindFeature(p.feature, { unit: p.unit, scope: this.scope });
+      const b = this.body;
+      const at = p.at ? [this.len(p.at.x, p) - this.O.x, this.len(p.at.y, p) - this.O.y, p.at.z ? this.len(p.at.z, p) : 0] : [b ? b.x : 0, b ? b.y : 0, 0];
+      if (p.at && p.at.z && p.onBody) this.warn('`on body` and a z coordinate both set the height — the z wins', p.at);
+      if (p.onBody && !b) throw new StompError('`on body` needs a `body` to rest on', p);
+      const rot = p.rotate ? [this.deg(p.rotate.x, p), this.deg(p.rotate.y, p), this.deg(p.rotate.z, p)] : null;
+      const list = this.featureSolids(bound, G.frame3(at, rot));
+      for (const d of list) {
+        d.src = [{ s: p.s, e: p.e }];
+        if (!d.name) d.name = p.feature.name;
+        if (!d.kind) d.kind = 'solid';
+        if (p.onBody && !(p.at && p.at.z)) d.lift = true;
+      }
+      return list;
+    }
+
+    /** What the 3D engine (model3d.js) calls to have features drawn: the standard
+     *  library's bodies and leads, or the user's own. Problems found while drawing
+     *  are collected for the engine, at the statement each part comes from. */
+    hooksApi() {
+      const self = this;
+      let sink = [];
+      const fail = (err) => {
+        if (err && err.hook) throw err;
+        if (!(err instanceof StompError)) throw err;
+        if (!err.silent) self.report('error', err.message, err.node, err.related);
+        const e = new Error(err.message);
+        e.hook = true;
+        throw e;
+      };
+      // evaluate on behalf of `trigger` (a { s, e } range in the user's file)
+      const run = (bound, trigger, fn) => {
+        const outer = [self.diagSink, self.trigger, self.stack];
+        self.diagSink = sink;
+        self.trigger = trigger || { s: self.decl.nameS, e: self.decl.nameE };
+        self.stack = bound ? [bound] : [];
+        try { return fn(); } catch (err) { return fail(err); } finally { [self.diagSink, self.trigger, self.stack] = outer; }
+      };
+      const binding = (bound, trigger) => {
+        const get = (name) => run(bound, trigger, () => {
+          if (!bound.scope.defs.has(name)) throw new StompError(`feature \`${bound.f.name}\` has no \`${name}\``, trigger);
+          return bound.scope.lookup(name, trigger);
+        });
+        const unitScale = UNIT_MM[bound.f.unit || 'mm'];
+        return {
+          name: bound.f.name, lib: bound.lib, flags: bound.flags,
+          has: (name) => bound.scope.defs.has(name),
+          get,
+          len: (name) => {
+            const v = get(name);
+            if (v.k === 'len') return v.v;
+            if (v.k === 'num') return v.v * unitScale;
+            return run(bound, trigger, () => { throw new StompError(`\`${name}\` in \`${bound.f.name}\` should be a length, but it's a ${KIND_NAME[v.k]}`, trigger); });
+          },
+          num: (name) => {
+            const v = get(name);
+            if (v.k === 'num' || v.k === 'ratio') return v.v;
+            return run(bound, trigger, () => { throw new StompError(`\`${name}\` in \`${bound.f.name}\` should be a plain number, but it's a ${KIND_NAME[v.k]}`, trigger); });
+          },
+          str: (name) => { const v = get(name); return v.k === 'str' ? v.v : v.k === 'color' ? (v.v.name || hexOf(v.v.rgb)) : formatNumber(v.v); },
+          color: (name) => { const v = get(name); return run(bound, trigger, () => toColor(v, trigger)); },
+          /** A `NAME_if` test: its value in mm, or null when it needs a value nobody gave. */
+          test: (name) => run(bound, trigger, () => {
+            if (!bound.scope.defs.has(name)) return null;
+            let v;
+            try { v = bound.scope.lookup(name, trigger); } catch (err) { if (err instanceof StompError && err.missing) return null; throw err; }
+            if (v.k === 'len' || v.k === 'ratio') return v.v;
+            if (v.k === 'num') return v.v * unitScale;
+            throw new StompError(`\`${name}\` in \`${bound.f.name}\` should be a number, but it's a ${KIND_NAME[v.k]}`, trigger);
+          }),
+          solids: (M) => run(bound, trigger, () => self.featureSolids(bound, M || null)),
+        };
+      };
+      return {
+        has: (name) => !!self.lookupFeature(name),
+        isLib: (name) => { const f = self.lookupFeature(name); return !!(f && f.lib); },
+        params: (name) => { const f = self.lookupFeature(name); return f ? f.params.map((q) => q.name) : []; },
+        flags: (name) => { const f = self.lookupFeature(name); return f ? self.flagsOf(f) : new Set(); },
+        /** A color the standard library names (`solid_color`). */
+        libColor: (name) => run(null, null, () => toColor(self.file.lib.lets.lookup(name, self.decl), self.decl)),
+        /**
+         * Bind a feature for the engine. `values` ({ NAME: { k, v } }) and `flags` the
+         * feature doesn't declare are dropped. `written` is a `body shape` or `leads
+         * shape` statement's call, whose own arguments and flags come first.
+         */
+        bind(name, values, flags, trigger, written) {
+          return run(null, trigger, () => {
+            const f = self.lookupFeature(name);
+            if (!f) throw new StompError(`unknown feature \`${name}\``, trigger);
+            const declared = {};
+            for (const q of f.params) if (values && values[q.name] !== undefined) declared[q.name] = values[q.name];
+            const call = written ? Object.assign({}, written.call, { name }) : { name, args: [], s: trigger && trigger.s, e: trigger && trigger.e };
+            const bound = self.bindFeature(call, { values: declared, flags, unit: written ? written.unit : null, scope: self.scope });
+            return binding(bound, written ? written.node : trigger);
+          });
+        },
+        /** The problems found since the last call. */
+        take() { const out = sink; sink = []; return out; },
+      };
     }
 
     deg(x, stmt) {
@@ -3024,40 +3649,22 @@
       return v.v;
     }
 
-    /** A "#rrggbb" or a color name, as { hex, metal, name }. */
-    colorOf(c, node) {
-      const text = typeof c === 'string' ? c.trim() : '';
-      if (/^#/.test(text)) {
-        if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(text)) throw new StompError(`\`${text}\` isn't a color — write it as "#rrggbb"`, node);
-        const h = text.length === 4 ? '#' + text.slice(1).split('').map((ch) => ch + ch).join('') : text;
-        return { hex: h.toLowerCase(), metal: false, name: text };
-      }
-      const k = text.toLowerCase();
-      if (COLORS[k]) return { hex: COLORS[k], metal: METALS.has(k), name: k };
-      const hint = Parser.suggest(k, Object.keys(COLORS));
-      throw new StompError(`unknown color \`${text}\`${hint ? ` — did you mean \`${hint}\`?` : ''} (names: ${COLOR_NAMES}; or "#rrggbb")`, node);
-    }
-
-    /** A box or cylinder solid, in final footprint coordinates. */
-    solidOf(p) {
-      const L = (x, what) => this.plen(x, p, what);
-      const out = { kind: p.kind, onBody: !!p.onBody, color: p.color != null ? this.colorOf(p.color, p) : null, src: [{ s: p.s, e: p.e }] };
-      if (p.kind === 'box') { out.w = L(p.w, 'box width'); out.l = L(p.l, 'box length'); out.h = L(p.h, 'box height'); }
-      else { out.d = L(p.d, 'cylinder diameter'); out.h = L(p.h, 'cylinder height'); }
+    /** A model block's own solid: a descriptor, placed under its `at` point (or the
+     *  body's center) with its bottom at z, on the board, or on the body. */
+    footprintSolid(p) {
+      const d = this.solidDesc(p, null, false);
       const b = this.body;
+      d.src = [{ s: p.s, e: p.e }];
+      d.name = d.name || p.kind;
+      d.kind = 'solid';
       if (p.at) {
-        out.x = this.len(p.at.x, p) - this.O.x;
-        out.y = this.len(p.at.y, p) - this.O.y;
-        out.z = p.at.z ? this.len(p.at.z, p) : null;
-        if (out.z != null && p.onBody) this.warn('`on body` and a z coordinate both set the height — the z wins', p.at);
-      } else {
-        out.x = b ? b.x : 0;
-        out.y = b ? b.y : 0;
-        out.z = null;
-      }
+        d.place = { x: d.at[0] - this.O.x, y: d.at[1] - this.O.y, z: d.at[2] };
+        if (d.at[2] != null && p.onBody) this.warn('`on body` and a z coordinate both set the height — the z wins', p.at);
+      } else d.place = { x: b ? b.x : 0, y: b ? b.y : 0, z: null };
+      d.at = null;
       if (p.onBody && !b) throw new StompError('`on body` needs a `body` to rest on', p);
-      out.rotate = p.rotate ? [this.deg(p.rotate.x, p), this.deg(p.rotate.y, p), this.deg(p.rotate.z, p)] : null;
-      return out;
+      d.onBody = !!p.onBody;
+      return d;
     }
 
     /** One entry per pad that has a 3D lead, in final coordinates. */
@@ -3104,6 +3711,30 @@
   }
 
   // Helpers
+
+  /** The body style the 3D model draws (SPEC 13.1): from the main lead form and the body. */
+  function styleOf(b, form, gen) {
+    switch (form) {
+      case 'gullwing': case 'jlead': case 'lbend': case 'straight': return 'molded';
+      case 'column': return 'cga';
+      case 'flat': case 'tab': return b.kind === 'cyl' ? 'can' : 'sawn';
+      case 'endcap': return b.axial ? 'melf' : 'chip';
+      case 'ball': return 'bga';
+      case 'pin': return gen && gen.kind === 'dual' ? 'dip' : 'header';
+      case 'wire': return b.axial ? 'axial' : (b.kind === 'cyl' ? 'can' : 'radial');
+      case 'castellated': return 'module';
+      default: return b.kind === 'cyl' ? 'can' : 'block';
+    }
+  }
+  /** The kind of part its refdes names, for the model's colors and marks. */
+  function familyOf(refdes) {
+    const r = String(refdes || '').toUpperCase();
+    if (/^LED/.test(r) || r.charAt(0) === 'D') return 'diode';
+    if (/^FB/.test(r) || r.charAt(0) === 'L') return 'inductor';
+    if (r.charAt(0) === 'R') return 'resistor';
+    if (r.charAt(0) === 'C') return 'capacitor';
+    return null;
+  }
 
   const ZERO_BB = { x: { lo: 0, hi: 0 }, y: { lo: 0, hi: 0 } };
 

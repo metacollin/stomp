@@ -2,7 +2,8 @@
 // Demo build script. No dependencies.
 //
 //   node demo/tools/build.mjs                 rebuild demo/js/examples.js from examples/*.stomp
-//   node demo/tools/build.mjs --check         fail if demo/js/examples.js is out of date
+//                                             and demo/js/stdlib.js from stdlib/*.stomp
+//   node demo/tools/build.mjs --check         fail if either is out of date
 //   node demo/tools/build.mjs --bundle FILE   also write the whole demo as one HTML file
 //         [--fragment]                        leave out <html>, <head> and <body>, for hosts that add
 //                                             their own. Those hosts sandbox the page, so exports
@@ -15,6 +16,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const demo = resolve(here, '..');
 const repo = resolve(demo, '..');
 const exDir = join(repo, 'examples');
+const libDir = join(repo, 'stdlib');
+
+// The standard library, in load order (SPEC 13.5). Files not listed go last, by name.
+const LIB_ORDER = [
+  'colors.stomp', 'marks.stomp', 'molded.stomp', 'leadless.stomp', 'chips.stomp', 'arrays.stomp',
+  'cans.stomp', 'through_hole.stomp', 'modules.stomp', 'silk.stomp',
+];
 
 // Order in the example picker. Files not listed go last, by name. The picker
 // puts files named *_library.stomp in a group of their own.
@@ -47,6 +55,29 @@ function exampleList() {
     const group = file.endsWith('_library.stomp') ? 'Libraries' : 'Parts';
     return { file, title, blurb, group, source };
   });
+}
+
+function stdlibList() {
+  const files = readdirSync(libDir).filter((f) => f.endsWith('.stomp'));
+  const at = (f) => { const i = LIB_ORDER.indexOf(f); return i < 0 ? LIB_ORDER.length : i; };
+  files.sort((a, b) => at(a) - at(b) || a.localeCompare(b));
+  return files.map((file) => {
+    const source = readFileSync(join(libDir, file), 'utf8');
+    const first = (source.split('\n').find((l) => l.startsWith('# ')) || `# ${file}`).slice(2).trim().replace(/\.$/, '');
+    const i = first.indexOf(': ');
+    return { file, title: i < 0 ? first : first.slice(0, i), blurb: i < 0 ? '' : first.slice(i + 2), source };
+  });
+}
+
+function stdlibJs() {
+  return `/* Generated from stdlib/*.stomp by demo/tools/build.mjs. Don't edit. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else (root.Stomp = root.Stomp || {}).stdlib = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  return ${JSON.stringify(stdlibList(), null, 2).replace(/\n/g, '\n  ')};
+});
+`;
 }
 
 function examplesJs() {
@@ -83,18 +114,17 @@ function bundle(fragment) {
 }
 
 const args = process.argv.slice(2);
-const target = join(demo, 'js', 'examples.js');
-const fresh = examplesJs();
+const outputs = [[join(demo, 'js', 'examples.js'), examplesJs()], [join(demo, 'js', 'stdlib.js'), stdlibJs()]];
 if (args.includes('--check')) {
-  const cur = existsSync(target) ? readFileSync(target, 'utf8') : '';
-  if (cur !== fresh) {
-    console.error('demo/js/examples.js is out of date. Run: node demo/tools/build.mjs');
-    process.exit(1);
+  let stale = 0;
+  for (const [target, fresh] of outputs) {
+    const cur = existsSync(target) ? readFileSync(target, 'utf8') : '';
+    const rel = target.slice(repo.length + 1);
+    if (cur !== fresh) { console.error(`${rel} is out of date. Run: node demo/tools/build.mjs`); stale++; } else console.log(`${rel} is up to date`);
   }
-  console.log('demo/js/examples.js is up to date');
+  if (stale) process.exit(1);
 } else {
-  writeFileSync(target, fresh);
-  console.log(`wrote ${target}`);
+  for (const [target, fresh] of outputs) { writeFileSync(target, fresh); console.log(`wrote ${target}`); }
 }
 const bi = args.indexOf('--bundle');
 if (bi >= 0) {

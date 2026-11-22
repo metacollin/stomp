@@ -39,10 +39,13 @@
     'default', 'pad', 'pads', 'hole', 'delete', 'row', 'group', 'align', 'silk', 'courtyard', 'assembly',
     'text', 'model', 'no', 'name', 'footprint', 'footprints', 'template', 'units', 'feature'];
   const STMT_SET = new Set(STMT_WORDS);
+  // the 3D solids (SPEC 13.3)
+  const SOLIDS = new Set(['box', 'cylinder', 'sphere', 'disc', 'prism', 'face', 'loft', 'sweep', 'wire', 'slab']);
   const INNER = {
     pad: new Set(['shape', 'size', 'width', 'length', 'drill', 'rotate', 'mask', 'paste', 'vias']),
-    gfx: new Set(['outline', 'line', 'arc', 'circle', 'rect', 'polygon', 'text']),
-    model: new Set(['standoff', 'height', 'draft', 'body', 'leads', 'pin1', 'box', 'cylinder', 'step']),
+    gfx: new Set(['outline', 'line', 'arc', 'circle', 'rect', 'polygon', 'text', 'hatch', 'feature']),
+    model: new Set(['standoff', 'height', 'draft', 'body', 'leads', 'pin1', 'step', 'feature', ...SOLIDS]),
+    feature: new Set(['let', 'section', 'silk', 'assembly', 'model']),
     sides: new Set(['left', 'right', 'top', 'bottom']),
   };
 
@@ -286,21 +289,56 @@
       return params;
     }
 
-    /** `feature NAME [(params)] { silk { ... } assembly { ... } }`: graphics drawn
-     *  around their own origin, placed by `pin1 NAME` or `feature NAME at ...`. */
+    /** `feature NAME [(params)] { ... }`: graphics and solids drawn around their own
+     *  origin, placed by `pin1 NAME`, `feature NAME at ...` or the 3D model. */
     featureDecl() {
       this.expectWord('feature');
       const k = this.cur;
       if (k.t !== 'word' || k.kw) this.expected('a feature name (an identifier)');
       this.advance();
       const params = this.isP('(') ? this.paramList('feature') : [];
-      const blk = this.block(() => {
-        const L = this.cur;
-        if (!this.isWord('silk') && !this.isWord('assembly')) this.expected('`silk { … }` or `assembly { … }`, the layers a feature draws on');
-        this.advance();
-        return { type: 'FeatureLayer', layer: L.v, items: this.gfxBlock(), s: L.s, e: this.prevEnd() };
-      });
+      const blk = this.block(() => this.featureItem(false), INNER.feature);
       return { type: 'Feature', name: k.v, nameS: k.s, nameE: k.e, params, body: blk.stmts };
+    }
+
+    /** One line of a feature or of a section in it: `let`, `section`, a layer block,
+     *  or (in a section) `NAME = value`. */
+    featureItem(inSection) {
+      const k = this.cur;
+      const s = k.s;
+      let node;
+      if (this.isWord('let')) {
+        if (inSection) this.failAt('a `let` goes at the top level of the feature; a section gives it a new value with `NAME = …`');
+        node = this.letStmt();
+      } else if (this.acceptWord('section')) {
+        const names = [this.flagName()];
+        while (this.acceptP(',')) names.push(this.flagName());
+        const blk = this.block(() => this.featureItem(true), INNER.feature);
+        node = { type: 'Section', names, body: blk.stmts };
+      } else if (this.isWord('silk') || this.isWord('assembly')) {
+        const L = this.advance();
+        node = { type: 'FeatureLayer', layer: L.v, items: this.gfxBlock() };
+      } else if (this.acceptWord('model')) {
+        node = { type: 'FeatureModel', items: this.modelBlock(true) };
+      } else if (inSection && k.t === 'word' && !k.kw && this.isP('=', 1)) {
+        this.advance();
+        this.advance();
+        node = { type: 'Set', name: k.v, nameS: k.s, nameE: k.e, x: this.expr() };
+      } else if (inSection) {
+        this.expected('`NAME = value`, `section`, `silk { … }`, `assembly { … }` or `model { … }`');
+      } else {
+        this.expected('`let`, `section`, `silk { … }`, `assembly { … }` or `model { … }`');
+      }
+      node.s = s; node.e = this.prevEnd();
+      return node;
+    }
+
+    /** A flag: any word, keywords included (`section dot`, `section gullwing`). */
+    flagName() {
+      const k = this.cur;
+      if (k.t !== 'word') this.expected('a flag name');
+      this.advance();
+      return { name: k.v, s: k.s, e: k.e };
     }
 
     /** `feature NAME [(args)] at (x, y) | OBJECT [rotate A]` in a footprint. */
@@ -344,15 +382,22 @@
       return node;
     }
 
-    /** `( arg, key = arg, ... )` */
+    /** `( arg, key = arg, ... )`. A lone word (`dot`, `bare`) is kept as a word: the
+     *  compiler decides whether it's a flag of the feature called or a value. */
     callArgs() {
       this.expectP('(');
       const args = [];
       if (!this.isP(')')) {
         do {
           const s = this.cur.s;
+          const k = this.cur;
           let key = null;
-          if (this.cur.t === 'word' && !this.cur.kw && this.isP('=', 1)) { key = this.advance().v; this.advance(); }
+          if (k.t === 'word' && !k.kw && this.isP('=', 1)) { key = this.advance().v; this.advance(); }
+          else if (k.t === 'word' && (this.isP(',', 1) || this.isP(')', 1))) {
+            this.advance();
+            args.push({ key: null, word: k.v, kw: !!k.kw, x: k.kw ? null : { type: 'id', name: k.v, s: k.s, e: k.e }, s, e: k.e });
+            continue;
+          }
           const x = this.expr();
           args.push({ key, x, s, e: this.prevEnd() });
         } while (this.acceptP(','));
@@ -1103,19 +1148,24 @@
       return { x: this.expr() };
     }
 
+    /** An angle in degrees: `45`, `45deg`, `0.7854rad` or any expression (`a + 90`).
+     *  A constant comes back as { deg }, anything else as { x } to evaluate. */
     angle() {
       const s = this.cur.s;
-      const neg = !!this.acceptP('-');
-      const k = this.cur;
-      if (k.t !== 'num' || k.suffix === '%' || k.axis || (k.suffix && !['deg', 'rad'].includes(k.suffix))) {
+      if (!this.exprStart() && !(this.cur.t === 'num' && (this.cur.suffix === 'deg' || this.cur.suffix === 'rad'))) {
         this.expected('an angle such as `45`, `45deg` or `0.7854rad`');
       }
-      this.advance();
-      let suffix = k.suffix;
-      if (!suffix && (this.isWord('deg') || this.isWord('rad'))) suffix = this.advance().v;
-      let v = k.v * (neg ? -1 : 1);
-      if (suffix === 'rad') v = (v * 180) / Math.PI;
-      return { deg: v, s, e: this.prevEnd() };
+      let x = this.withMarks('angle', () => this.expr());
+      if (this.isWord('deg')) this.advance();
+      else if (this.isWord('rad')) {
+        this.advance();
+        x = { type: 'bin', op: '*', a: x, b: { type: 'num', v: 180 / Math.PI, s: x.s, e: x.e }, s: x.s, e: x.e };
+      }
+      const lit = (n) => (n.type === 'num' && !n.unit ? n.v : n.type === 'neg' && n.x.type === 'num' && !n.x.unit ? -n.x.v
+        : n.type === 'bin' && n.op === '*' && lit(n.a) != null && lit(n.b) != null ? lit(n.a) * lit(n.b) : null);
+      const c = lit(x);
+      if (c != null) return { deg: c, s, e: this.prevEnd() };
+      return { x, s, e: this.prevEnd() };
     }
 
     // Graphics
@@ -1132,6 +1182,8 @@
         else node.width = width();
         return node;
       };
+      // `clear` after a line: cut it back from the copper, as the automatic outline is
+      const clear = (node) => { if (this.isWord('clear')) { this.advance(); node.clear = true; } return node; };
       let node;
       if (this.acceptWord('outline')) {
         this.expectWord('body', '(`outline body offset 0.15`)');
@@ -1139,6 +1191,7 @@
       } else if (this.acceptWord('line')) {
         node = { op: 'line', a: this.point(), b: this.point() };
         node.width = width();
+        clear(node);
       } else if (this.acceptWord('arc')) {
         const c = this.point();
         this.expectWord('r');
@@ -1147,7 +1200,7 @@
         const from = this.angle();
         this.expectWord('to');
         const to = this.angle();
-        node = { op: 'arc', c, r, from, to, width: width() };
+        node = clear({ op: 'arc', c, r, from, to, width: width() });
       } else if (this.acceptWord('circle')) {
         const c = this.point();
         this.expectWord('d', '(circle diameter)');
@@ -1155,15 +1208,31 @@
       } else if (this.acceptWord('rect')) {
         const c = this.point();
         node = fillOrWidth({ op: 'rect', c, size: this.size() });
+        if (!node.fill) clear(node);
       } else if (this.acceptWord('polygon')) {
         const pts = [this.point(), this.point(), this.point()];
         while (this.isP('(')) pts.push(this.point());
         node = { op: 'polygon', pts, fill: !!this.acceptWord('fill') };
+        if (!node.fill) clear(node);
+      } else if (this.acceptWord('hatch')) {
+        // chords of a circle across x, from x = A while x < B, every P
+        const c = this.point();
+        this.expectWord('d', '(`hatch (x, y) d D from A to B pitch P`)');
+        const d = this.expr();
+        this.expectWord('from', '(`hatch (x, y) d D from A to B pitch P`)');
+        const from = this.expr();
+        this.expectWord('to');
+        const to = this.expr();
+        this.expectWord('pitch', '(`hatch (x, y) d D from A to B pitch P`)');
+        node = clear({ op: 'hatch', c, d, from, to, pitch: this.expr(), width: width() });
+      } else if (this.isWord('feature')) {
+        node = this.featureUse();
+        node.op = 'feature';
       } else if (this.isWord('text')) {
         node = this.text();
         node.op = 'text';
       } else {
-        return this.expected('a graphic: outline, line, arc, circle, rect, polygon or text');
+        return this.expected('a graphic: outline, line, arc, circle, rect, polygon, hatch, text or `feature NAME at …`');
       }
       node.s = s; node.e = this.prevEnd();
       return node;
@@ -1196,29 +1265,39 @@
         return { type: 'Model', none: true };
       }
       this.expectWord('model');
-      const props = this.block(() => {
+      return { type: 'Model', props: this.modelBlock(false) };
+    }
+
+    /** A footprint's model block (settings, solids, placed features), or a feature's
+     *  (solids and placed features only). */
+    modelBlock(inFeature) {
+      return this.block(() => {
         const k = this.cur;
         const s = k.s;
         let p;
-        if (this.acceptWord('standoff')) p = { key: 'standoff', x: this.expr() };
+        if (this.isWord('feature')) p = this.modelFeature(inFeature);
+        else if (k.t === 'word' && SOLIDS.has(k.v)) p = this.solid(inFeature);
+        else if (inFeature) {
+          return this.expected('a solid (box, cylinder, sphere, disc, prism, face, loft, sweep, wire or slab) or `feature NAME at (x, y, z)`');
+        } else if (this.acceptWord('standoff')) p = { key: 'standoff', x: this.expr() };
         else if (this.acceptWord('height')) p = { key: 'height', x: this.expr() };
         else if (this.acceptWord('draft')) p = { key: 'draft', angle: this.angle() };
         else if (this.acceptWord('body')) {
-          this.expectWord('color', 'after `body` (`body color …`)');
-          p = { key: 'bodyColor', color: this.color() };
+          if (this.acceptWord('color')) p = { key: 'bodyColor', color: this.color() };
+          else if (this.acceptWord('shape')) p = { key: 'bodyShape', call: this.shapeCall() };
+          else return this.expected('`color` or `shape` after `body`');
         } else if (this.acceptWord('leads')) {
           if (this.acceptWord('color')) p = { key: 'leadsColor', color: this.color() };
           else if (this.acceptWord('thickness')) p = { key: 'thickness', x: this.expr() };
           else if (this.acceptWord('below')) p = { key: 'below', x: this.expr() };
           else if (this.acceptWord('above')) p = { key: 'above', x: this.expr() };
-          else return this.expected('`color`, `thickness`, `below` or `above` after `leads`');
+          else if (this.acceptWord('shape')) p = { key: 'leadsShape', call: this.shapeCall() };
+          else return this.expected('`color`, `thickness`, `below`, `above` or `shape` after `leads`');
         } else if (this.acceptWord('pin1')) {
           const v = this.cur;
           if (v.t !== 'word' || !['dimple', 'dot', 'notch', 'stripe', 'none'].includes(v.v)) this.expected('a pin-1 mark: `dimple`, `dot`, `notch`, `stripe` or `none`');
           this.advance();
           p = { key: 'pin1', v: v.v };
-        } else if (this.isWord('box') || this.isWord('cylinder')) {
-          p = this.solid();
         } else if (this.acceptWord('step')) {
           const f = this.cur;
           if (f.t !== 'str') this.expected('a "file path" for the STEP model');
@@ -1231,60 +1310,209 @@
             else break;
           }
         } else {
-          return this.expected('a model property: standoff, height, draft, body color, leads …, pin1, box, cylinder or step');
+          return this.expected('a model property: standoff, height, draft, body color, body shape, leads …, pin1, step, a solid or `feature NAME at …`');
         }
         p.s = s; p.e = this.prevEnd();
         return p;
       }, INNER.model).stmts;
-      return { type: 'Model', props };
     }
 
-    /** `box W x L x H ...` or `cylinder d D h H ...`, with `at`, `on body`, `rotate` and `color`. */
-    solid() {
-      const k = this.advance();
-      let p;
-      if (k.v === 'box') {
-        p = this.withMarks('box', () => {
-          const w = this.expr();
-          this.expectWord('x', '(a box is `W x L x H`)');
-          const l = this.expr();
-          this.expectWord('x', '(a box is `W x L x H`)');
-          const h = this.expr();
-          return { key: 'solid', kind: 'box', w, l, h };
-        });
-      } else {
-        this.expectWord('d', 'after `cylinder` (`cylinder d D h H`)');
-        const d = this.expr();
-        this.expectWord('h', '(a cylinder is `d D h H`)');
-        const h = this.expr();
-        p = { key: 'solid', kind: 'cyl', d, h };
-      }
+    /** `NAME [(args)]` after `body shape` or `leads shape`. */
+    shapeCall() {
+      const k = this.cur;
+      if (k.t !== 'word' || k.kw) this.expected('the name of a feature');
+      this.advance();
+      return { name: k.v, s: k.s, e: k.e, args: this.isP('(') ? this.callArgs() : [] };
+    }
+
+    /** `feature NAME [(args)] [at (x, y[, z])] [rotate R] [on body]` in a model block. */
+    modelFeature(inFeature) {
+      this.expectWord('feature');
+      const k = this.cur;
+      if (k.t !== 'word' || k.kw) this.expected('the name of a feature');
+      this.advance();
+      const p = { key: 'feature', feature: { name: k.v, s: k.s, e: k.e, args: this.isP('(') ? this.callArgs() : [] } };
       for (;;) {
         const c = this.cur;
         if (this.acceptWord('at')) {
           if (p.at) this.failAt('`at` is given twice', c);
-          const open = this.expectP('(', '(a point `(x, y)` or `(x, y, z)`)');
-          const x = this.expr();
-          this.expectP(',', 'between the coordinates');
-          const y = this.expr();
-          const z = this.acceptP(',') ? this.expr() : null;
-          const close = this.expectP(')');
-          p.at = { x, y, z, s: open.s, e: close.e };
-        } else if (this.acceptWord('on')) {
+          p.at = this.point3opt();
+        } else if (this.acceptWord('rotate')) {
+          if (p.rotate) this.failAt('`rotate` is given twice', c);
+          p.rotate = this.rotation();
+        } else if (!inFeature && this.acceptWord('on')) {
           this.expectWord('body', 'after `on` (`on body`)');
           p.onBody = true;
-        } else if (this.acceptWord('rotate')) p.rotate = this.point3();
-        else if (this.acceptWord('color')) p.color = this.color();
+        } else break;
+      }
+      return p;
+    }
+
+    /**
+     * A solid: its size, then options in any order (SPEC 13.3).
+     *   box W x L x H                 cylinder d D [to D2] h H      sphere d D [h H]
+     *   disc d D [to D2]              prism PATH h H                face PATH
+     *   loft W x L at Z, ...          sweep W x T [fillet R [step A]] along PATH
+     *   wire d D [fillet R [step A]] along PATH                     slab W x L x T [castellated]
+     */
+    solid(inFeature) {
+      const k = this.advance();
+      const kind = k.v;
+      const p = { key: 'solid', kind };
+      const dia = (what) => { this.expectWord('d', `after \`${kind}\` (${what})`); return this.expr(); };
+      switch (kind) {
+        case 'box': case 'slab':
+          this.withMarks('box', () => {
+            p.w = this.expr();
+            this.expectWord('x', `(a ${kind} is \`W x L x H\`)`);
+            p.l = this.expr();
+            this.expectWord('x', `(a ${kind} is \`W x L x H\`)`);
+            p.h = this.expr();
+          });
+          if (kind === 'slab' && this.acceptWord('castellated')) p.castellated = true;
+          break;
+        case 'cylinder':
+          p.d = dia('`cylinder d D h H`');
+          if (this.acceptWord('to')) p.d2 = this.expr();
+          this.expectWord('h', '(a cylinder is `d D h H`)');
+          p.h = this.expr();
+          break;
+        case 'sphere':
+          p.d = dia('`sphere d D`');
+          if (this.acceptWord('h')) p.h = this.expr();
+          break;
+        case 'disc':
+          p.d = dia('`disc d D`');
+          if (this.acceptWord('to')) p.d2 = this.expr();
+          break;
+        case 'prism':
+          p.path = this.path();
+          this.expectWord('h', '(a prism is `prism PATH h H`)');
+          p.h = this.expr();
+          break;
+        case 'face':
+          p.path = this.path();
+          break;
+        case 'loft':
+          p.rings = [];
+          do {
+            const rs = this.cur.s;
+            const w = this.expr();
+            this.expectWord('x', '(each ring of a loft is `W x L at Z`)');
+            const l = this.expr();
+            this.expectWord('at', '(each ring of a loft is `W x L at Z`)');
+            p.rings.push({ w, l, z: this.expr(), s: rs, e: this.prevEnd() });
+          } while (this.acceptP(','));
+          if (p.rings.length < 2) this.failAt('a loft needs two rings or more: `loft W x L at Z, W x L at Z`');
+          break;
+        case 'sweep': case 'wire':
+          if (kind === 'sweep') {
+            p.w = this.expr();
+            this.expectWord('x', '(a sweep is `W x T along PATH`)');
+            p.t = this.expr();
+          } else p.d = dia('`wire d D along PATH`');
+          if (this.isWord('fillet')) {
+            this.advance();
+            p.fillet = this.expr();
+            if (this.acceptWord('step')) p.step = this.angle();
+          }
+          if (!this.isWord('along')) this.expected(`\`along\` and a path (\`${kind} … along (x, z), (x, z), …\`)`);
+          this.advance();
+          p.path = this.path();
+          break;
+        default: break;
+      }
+      for (;;) {
+        const c = this.cur;
+        const once = (key) => { if (p[key] != null) this.failAt(`\`${c.v}\` is given twice`, c); };
+        if (this.acceptWord('at')) { once('at'); p.at = this.point3opt(); }
+        else if (this.isWord('on') && this.isWord('body', 1)) {
+          if (inFeature) this.failAt('`on body` works in a footprint\'s model block; in a feature, give the height in `at (x, y, z)`');
+          this.advance(); this.advance(); p.onBody = true;
+        }
+        else if (this.acceptWord('rotate')) { once('rotate'); p.rotate = this.rotation(); }
+        else if (this.acceptWord('color')) { once('color'); p.color = this.color(); }
+        else if (this.acceptWord('name')) {
+          once('name');
+          const v = this.cur;
+          if (v.t !== 'str') this.expected('a "name" for the solid');
+          this.advance();
+          p.name = this.strNode(v);
+        } else if (this.isWord('kind') && this.peek(1).t === 'word') {
+          once('solidKind');
+          this.advance();
+          const v = this.cur;
+          if (!['body', 'lead', 'mark'].includes(v.v)) this.expected('`body`, `lead` or `mark`');
+          this.advance();
+          p.solidKind = v.v;
+        } else if (this.isWord('open')) {
+          once('open');
+          this.advance();
+          p.open = this.acceptWord('top') ? 'top' : this.acceptWord('bottom') ? 'bottom' : 'both';
+        } else if (this.acceptWord('from')) {
+          once('from');
+          p.from = this.angle();
+          this.expectWord('to', '(`from A to B`)');
+          p.to = this.angle();
+        } else if (this.isWord('segments')) { once('segments'); this.advance(); p.segments = this.expr(); }
+        else if (this.acceptWord('down')) p.down = true;
         else break;
       }
       return p;
     }
 
+    /** A path: points and arcs, `(x, y), arc (cx, cy) r R from A to B [segments N], ...`. */
+    path() {
+      const items = [];
+      do {
+        const s = this.cur.s;
+        if (this.acceptWord('arc')) {
+          const c = this.point();
+          this.expectWord('r', '(an arc is `arc (x, y) r R from A to B`)');
+          const r = this.expr();
+          this.expectWord('from', '(an arc is `arc (x, y) r R from A to B`)');
+          const from = this.angle();
+          this.expectWord('to');
+          const to = this.angle();
+          let segments = null;
+          if (this.isWord('segments')) { this.advance(); segments = this.expr(); }
+          items.push({ arc: true, c, r, from, to, segments, s, e: this.prevEnd() });
+        } else if (this.isP('(')) {
+          items.push({ pt: this.point(), s, e: this.prevEnd() });
+        } else this.expected('a point `(x, y)` or `arc (x, y) r R from A to B`');
+      } while (this.acceptP(','));
+      return items;
+    }
+
+    /** `rotate (rx, ry, rz)` or `rotate A` (about z), in degrees. */
+    rotation() {
+      if (!this.isP('(')) {
+        const a = this.angle();
+        const zero = { type: 'num', v: 0, s: a.s, e: a.s };
+        return { x: zero, y: zero, z: a.x || { type: 'num', v: a.deg, s: a.s, e: a.e }, s: a.s, e: a.e };
+      }
+      const open = this.expectP('(');
+      const comp = () => { const a = this.angle(); return a.x || { type: 'num', v: a.deg, s: a.s, e: a.e }; };
+      const x = comp();
+      this.expectP(',', '(a rotation is `(rx, ry, rz)` in degrees, or one angle about z)');
+      const y = comp();
+      this.expectP(',', '(a rotation is `(rx, ry, rz)` in degrees, or one angle about z)');
+      const z = comp();
+      const close = this.expectP(')');
+      return { x, y, z, s: open.s, e: close.e };
+    }
+
+    /** A color: a name (`tin`, `can_blue`, a parameter), "#rrggbb", or an expression
+     *  such as `mix(body_color, "#000000", 0.5)`. */
     color() {
       const k = this.cur;
-      if (k.t === 'str') { this.advance(); return this.strNode(k); }
-      // any word: some color names (`copper`) are also keywords; compile checks the name
-      if (k.t === 'word' && !STMT_SET.has(k.v)) { this.advance(); return k.v; }
+      if (k.t === 'str') { this.advance(); return { type: 'str', value: this.strNode(k), s: k.s, e: k.e }; }
+      // any word: some color names (`copper`) are also keywords; compile looks the name up
+      if (k.t === 'word' && !(this.isP('(', 1) && this.peek(1).s === k.e) && !STMT_SET.has(k.v)) {
+        this.advance();
+        return { type: 'id', name: k.v, s: k.s, e: k.e };
+      }
+      if (this.exprStart()) return this.expr();
       return this.expected('a color: a "#rrggbb" string or a name such as black, tin or gold');
     }
 
@@ -1329,12 +1557,27 @@
       const k = this.cur;
       if (k.t === 'num') {
         if (k.suffix === '%') this.failAt('a percentage isn\'t allowed here');
-        if (k.suffix === 'deg' || k.suffix === 'rad') this.failAt('an angle isn\'t allowed here');
+        if (k.suffix === 'deg' || k.suffix === 'rad') {
+          if (this.marks !== 'angle') this.failAt('an angle isn\'t allowed here');
+          this.advance();
+          return { type: 'num', v: k.suffix === 'rad' ? (k.v * 180) / Math.PI : k.v, unit: null, s: k.s, e: k.e };
+        }
         if (k.axis && this.marks !== 'size') this.markError(k.axis, k);
         this.advance();
         const node = { type: 'num', v: k.v, unit: k.suffix, s: k.s, e: k.e };
         if (k.axis) node.axis = k.axis;
         return node;
+      }
+      // a function call: the name touches its `(` (so table cells `D (D - 1)` stay two)
+      if (k.t === 'word' && !k.kw && this.isP('(', 1) && this.peek(1).s === k.e) {
+        this.advance();
+        this.advance();
+        const args = [];
+        if (!this.isP(')')) {
+          do args.push(this.withMarks(this.marks === 'size' ? null : this.marks, () => this.expr())); while (this.acceptP(','));
+        }
+        const close = this.expectP(')', `to close \`${k.v}(…)\``);
+        return { type: 'call', name: k.v, args, s: k.s, e: close.e, nameE: k.e };
       }
       if (k.t === 'word' && !k.kw) { this.advance(); return { type: 'id', name: k.v, s: k.s, e: k.e }; }
       if (k.t === 'str') { this.advance(); return { type: 'str', value: this.strNode(k), s: k.s, e: k.e }; }
@@ -1404,6 +1647,17 @@
       const y = this.expr();
       const close = this.expectP(')');
       return { x, y, s: open.s, e: close.e };
+    }
+
+    /** `(x, y)` or `(x, y, z)`. */
+    point3opt() {
+      const open = this.expectP('(', '(a point `(x, y)` or `(x, y, z)`)');
+      const x = this.expr();
+      this.expectP(',', 'between the coordinates');
+      const y = this.expr();
+      const z = this.acceptP(',') ? this.expr() : null;
+      const close = this.expectP(')');
+      return { x, y, z, s: open.s, e: close.e };
     }
 
     point3() {

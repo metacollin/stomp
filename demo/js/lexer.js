@@ -31,7 +31,9 @@
     'rect ref refdes right rotate roundrect row row-major rows scale shape ' +
     'side silk single size slot span standoff start step straight stripe tab tags ' +
     'template text thermal thickness tht to top top-left top-right um units up value ' +
-    'vertical vertically vias wire with width x y zigzag').split(/\s+/));
+    'vertical vertically vias wire with width x y zigzag ' +
+    // 3D solids and feature sections
+    'section loft sweep prism sphere disc face slab hatch').split(/\s+/));
 
   const HYPHENATED = ['row-major', 'col-major', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
   const UNIT_SUFFIX = new Set(['mm', 'um', 'nm', 'mil', 'in']);
@@ -146,6 +148,12 @@
           isInt = false;
         } else if (src[i] === '.' && src[i + 1] !== '.') {   // 1.25 / 1.   (but 1..4 is INT '..' INT)
           i++;
+          while (i < n && isDigit(src[i])) i++;
+          isInt = false;
+        }
+        // an exponent: 1e-9, 2.5E3
+        if ((src[i] === 'e' || src[i] === 'E') && (isDigit(src[i + 1] || '') || ((src[i + 1] === '-' || src[i + 1] === '+') && isDigit(src[i + 2] || '')))) {
+          i += src[i + 1] === '-' || src[i + 1] === '+' ? 2 : 1;
           while (i < n && isDigit(src[i])) i++;
           isInt = false;
         }

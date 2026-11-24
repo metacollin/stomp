@@ -2,8 +2,9 @@
 #
 # A can in a metal body color is bare (flag `bare`), as polymer caps are: no
 # vent, and its polarity mark goes on the lid. Otherwise it's sleeved, with a
-# vent when it's wide enough and a stripe down the side. ma is the direction
-# of the marked lead, in degrees.
+# vent when it's wide enough and a stripe down the side. An SMD can (flat
+# leads) stands on a black base. ma is the direction of the marked lead, in
+# degrees.
 
 units: mm
 
@@ -30,6 +31,17 @@ feature body_can(W, L, H, z0 = 0.5, body_color = can_blue, pin1_mark = "none", m
       feature lid_mark(D) at (0, 0, H - lip + 0.004) rotate: ma
     end
   end
+  section flat, tab
+    feature can_base(D, z0, ma) at (0, 0)
+  end
+end
+
+# The base an SMD can stands on: a plate h tall and a little wider than the
+# can, its corners cut on the + side, away from the marked lead
+feature can_base(D, h, ma = 0)
+  s = D + 0.3
+  k = 0.22 * s
+  prism (s / 2, -s / 2 + k), (s / 2, s / 2 - k), (s / 2 - k, s / 2), (-s / 2, s / 2), (-s / 2, -s / 2), (s / 2 - k, -s / 2) h: h rotate: ma + 180 color: rubber name: "base"
 end
 
 # The cross scored in a can's lid

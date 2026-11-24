@@ -686,7 +686,7 @@
         if (P.below != null) lv.below = len(P.below);
         if (P.leadsColor) lv.lead_color = colorVal(P.leadsColor);
         for (const k of Object.keys(lv)) if (lv[k] === undefined) delete lv[k];
-        const lf = [l.form, style];
+        const lf = [l.form, style, fam];
         if (l.form === 'pin' || l.form === 'wire') lf.push(l.d != null || (l.w == null && l.v != null) ? 'round' : 'square');
         const trigger = (l.src && l.src[0]) || bodyTrigger;
         const key = `${hook}|${JSON.stringify(lv)}|${lf.join(',')}`;
@@ -702,7 +702,8 @@
         const src = (l.src || []).concat(l.generated && res.generator ? res.generator.src || [] : []);
         let drew = false;
         for (const p of parts) {
-          const m = cloneThrough(p, M, p.name ? `${p.name} ${l.pad}` : `lead ${l.pad}`, p.kind, { color: p.color, metal: p.metal }, p.kind === 'mark' ? markSrc : src);
+          // a mark a lead draws (a socket's opening) belongs to the lead's statement
+          const m = cloneThrough(p, M, p.name ? `${p.name} ${l.pad}` : `lead ${l.pad}`, p.kind, { color: p.color, metal: p.metal }, src);
           if (m.i.length) drew = true;
           if (p.kind === 'mark') marks.push(m); else out.meshes.push(m);
         }
@@ -813,11 +814,11 @@
 
   const STYLE_NAME = {
     molded: 'molded body', sawn: 'sawn (leadless) body', chip: 'chip body', melf: 'MELF body', bga: 'BGA substrate and mold cap', cga: 'ceramic body on solder columns',
-    dip: 'molded DIP body', header: 'housing', can: 'can', radial: 'radial body', axial: 'axial body', module: 'module board', block: 'plain block',
+    dip: 'molded DIP body', header: 'housing', can: 'can', led: 'LED', radial: 'radial body', axial: 'axial body', module: 'module board', block: 'plain block',
   };
   const STYLE_SHORT = {
     molded: 'molded', sawn: 'leadless', chip: 'chip', melf: 'MELF', bga: 'BGA', cga: 'CGA', dip: 'DIP', header: 'header',
-    can: 'can', radial: 'radial', axial: 'axial', module: 'module', block: 'block',
+    can: 'can', led: 'LED', radial: 'radial', axial: 'axial', module: 'module', block: 'block',
   };
   const FORM_NAME = {
     gullwing: 'gull-wing', jlead: 'J-lead', lbend: 'L-bend lead', straight: 'straight lead', column: 'column', flat: 'flat terminal', endcap: 'end cap', ball: 'ball', pin: 'pin',

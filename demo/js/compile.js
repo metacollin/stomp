@@ -70,7 +70,7 @@
   // for it. Lengths are mm, angles degrees.
   const BODY_ARGS = ['W', 'L', 'H', 'z0', 'draft', 'body_color', 'lead_color', 'e', 'above', 'ball_d', 'cast_d', 'turn', 'T', 'sx', 'sy', 'nx', 'ny', 'ex', 'ey', 'ma'];
   const LEAD_ARGS = ['edge', 'pad_u', 'toe', 'across', 'b', 'T', 'd', 'drill', 'pad_across', 'pad_along', 'z0', 'H', 'zp', 'housing', 'zc', 'len', 'ts', 'e', 'c', 'below', 'lead_color'];
-  const STYLES = ['molded', 'dip', 'block', 'radial', 'sawn', 'cga', 'bga', 'chip', 'melf', 'axial', 'can', 'header', 'module'];
+  const STYLES = ['molded', 'dip', 'block', 'radial', 'sawn', 'cga', 'bga', 'chip', 'melf', 'axial', 'can', 'led', 'header', 'module'];
   const LEAD_HOOKS = ['gullwing', 'jlead', 'lbend', 'straight', 'flat', 'endcap', 'tab', 'contact', 'ball', 'column', 'castellated', 'dip', 'axial', 'header', 'tht'];
   const HOOKS = Object.assign(
     Object.fromEntries(STYLES.map((st) => [`body_${st}`, { kind: 'body', args: BODY_ARGS }])),
@@ -2546,7 +2546,10 @@
       }
       return forms.find((f) => f !== 'tab') || forms[0] || null;
     }
-    styleNow() { return this.body ? styleOf(this.body, this.mainFormNow(), this.gen) : null; }
+    styleNow() { return this.body ? styleOf(this.body, this.mainFormNow(), this.gen, this.familyNow()) : null; }
+    familyNow() { return familyOf(this.st.meta.refdes ? this.st.meta.refdes.value : ''); }
+    /** The flags the automatic marks are drawn with: the body's style and the part's family. */
+    markFlags() { return [this.styleNow(), this.familyNow()].filter(Boolean); }
 
     /** A mark feature's silk items around its own origin, or null when there's no
      *  feature by that name. Problems are reported at `trigger`. */
@@ -2566,7 +2569,7 @@
     polarityPin(trigger) {
       if (!this.lookupFeature('polarity')) return '2';
       const v = this.guard(trigger, () => {
-        const bound = this.bindFeature({ name: 'polarity', args: [], s: trigger.s, e: trigger.e }, { flags: [this.styleNow(), familyOf(this.st.meta.refdes ? this.st.meta.refdes.value : '')].filter(Boolean) });
+        const bound = this.bindFeature({ name: 'polarity', args: [], s: trigger.s, e: trigger.e }, { flags: this.markFlags() });
         return bound.scope.defs.has('stripe_at') ? formatValue(this.inFeature(bound, () => bound.scope.lookup('stripe_at', trigger)), null, this.env(trigger)) : '2';
       });
       return v == null ? '2' : v;
@@ -2579,13 +2582,14 @@
       const p1s = this.st.pin1 ? this.st.pin1.s : null;
       const at1 = p1s || { s: this.decl.nameS, e: this.decl.nameE };
       const L = (v) => ({ k: 'len', v });
-      if (p1 && (style === 'dot' || style === 'chamfer')) out.dot = { items: this.markItems('pin1_dot', {}, [], at1), src: p1s };
+      const flags = this.markFlags();
+      if (p1 && (style === 'dot' || style === 'chamfer')) out.dot = { items: this.markItems('pin1_dot', {}, flags, at1), src: p1s };
       if (p1 && style === 'bar' && b && b.kind === 'box') {
         const corner = this.pin1Corner();
         const edge = this.pin1End(corner);
         const tb = edge === 'top' || edge === 'bottom';
         const len = 2 * ((tb ? b.w : b.l) / 2 + D.silkOffset);
-        out.bar = { edge, items: this.markItems('pin1_bar', { len: L(len), depth: L(tb ? b.l : b.w) }, [], at1), src: p1s };
+        out.bar = { edge, items: this.markItems('pin1_bar', { len: L(len), depth: L(tb ? b.l : b.w) }, flags, at1), src: p1s };
       }
       const g = this.gen;
       if (this.polarized && g && g.kind === 'two' && this.pads.get('2')) {
@@ -2598,12 +2602,12 @@
         const horiz = Math.abs(p2.x - cx) >= Math.abs(p2.y - cy);
         const P = out.polarity = { mk, other, cx, cy, horiz, src: pz };
         if (b && b.kind === 'cyl') {
-          P.hatch = this.markItems('polarity_hatch', { r: L(b.w / 2 + D.silkOffset) }, [], pz);
-          if (other) P.plus = this.markItems('polarity_plus', {}, [], pz);
+          P.hatch = this.markItems('polarity_hatch', { r: L(b.w / 2 + D.silkOffset) }, flags, pz);
+          if (other) P.plus = this.markItems('polarity_plus', {}, flags, pz);
         } else {
           const half = horiz ? Math.max(b ? b.l / 2 + D.silkOffset : 0, (mk.bb.y.hi - mk.bb.y.lo) / 2 + 0.1) : Math.max(b ? b.w / 2 + D.silkOffset : 0, (mk.bb.x.hi - mk.bb.x.lo) / 2 + 0.1);
           P.half = half;
-          P.bar = this.markItems('polarity_bar', { len: L(2 * half) }, [], pz);
+          P.bar = this.markItems('polarity_bar', { len: L(2 * half) }, flags, pz);
         }
       }
       return out;
@@ -2864,6 +2868,21 @@
       return pts;
     }
 
+    /** A solid's `name:` as text, or null: a "string", interpolated, or a parameter that
+     *  holds text. An empty name is no name. */
+    solidName(p) {
+      if (p.name == null) return null;
+      let t;
+      if (typeof p.name === 'string') t = p.name;
+      else if (p.name.interp) t = interpolate(p.name, this.env(p));
+      else {
+        const v = this.val(p.name.x, p);
+        if (v.k !== 'str') throw new StompError('a solid\'s `name:` is text, such as "lid"', p.name.x);
+        t = v.v;
+      }
+      return t === '' ? null : t;
+    }
+
     /**
      * A solid as a descriptor for the 3D kernel (model3d.js). In a feature, `at` is
      * where the solid's own origin goes (a box, cylinder or sphere's is the middle
@@ -2871,7 +2890,7 @@
      * level the sizes must be positive, and the solid is placed as SPEC 13.3 says.
      */
     solidDesc(p, M, inFeature) {
-      const d = { op: p.kind, M: M || null, node: { s: p.s, e: p.e }, name: p.name != null ? p.name : null, kind: p.solidKind || null };
+      const d = { op: p.kind, M: M || null, node: { s: p.s, e: p.e }, name: this.solidName(p), kind: p.solidKind || null };
       const what = (k) => `${p.kind} ${k}`;
       const size = (x, k) => {
         const v = this.len(x, p);
@@ -3584,7 +3603,7 @@
       const L0 = this.lead;
       const mainForm = this.mainFormNow();
       const res = {
-        style: bodyOut ? styleOf(bodyOut, mainForm, this.gen) : null, family: familyOf(meta.refdes), mainForm,
+        style: bodyOut ? styleOf(bodyOut, mainForm, this.gen, familyOf(meta.refdes)) : null, family: familyOf(meta.refdes), mainForm,
         markSrc: ranges([this.st.pin1 && this.st.pin1.s, this.st.polarized && this.st.polarized.s]),
         leads: leads3d, polarized: !!this.polarized,
         lead: L0 ? { form: L0.form, w: L0.w != null ? L0.w : null, l: L0.l != null ? L0.l : null, d: L0.d != null ? L0.d : null, v: L0.v != null ? L0.v : null, src: ranges([L0.node]) } : null,
@@ -3887,8 +3906,9 @@
 
   // Helpers
 
-  /** The body style the 3D model draws (SPEC 13.1): from the main lead form and the body. */
-  function styleOf(b, form, gen) {
+  /** The body style the 3D model draws (SPEC 13.1): from the main lead form and the body,
+   *  and for a round body on wires, the part's family: a diode's is an LED. */
+  function styleOf(b, form, gen, family) {
     switch (form) {
       case 'gullwing': case 'jlead': case 'lbend': case 'straight': return 'molded';
       case 'column': return 'cga';
@@ -3896,19 +3916,23 @@
       case 'endcap': return b.axial ? 'melf' : 'chip';
       case 'ball': return 'bga';
       case 'pin': return gen && gen.kind === 'dual' ? 'dip' : 'header';
-      case 'wire': return b.axial ? 'axial' : (b.kind === 'cyl' ? 'can' : 'radial');
+      case 'wire': return b.axial ? 'axial' : (b.kind === 'cyl' ? (family === 'diode' ? 'led' : 'can') : 'radial');
       case 'castellated': return 'module';
       default: return b.kind === 'cyl' ? 'can' : 'block';
     }
   }
-  /** The kind of part its refdes names, for the model's colors and marks. */
+  /** The kind of part its refdes names (SPEC 13.5), for the model's colors, marks and
+   *  details: the longer prefixes first, so FB is a ferrite bead and not a fuse. */
+  const FAMILY_PREFIX = [
+    ['LED', 'diode'], ['FB', 'inductor'], ['XTAL', 'crystal'], ['OSC', 'oscillator'], ['XO', 'oscillator'],
+    ['SW', 'switch'], ['BZ', 'buzzer'], ['LS', 'buzzer'], ['CON', 'connector'], ['CN', 'connector'], ['IC', 'ic'],
+    ['D', 'diode'], ['L', 'inductor'], ['R', 'resistor'], ['C', 'capacitor'], ['Y', 'crystal'], ['X', 'oscillator'],
+    ['S', 'switch'], ['F', 'fuse'], ['J', 'connector'], ['P', 'connector'], ['Q', 'transistor'], ['U', 'ic'],
+  ];
   function familyOf(refdes) {
     const r = String(refdes || '').toUpperCase();
-    if (/^LED/.test(r) || r.charAt(0) === 'D') return 'diode';
-    if (/^FB/.test(r) || r.charAt(0) === 'L') return 'inductor';
-    if (r.charAt(0) === 'R') return 'resistor';
-    if (r.charAt(0) === 'C') return 'capacitor';
-    return null;
+    const hit = FAMILY_PREFIX.find(([p]) => r.startsWith(p));
+    return hit ? hit[1] : null;
   }
 
   const ZERO_BB = { x: { lo: 0, hi: 0 }, y: { lo: 0, hi: 0 } };

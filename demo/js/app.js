@@ -23,7 +23,7 @@
     'qfn_library.stomp': '  32   5    3.45',
     'sot223.stomp': 'lead 4 gullwing',
     'do41.stomp': 'body cylinder',
-    'crystal3225.stomp': 'box 2.9',
+    'crystal3225.stomp': 'refdes: "Y"',
     'custom_models.stomp': 'feature can_vent(D)',
     'chip_library.stomp': '"0603"  "1608"  1.6   0.8   0.45',
     'sot_library.stomp': '"SOT-23"           1.3',
@@ -39,11 +39,12 @@
     'led_library.stomp': '  6    "5050"',
     'dip_library.stomp': '  8    375',
     'header_library.stomp': '  5\n  6\n  7\n  8\n  10',
+    'tht_parts.stomp': 'body shape: to92',
   };
   // Libraries open on the Library view rather than a single footprint
   const opensInLibrary = (file) => file.endsWith('_library.stomp');
   // Examples about the 3D model, which open on it
-  const OPEN_IN_3D = new Set(['sot223.stomp', 'do41.stomp', 'crystal3225.stomp', 'custom_models.stomp']);
+  const OPEN_IN_3D = new Set(['sot223.stomp', 'do41.stomp', 'crystal3225.stomp', 'custom_models.stomp', 'tht_parts.stomp']);
   const TAB_LIMIT = 5;          // more footprints than this: a dropdown instead of tabs
 
   const store = {
@@ -57,11 +58,21 @@
   // everywhere, and while one is open the preview shows an example that uses it.
   const libFiles = S.stdlib || [];
   const byLib = new Map(libFiles.map((f) => [`stdlib/${f.file}`, Object.assign({}, f, { file: `stdlib/${f.file}`, name: f.file })]));
+  // The example a library file previews with, and the footprint to show from it (first if none)
   const LIB_PREVIEW = {
     'colors.stomp': 'chip_library.stomp', 'marks.stomp': 'diode_library.stomp', 'molded.stomp': 'sop_library.stomp',
     'leadless.stomp': 'qfn_library.stomp', 'chips.stomp': 'chip_library.stomp', 'arrays.stomp': 'bga_library.stomp',
     'cans.stomp': 'cp_radial.stomp', 'through_hole.stomp': 'header_library.stomp', 'modules.stomp': 'syntax_zoo.stomp',
-    'silk.stomp': 'tantalum_library.stomp',
+    'silk.stomp': 'tantalum_library.stomp', 'packages.stomp': 'tht_parts.stomp#TO-220-3_Vertical',
+    'leds.stomp': 'tht_parts.stomp#LED_D5.0mm', 'shapes.stomp': 'tht_parts.stomp#RotaryEncoder_12x12mm_Vertical',
+    'symbols.stomp': 'tht_parts.stomp#RotaryEncoder_12x12mm_Vertical',
+  };
+  const LIB_2D = new Set(['silk.stomp', 'symbols.stomp']);   // library files about the silk preview in 2D
+  /** The open library file's preview: { file, fp }, or null outside the library. */
+  const previewOf = () => {
+    if (!inLib()) return null;
+    const [file, fp] = (LIB_PREVIEW[byLib.get(state.file).name] || examples[0].file).split('#');
+    return { file, fp: fp || null };
   };
   const inLib = () => byLib.has(state.file);
   const sourceOf = (file) => byFile.get(file) || byLib.get(file);
@@ -226,7 +237,7 @@
     if (inLib()) {
       // a library file: show the example it previews with, in 3D (its silk marks in 2D)
       state.view = 'fp';
-      state.dim = ex.name === 'silk.stomp' ? '2d' : '3d';
+      state.dim = LIB_2D.has(ex.name) ? '2d' : '3d';
     } else {
       state.view = opensInLibrary(ex.file) && edited == null ? 'lib' : 'fp';
       if (OPEN_IN_3D.has(ex.file) && (edited == null || fresh)) state.dim = '3d';
@@ -247,8 +258,8 @@
     const ex = sourceOf(state.file);
     const edited = ex && state.buffers[state.file] != null;
     const lib = inLib();
-    const pv = lib ? LIB_PREVIEW[byLib.get(state.file).name] : null;
-    $('file-name').textContent = `${lib ? state.file : `examples/${state.file}`}${edited ? ' •' : ''}${pv ? ` (shown on ${pv})` : ''}`;
+    const pv = previewOf();
+    $('file-name').textContent = `${lib ? state.file : `examples/${state.file}`}${edited ? ' •' : ''}${pv ? ` (shown on ${pv.file})` : ''}`;
     $('file-name').title = (edited ? 'Edited. Reset restores the original.' : '') + (lib ? ' A standard library file: edit it and every model that uses it follows.' : '');
     $('reset').disabled = !edited;
   }
@@ -262,10 +273,8 @@
     const opts = lib ? { stdlib: lib } : undefined;
     // a library file shows the example it previews with
     let src = text;
-    if (inLib()) {
-      const pv = LIB_PREVIEW[byLib.get(state.file).name] || examples[0].file;
-      src = state.buffers[pv] != null ? state.buffers[pv] : (byFile.get(pv) || examples[0]).source;
-    }
+    const pv = previewOf();
+    if (pv) src = state.buffers[pv.file] != null ? state.buffers[pv.file] : (byFile.get(pv.file) || examples[0]).source;
     let out;
     try {
       out = S.compile(src, opts);
@@ -277,7 +286,10 @@
     state.out = out;
     state.srcText = src;
     $('compile-ms').textContent = `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
-    if (!out.footprints.some((f) => f.name === state.active)) state.active = (inLib() ? null : fpAt(state.cursor)) || (out.footprints[0] && out.footprints[0].name) || null;
+    if (!out.footprints.some((f) => f.name === state.active)) {
+      const want = pv ? out.footprints.find((f) => f.name === pv.fp) : null;
+      state.active = (want && want.name) || (pv ? null : fpAt(state.cursor)) || (out.footprints[0] && out.footprints[0].name) || null;
+    }
     renderTabs();
     applyView();
     showActive();

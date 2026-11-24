@@ -19,19 +19,15 @@ feature body_header(W, L, H, z0 = 0, e, above = 0, body_color = epoxy, pin1_mark
   feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, housing)
 end
 
-# A header pin, beveled at both ends: up to the top, or to just inside a socket's housing
+# A header pin, beveled at both ends: up to the top, or to just inside a
+# socket's housing, which shows the opening it sits in
 feature lead_header(b = d, T = b, d = drill - 0.2, drill = 0.8, H = 1, z0 = 0, housing = H, below = 3, lead_color = gold)
   socket_if = housing - (H - 1e-6)
   tip = H
   section socket; tip = H - min(1, 0.3 * (H - z0)); end
-  bev = min(0.25 * b, 0.2)
-  section round
-    cylinder d: b * 0.55 to b h: bev at (0, 0, -below) open top segments: 14 color: lead_color
-    cylinder d: b h: tip - bev - (bev - below) at (0, 0, bev - below) open segments: 14 color: lead_color
-    cylinder d: b to b * 0.55 h: bev at (0, 0, tip - bev) open bottom segments: 14 color: lead_color
-  end
-  section square
-    loft b * 0.55 x T * 0.55 at -below, b x T at bev - below, b x T at tip - bev, b * 0.55 x T * 0.55 at tip color: lead_color
+  feature post(b, T, -below, tip, color: lead_color) at (0, 0)
+  section socket
+    box 1.6 * b x 1.6 * T x 0.004 at (0, 0, housing) color: rubber kind: mark name: "opening"
   end
 end
 
@@ -66,7 +62,7 @@ end
 # A plain pin or wire, straight down through the board from just inside the body
 feature lead_tht(b = d, T = b, d = drill - 0.2, drill = 0.8, z0 = 0, H = 1, below = 3, lead_color = tin)
   tip = min(H, z0 + 0.3)
-  section can, radial; tip = z0 + 0.3; end
+  section can, radial, led; tip = z0 + 0.3; end
   section round
     cylinder d: b h: tip + below at (0, 0, -below) segments: 12 color: lead_color
   end

@@ -54,7 +54,9 @@ are kept in the browser's local storage, and **Reset** restores the original.
   other examples too, until you press Reset. To change a model in your own file
   instead, define a feature with the library's name (`feature can_vent(D)`, its solids,
   then `end`), or give a footprint its own with `body shape: NAME` in its `model` block.
-  `examples/custom_models.stomp` does both.
+  `examples/custom_models.stomp` does both. The library also has shapes, silk symbols
+  and named packages to build with, which `examples/tht_parts.stomp` uses; its files
+  open on that example's parts.
 - Problems found while building the 3D model (a feature of your own that fails, say)
   are listed under Problems with the rest, for the footprint on screen.
 - **Export to KiCad** saves every footprint in the file as a KiCad library: a zipped

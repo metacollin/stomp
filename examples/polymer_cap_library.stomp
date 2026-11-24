@@ -6,8 +6,9 @@
 # your part's datasheet.
 
 # SMD (V-chip): the can stands on a square plastic base, with a flat terminal
-# under each end. D x H can, terminals b wide and L long, S tip to tip.
-template polymer_smd(D, H, b, L, S, base = D + 0.3)
+# under each end. The library draws the base for a can on flat leads. D x H
+# can, terminals b wide and L long, S tip to tip.
+template polymer_smd(D, H, b, L, S)
   name: "CP_Polymer_SMD_D{D}mm_H{H}mm"
   description: "Aluminum polymer capacitor, SMD, {D} mm can, {H} mm tall"
   refdes: "C"
@@ -19,9 +20,7 @@ template polymer_smd(D, H, b, L, S, base = D + 0.3)
   polarized
 
   model
-    standoff: 0.5                     # the can sits on the base
-    body color: aluminum
-    box base x base x 0.5 color: black # the base
+    body color: aluminum              # a bare can
   end
 end
 

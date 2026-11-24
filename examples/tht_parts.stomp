@@ -1,0 +1,129 @@
+# Through-hole parts: packages the standard library knows by name, and one of your own built from its shapes.
+#
+# A body and a lead form describe most parts. For the rest, `body shape: NAME`
+# in the model block picks one of the library's packages (stdlib/packages.stomp):
+# to92, to220, hc49, tact_switch, buzzer. Some parts need nothing extra: a round
+# body on wires with a D refdes is drawn as an LED, and an axial R gets color
+# bands. The last footprint's model is a feature of this file, made of the
+# library's shapes, and its silk uses the library's symbols.
+
+footprint "TO-92_Inline"
+  description: "TO-92, three leads in a row at 1.27 mm"
+  refdes: "Q"
+  body 4.8 x 3.8 x 5.8              # 4.8 tall, on 1 mm of lead
+  pins grid 3 x 1 pitch: 1.27
+  lead wire 0.45 x 0.4
+  default pad tht oval 1.05 x 1.5 drill: 0.75
+  model
+    body shape: to92                # the flat face toward -y
+  end
+end
+
+footprint "TO-220-3_Vertical"
+  description: "TO-220, standing, three leads at 2.54 mm"
+  refdes: "U"
+  body 10.2 x 4.5 x 15.6            # the tab rises to 15.6
+  pins grid 3 x 1 pitch: 2.54
+  lead wire 0.8 x 0.5
+  default pad tht oval 1.8 x 2.4 drill: 1.2
+  pin1: triangle(a: -90)            # a symbol as the pin-1 mark, pointing down the pin-1 side
+  model
+    body shape: to220
+  end
+end
+
+footprint "Crystal_HC-49-US"
+  description: "HC-49/US crystal, low profile, 4.88 mm lead spacing"
+  refdes: "Y"
+  body 11.5 x 4.65 x 3.5
+  pins 2 horizontal pitch: 4.88
+  lead wire d: 0.43
+  model
+    body shape: hc49
+  end
+end
+
+footprint "SW_Tactile_6x6mm"
+  description: "Tactile switch, 6 x 6 mm, 5 mm tall"
+  refdes: "SW"
+  body 6 x 6 x 5
+  pins grid 2 x 2 pitch: 6.5 x 4.5
+  lead wire 0.7 x 0.3
+  model
+    body shape: tact_switch
+  end
+end
+
+footprint "LED_D5.0mm"
+  description: "LED, 5 mm round, 2.54 mm lead spacing"
+  refdes: "D"
+  body cylinder d: 5 h: 8.6         # a round body on wires, refdes D: an LED
+  pins 2 horizontal pitch: 2.54
+  lead wire 0.5 x 0.5
+  polarized                         # pin 2 is the cathode, by the flange's flat
+end
+
+footprint "LED_D3.0mm"
+  description: "LED, 3 mm round, 2.54 mm lead spacing, green"
+  refdes: "D"
+  body cylinder d: 3 h: 5.3
+  pins 2 horizontal pitch: 2.54
+  lead wire 0.5 x 0.5
+  polarized
+  model
+    body color: led_green
+  end
+end
+
+footprint "Buzzer_12x9.5mm"
+  description: "Magnetic buzzer, 12 mm, 7.6 mm lead spacing"
+  refdes: "BZ"
+  body cylinder d: 12 h: 9.5
+  pins 2 horizontal pitch: 7.6
+  lead wire d: 0.6
+  polarized                         # a "+" on the top, by pin 1
+  model
+    body shape: buzzer
+  end
+end
+
+footprint "R_Axial_DIN0207_P10.16mm"
+  description: "Resistor, axial, 6.3 mm body, 10.16 mm lead spacing"
+  refdes: "R"
+  body cylinder d: 2.5 h: 6.3       # lying down between its leads
+  pins 2 horizontal pitch: 10.16
+  lead wire d: 0.6
+end
+
+# A rotary encoder of your own, from the library's shapes: a rounded body, a
+# threaded bushing with its nut, and the shaft
+feature encoder(W, L, H, z0 = 0, body_color = epoxy)
+  hb = 6.5                                     # the body's height
+  feature rounded_box(W, L, hb, r: 0.8, color: body_color) at (0, 0, z0)
+  cylinder d: 7 h: 5 at (0, 0, z0 + hb) segments: 40 color: nickel name: "bushing"
+  feature hex_prism(9, 1.8, color: nickel, name: "nut") at (0, 0, z0 + hb)
+  cylinder d: 6 h: H - z0 - hb - 5 at (0, 0, z0 + hb + 5) segments: 40 color: aluminum name: "shaft"
+end
+
+footprint "RotaryEncoder_12x12mm_Vertical"
+  description: "Rotary encoder, 12 x 12 mm, vertical shaft, three signal pins and two lugs"
+  refdes: "SW"
+  body 12 x 12 x 20
+  pad A tht circle 1.6 drill: 1
+  pad C tht circle 1.6 drill: 1
+  pad B tht circle 1.6 drill: 1
+  pad A at (-2.5, -7.5)
+  pad C at (0, -7.5)
+  pad B at (2.5, -7.5)
+  pad MP1 tht oval 2.4 x 3.4 drill: slot 2 x 3
+  pad MP2 tht oval 2.4 x 3.4 drill: slot 2 x 3
+  pad MP1 at (-5.6, 0)
+  pad MP2 at (5.6, 0)
+  lead A, B, C wire 0.8 x 0.3               # the 3D model's leads
+  silk: none                                # no outline: the symbols below instead
+  feature corners(12.4, 12.4, len: 1.5) at (0, 0)
+  feature arrow(1.2) at (-2.5, -9.3) rotate: 90   # points up at pin A
+  model
+    body shape: encoder
+  end
+end

@@ -2,7 +2,8 @@
 #
 # Each body is drawn along x, then turned by `turn` (0, or 90 for parts along
 # y). Its colors follow the part's family: resistor, capacitor, inductor or
-# diode. A round body sets `top`, where solids placed `on body` rest.
+# diode, and an axial resistor wears color bands. A round body sets `top`,
+# where solids placed `on body` rest.
 
 units: mm
 
@@ -70,6 +71,9 @@ feature body_axial(W, L, H, z0 = 0, turn = 0, body_color = resistor_tan, pin1_ma
   zc = z0 + D / 2
   top = z0 + D
   feature axial_parts(len, D, body_color) at (0, 0, zc) rotate: turn
+  section resistor
+    feature resistor_bands(len, D) at (0, 0, zc) rotate: turn
+  end
   section stripe
     feature axial_band(len, D, 0, ex * cos(turn) + ey * sin(turn)) at (0, 0, zc) rotate: turn
   end
@@ -88,4 +92,23 @@ feature axial_band(len, D, cap, s, band_color = band)
   bw = max(0.12 * len, 0.25)
   c0 = s * (len / 2 - cap - bw / 2 - 0.08 * len)
   cylinder d: D + 2 * 0.012 h: bw at (c0 - bw / 2, 0, 0) rotate: (0, 90, 0) segments: 32 color: band_color kind: mark name: "cathode band"
+end
+
+# An axial resistor's color bands, along x between its shoulders: three for the
+# value and one for the tolerance, 1 kOhm at 5% unless you say otherwise.
+# Replace it in your file to show the value you use.
+feature resistor_bands(len, D, first = brown, second = black, multiplier = red, tolerance = gold)
+  k = min(0.12 * len, 0.6 * (D / 2))          # the shoulders, as axial_parts draws them
+  bw = min(0.09 * len, 0.6)
+  gap = 0.6 * bw
+  x0 = -len / 2 + k + 0.4 * bw
+  feature color_band(D, bw, first) at (x0, 0, 0)
+  feature color_band(D, bw, second) at (x0 + bw + gap, 0, 0)
+  feature color_band(D, bw, multiplier) at (x0 + 2 * (bw + gap), 0, 0)
+  feature color_band(D, bw, tolerance) at (len / 2 - k - 1.4 * bw, 0, 0)
+end
+
+# A band bw wide around a cylinder D across that lies along x, from the origin toward +x
+feature color_band(D, bw, color = marking)
+  cylinder d: D + 0.024 h: bw rotate: (0, 90, 0) segments: 32 color: color name: "bands"
 end

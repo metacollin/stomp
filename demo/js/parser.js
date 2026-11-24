@@ -1789,9 +1789,9 @@
         else if (this.acceptKey('name')) {
           once('name');
           const v = this.cur;
-          if (v.t !== 'str') this.expected('a "name" for the solid');
-          this.advance();
-          p.name = this.strNode(v);
+          if (v.t === 'str') { this.advance(); p.name = this.strNode(v); }
+          else if (this.exprStart()) p.name = { x: this.expr() };    // a name that holds text: a parameter
+          else this.expected('a name for the solid: a "string", or a parameter that holds one');
         } else if (this.acceptKey('kind')) {
           once('solidKind');
           const v = this.cur;

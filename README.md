@@ -131,8 +131,25 @@ end
 Define a feature with the same name in your file and every can in it gets yours. A
 feature chooses between versions of itself with **sections**, turned on by flags in the
 call, with no `if` needed: the library's can is `bare` or `sleeved`, `vented` or not,
-and the model passes the flags that fit the part. `body shape: NAME` in a footprint's
-`model` block gives that footprint a body of your own. See SPEC §12.1 and §13.5, and
+and the model passes the flags that fit the part.
+
+The refdes tells the library what the part is, so details come without asking: a `Y`
+crystal gets a metal lid, a `D` on wires is an LED with a domed lens, an axial `R` gets
+color bands, and a header as tall as its pins is a socket. For parts that need more,
+the library has packages to name (`body shape: to220`), and shapes and silk symbols to
+build your own from:
+
+```stomp
+feature encoder(W, L, H, z0 = 0)
+  feature rounded_box(W, L, 6.5, r: 0.8, color: epoxy) at (0, 0, z0)
+  feature hex_prism(9, 1.8, color: nickel, name: "nut") at (0, 0, z0 + 6.5)
+  cylinder d: 6 h: H - z0 - 8.3 at (0, 0, z0 + 8.3) color: aluminum name: "shaft"
+end
+```
+
+`body shape: encoder` in a footprint's `model` block then draws that footprint's body
+with it. [`stdlib/README.md`](stdlib/README.md) lists everything in the library; see also
+SPEC §12.1 and §13.5, [`examples/tht_parts.stomp`](examples/tht_parts.stomp) and
 [`examples/custom_models.stomp`](examples/custom_models.stomp).
 
 ## Repository layout
@@ -141,8 +158,8 @@ and the model passes the flags that fit the part. `body shape: NAME` in a footpr
 |---|---|
 | [`SPEC.md`](SPEC.md) | the language spec: design, meaning, and every statement |
 | [`grammar.peg`](grammar.peg) | the formal PEG grammar, written to map onto PEGTL |
-| [`examples/`](examples/) | 18 single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 15 libraries with over 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
-| [`stdlib/`](stdlib/) | the standard library: the features that draw every 3D model and the automatic silk marks |
+| [`examples/`](examples/) | 19 files of single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 15 libraries with over 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
+| [`stdlib/`](stdlib/) | the standard library: the features that draw every 3D model and the automatic silk marks, and shapes, symbols and packages to build with ([reference](stdlib/README.md)) |
 | [`demo/`](demo/) | the browser editor and its JavaScript engine, with tests |
 
 ## Name

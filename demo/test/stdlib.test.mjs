@@ -443,3 +443,161 @@ test('mangled library sources never throw (fuzz)', () => {
     console.error = quiet;
   }
 });
+
+/** A footprint's 3D model, which must compile cleanly. */
+const modelOf = (src) => { const { out, r } = fp(src); assert.deepEqual(errors(out), []); return M.build(r, { strict: true }); };
+const meshNames = (m) => m.meshes.map((x) => x.name);
+/** The size of a mesh's bounding box, and its lowest and highest z. */
+const extent = (s) => {
+  const P = s.pos, bb = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (let k = 0; k < P.length; k += 3) for (let j = 0; j < 3; j++) { bb[j] = Math.min(bb[j], P[k + j]); bb[j + 3] = Math.max(bb[j + 3], P[k + j]); }
+  return [bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2], bb[2], bb[5]].map((v) => +v.toFixed(4));
+};
+/** Every triangle counter-clockwise seen from where its normals point. */
+const wound = (s) => {
+  const P = s.pos, N = s.nrm, I = s.idx;
+  for (let t = 0; t < I.length; t += 3) {
+    const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+    const u = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], v = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+    const f = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    if (f[0] * (N[a] + N[b] + N[c]) + f[1] * (N[a + 1] + N[b + 1] + N[c + 1]) + f[2] * (N[a + 2] + N[b + 2] + N[c + 2]) < -1e-12) return false;
+  }
+  return true;
+};
+
+test('the refdes names the part\'s family', () => {
+  const fam = (refdes) => fp(`footprint "F"\n  refdes: "${refdes}"\n  ${pad}end`).r.family;
+  const want = {
+    LED: 'diode', D: 'diode', FB: 'inductor', L: 'inductor', XTAL: 'crystal', Y: 'crystal', OSC: 'oscillator', XO: 'oscillator',
+    X: 'oscillator', SW: 'switch', S: 'switch', BZ: 'buzzer', LS: 'buzzer', CON: 'connector', CN: 'connector', J: 'connector',
+    P: 'connector', IC: 'ic', U: 'ic', R: 'resistor', C: 'capacitor', F: 'fuse', Q: 'transistor', K: null, TP: null,
+  };
+  for (const [refdes, family] of Object.entries(want)) assert.equal(fam(refdes), family, refdes);
+});
+
+test('the library draws what a family needs: lids, bases, LEDs, lenses, bands, socket openings', () => {
+  // a crystal or an oscillator: a ceramic package under a metal lid, within the body's height
+  const xtal = (ref) => `footprint "Y"\n  refdes: "${ref}"\n  body 3.2 x 2.5 x 0.8\n  pins\n    bottom: 1, 2 pitch: 2.2\n    top: 3, 4\n  end\n  lead flat 1.4 x 1.1\n  pin1: none\nend`;
+  for (const ref of ['Y', 'X']) {
+    const m = modelOf(xtal(ref));
+    assert.ok(meshNames(m).includes('lid'), `${ref} has a lid`);
+    assert.equal(m.top, 0.8);
+  }
+  assert.ok(!meshNames(modelOf(xtal('U'))).includes('lid'));
+  // an inductor's body is ferrite
+  const ind = (ref) => `footprint "L"\n  refdes: "${ref}"\n  body 4 x 4 x 2\n  pins 2 horizontal\n  lead flat 1.5 x 1\n  pin1: none\nend`;
+  assert.notDeepEqual(mesh(modelOf(ind('L')), 'body').color, mesh(modelOf(ind('R')), 'body').color);
+  // a can on flat leads stands on a plastic base
+  assert.ok(meshNames(modelOf('footprint "C"\n  refdes: "C"\n  body cylinder d: 6.3 h: 5.4\n  pins 2 horizontal pitch: 5.4\n  lead flat 0.65 x 2.2\n  polarized\nend')).includes('base'));
+  // a round body on wires is an LED for a D refdes: red, unless the model block says
+  const led = (ref, extra = '') => `footprint "D"\n  refdes: "${ref}"\n  body cylinder d: 5 h: 8.6\n  pins 2 horizontal pitch: 2.54\n  lead wire 0.5 x 0.5\n  polarized\n${extra}end`;
+  const red = modelOf(led('D')), green = modelOf(led('D', '  model\n    body color: led_green\n  end\n'));
+  assert.equal(red.style, 'led');
+  assert.equal(red.summary, 'LED · 2 wires');
+  assert.equal(red.top, 8.6, 'the dome stops at the body\'s height');
+  assert.notDeepEqual(mesh(red, 'body').color, mesh(green, 'body').color);
+  assert.equal(modelOf(led('C')).style, 'can');
+  // a J-lead diode is a PLCC LED: a lens on top, and no pin-1 dimple under it
+  const plcc = (ref) => `footprint "P"\n  refdes: "${ref}"\n  body 3.5 x 2.8 x 1.9\n  pins 2 dual pitch: 1.0\n  lead jlead 2.2 x 0.8 span: 3.5\n  pin1: dot\nend`;
+  assert.deepEqual(meshNames(modelOf(plcc('D'))), ['body', 'lens', 'lead 1', 'lead 2']);
+  assert.deepEqual(meshNames(modelOf(plcc('U'))), ['body', 'lead 1', 'lead 2', 'pin-1 dimple']);
+  // an axial resistor gets color bands, a diode its cathode band
+  const ax = (ref, pol) => `footprint "A"\n  refdes: "${ref}"\n  body cylinder d: 2.5 h: 6.3\n  pins 2 horizontal pitch: 10.16\n  lead wire d: 0.6\n${pol ? '  polarized\n' : ''}end`;
+  assert.equal(meshNames(modelOf(ax('R'))).filter((n) => n === 'bands').length, 4);
+  assert.deepEqual(meshNames(modelOf(ax('D', true))), ['body', 'lead 1', 'lead 2', 'cathode band']);
+  // a housing as tall as its pins is a socket: an opening over each pin, which leaves the height alone
+  const sock = modelOf('footprint "S"\n  refdes: "J"\n  body 2.54 x 5.08 x 4\n  pins grid 1 x 2 pitch: 2.54\n  lead pin 0.64 x 0.64\n  default pad tht circle 1.7 drill: 1.0\nend');
+  assert.deepEqual(meshNames(sock).filter((n) => n.startsWith('opening')), ['opening 1', 'opening 2']);
+  assert.equal(sock.top, 4);
+});
+
+test('shapes: consistent meshes of the sizes they say, with a color and a name', () => {
+  const src = `
+footprint "S"
+  ${pad}  feature rounded_box(2, 3, 1, r: 0.3) at (0, 0, 0)
+  feature chamfered_box(2, 3, 1, c: 0.4) at (5, 0, 0)
+  feature beveled_box(2, 3, 1) at (10, 0, 0)
+  feature dome(2, 0.5) at (15, 0, 0)
+  feature torus(4, 0.5) at (20, 0, 1)
+  feature hex_prism(3, 1) at (25, 0, 0)
+  feature post(0.64, z0: -3, z1: 6, name: "round post") at (30, 0, 0)
+  feature post(0.64, z0: -3, z1: 6, square) at (35, 0, 0)
+  feature rounded_box(1, 1, 1, name: "cap", color: red) at (40, 0, 0)
+end`;
+  const m = modelOf(src);
+  for (const s of m.meshes) assert.ok(wound(s), `${s.name} is wound consistently`);
+  const size = (name) => extent(mesh(m, name));
+  assert.deepEqual(size('rounded_box'), [2, 3, 1, 0, 1]);
+  assert.deepEqual(size('chamfered_box'), [2, 3, 1, 0, 1]);
+  assert.deepEqual(size('beveled_box'), [2, 3, 1, 0, 1]);
+  assert.deepEqual(size('dome'), [2, 2, 1, -0.5, 0.5], 'the top half above its origin, the rest below');
+  assert.deepEqual(size('hex_prism'), [+(2 * 3 / Math.sqrt(3)).toFixed(4), 3, 1, 0, 1], 'across its flats along y');
+  assert.deepEqual(size('torus').slice(1), [4, 0.5, 0.75, 1.25]);
+  assert.deepEqual(size('post'), [0.64, 0.64, 9, -3, 6], 'square');
+  assert.equal(m.meshes.filter((x) => x.name === 'round post').length, 3, 'round when not square: three cylinders');
+  assert.deepEqual(size('cap'), [1, 1, 1, 0, 1]);
+  assert.notDeepEqual(mesh(m, 'cap').color, mesh(m, 'rounded_box').color);
+});
+
+test('symbols: a pin-1 mark, or placed anywhere in the silk', () => {
+  const src = `
+footprint "Y"
+  ${pad}  pin1: triangle
+  feature corners(4, 4, len: 1) at (0, 0)
+  feature arrow(1.5) at (3, 0) rotate: 90
+  feature plus at (5, 0)
+  feature minus at (6, 0)
+  feature cross at (7, 0)
+  feature ring at (8, 0)
+  feature frame(2, 1) at (9, 0)
+end`;
+  const { out, r } = fp(src);
+  assert.deepEqual(errors(out), []);
+  const kinds = r.silk.map((i) => `${i.type}${i.fill ? ' fill' : ''} ${(i.pts || []).length}`);
+  assert.deepEqual(kinds, ['poly fill 3', ...Array(8).fill('line 2'), 'poly fill 3', ...Array(6).fill('line 2'), 'circle 0', 'line 5']);
+  // the arrow's tip is where it's placed, turned to point up
+  const head = r.silk[9].pts.map((q) => q.map((v) => +v.toFixed(4)));
+  assert.deepEqual(head[0], [3, 0]);
+  assert.ok(head[1][1] < 0 && head[2][1] < 0, 'the head trails below the tip');
+});
+
+test('packages: body shape names one, drawn within the body\'s height', () => {
+  const part = (shape, body, pins, extra = '') => modelOf(`footprint "P"\n  body ${body}\n  ${pins}\n  default pad tht circle 1.6 drill: 0.9\n${extra}  model\n    body shape: ${shape}\n  end\nend`);
+  const want = {
+    to92: ['4.8 x 3.8 x 5.8', 'pins grid 3 x 1 pitch: 1.27\n  lead wire 0.45 x 0.4', ['body']],
+    to220: ['10.2 x 4.5 x 15.6', 'pins grid 3 x 1 pitch: 2.54\n  lead wire 0.8 x 0.5', ['body', 'tab', 'hole']],
+    hc49: ['11.5 x 4.65 x 3.5', 'pins 2 horizontal pitch: 4.88\n  lead wire d: 0.43', ['body']],
+    tact_switch: ['6 x 6 x 5', 'pins grid 2 x 2 pitch: 6.5 x 4.5\n  lead wire 0.7 x 0.3', ['body', 'cover', 'actuator']],
+    buzzer: ['cylinder d: 12 h: 9.5', 'pins 2 horizontal pitch: 7.6\n  lead wire d: 0.6\n  polarized', ['body', 'sound hole', 'polarity mark']],
+  };
+  for (const [shape, [body, pins, names]] of Object.entries(want)) {
+    const m = part(shape, body, pins);
+    assert.equal(m.summary.split(' · ')[0], `body shape ${shape}`);
+    assert.deepEqual(meshNames(m).filter((n) => !n.startsWith('lead ')), names, shape);
+    assert.equal(m.top, +body.match(/[\d.]+$/)[0], `${shape} stops at the body's height`);
+    for (const s of m.meshes) assert.ok(wound(s), `${shape}: ${s.name} is wound consistently`);
+  }
+});
+
+test('a solid\'s name can come from a parameter, and must be text', () => {
+  const src = `
+feature tagged(label = "tag")
+  box 1 x 1 x 1 name: label
+end
+footprint "N"
+  ${pad}  feature tagged at (0, 0, 0)
+  feature tagged(label: "other") at (2, 0, 0)
+  feature tagged(label: "") at (4, 0, 0)
+end`;
+  assert.deepEqual(meshNames(modelOf(src)), ['tag', 'other', 'tagged']);
+  const bad = fresh(`feature tagged(label = 3)\n  box 1 x 1 x 1 name: label\nend\nfootprint "N"\n  ${pad}  feature tagged at (0, 0, 0)\nend`);
+  assert.deepEqual(errors(bad).map((d) => d.message), ['a solid\'s `name:` is text, such as "lid"']);
+});
+
+test('the automatic silk marks get the style and family flags', () => {
+  const led = 'footprint "D"\n  refdes: "D"\n  body cylinder d: 5 h: 8.6\n  pins 2 horizontal pitch: 2.54\n  lead wire 0.5 x 0.5\n  polarized\nend';
+  const mine = `feature polarity_plus(s = 0.5)\n  section led\n    circle (0, 0) d: s fill\n  end\n  section capacitor\n    line (-s / 2, 0) (s / 2, 0)\n  end\nend\n`;
+  const marks = (src) => fp(src).r.silk.filter((i) => i.auto && (i.type === 'circle' && i.fill || i.type === 'line' && i.pts.length === 2 && Math.abs(i.pts[0][1] - i.pts[1][1]) < 1e-9 && Math.abs(Math.hypot(i.pts[1][0] - i.pts[0][0], 0) - 0.5) < 1e-9));
+  assert.deepEqual(marks(mine + led).map((i) => i.type), ['circle']);
+  assert.deepEqual(marks(mine + led.replace('"D"\n  body', '"C"\n  body')).map((i) => i.type), ['line']);
+});

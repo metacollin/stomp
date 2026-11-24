@@ -701,7 +701,7 @@ pin1: chamfer     # chamfered silk corner (the QFN convention)
 pin1: notch       # DIP-style notch at the pin-1 end
 pin1: bar         # bar across the pin-1 end (tantalum or diode style)
 pin1: none
-pin1: plus        # a custom feature (§12.1), drawn where the dot would go
+pin1: triangle    # a feature (§12.1), yours or the library's, drawn where the dot would go
 polarized         # two-terminal polarity: pin 1 is positive (the anode); adds a silk bar
                   # and the 3D stripe at the end the part's family marks (§13.1)
 density: most     # IPC density level: least | nominal | most
@@ -710,9 +710,12 @@ density: most     # IPC density level: least | nominal | most
 The silk marks these draw (the dot, the bar, a polarized part's bar, or a round part's
 hatching and "+") are features of the standard library, `pin1_dot`, `pin1_bar`,
 `polarity_bar`, `polarity_hatch` and `polarity_plus`, and which end a polarity mark
-goes on is its `polarity` feature's to say ([§13.5](#135-the-standard-library)). A file
-can replace any of them. The chamfer and the notch reshape the outline itself, so
-they stay built in.
+goes on is its `polarity` feature's to say ([§13.5](#135-the-standard-library)). They
+get the same style and family flags as the 3D model's features, so one can draw an LED
+differently from a can. A file can replace any of them. The chamfer and the notch
+reshape the outline itself, so they stay built in. The library's symbols, `triangle`,
+`arrow`, `plus`, `minus`, `cross`, `ring`, `frame` and `corners`, work as `pin1:` marks
+and anywhere a feature goes.
 
 ## 12. Graphic layers
 
@@ -837,8 +840,10 @@ end
   feature defines its names at its top level. Footprints and templates have no
   sections.
 
-A feature named like one of the standard library's replaces it for the whole file,
-including where the library uses it itself ([§13.5](#135-the-standard-library)).
+The standard library's features place the same way: its shapes (`rounded_box`,
+`dome`, `hex_prism`, …) and symbols (`arrow`, `corners`, …) are there to build with
+([§13.5](#135-the-standard-library)). A feature named like one of the library's replaces
+it for the whole file, including where the library uses it itself.
 
 ## 13. 3D model
 
@@ -863,13 +868,13 @@ The lead form picks the rest. This table is what the standard library draws:
 | `jlead` | molded, 8° draft | leave the parting line, run down the body side and curl under it | 0.5 | dimple |
 | `lbend` | molded, 8° draft | leave the end face low, run down it and fold flat under the body | 0.15 | dimple |
 | `straight` | molded, 8° draft | flat strips straight out of the bottom of the body, on the board | 0.05 | dimple |
-| `flat` | sawn block | terminals flush with the body's bottom and edge (or at the span); exposed pads under the body | 0.02 | dot |
+| `flat` | sawn block; a can on flat leads stands on a plastic base | terminals flush with the body's bottom and edge (or at the span); exposed pads under the body | 0.02 | dot |
 | `endcap` | chip; a cylinder body is a MELF, lying along the pins | metal caps over each end, T long | 0 | — |
 | `ball` | laminate substrate and mold cap | balls d wide, collapsed to the standoff | 0.75 d | dot |
 | `column` | ceramic block | solder columns d wide from the board up into the body | 2.2 | dot |
 | `pin`, `dual` | molded DIP | shoulders down to the board, then the lead through it | 0.5 | dimple |
-| `pin`, other | housing one pitch tall when H is over two pitches, else H | straight pins from below the board to H | 0 | — |
-| `wire` | cylinder: a can, or an axial body when the pins lie outside it | wires down through the board; axial wires leave the body's ends | 0.5 / 0 | — |
+| `pin`, other | housing one pitch tall when H is over two pitches, else H: a socket, with an opening over each pin | straight pins from below the board to H | 0 | — |
+| `wire` | cylinder: a can, an LED for a diode, or an axial body when the pins lie outside it | wires down through the board; axial wires leave the body's ends | 0.5 / 0 | — |
 | `castellated` | module board, plus a shield can when H > 1.2 | plated half-holes in the board edge | 0 | dot |
 | `tab` | — | a metal slab under its pad | — | — |
 | no `lead` | plain block | — | 0 | as `pin1` |
@@ -885,10 +890,16 @@ The lead form picks the rest. This table is what the standard library draws:
   chip or molded capacitor, which is how tantalums are marked. The silk bar goes on the
   same end. A can in a metal `body color:` is bare, as polymer caps are: it has no vent,
   and its mark is a dark segment on the lid instead of a stripe on a sleeve.
-- **Colors** follow the part family, from the `refdes` letter. Chip resistors are white
-  ceramic with a black top, chip capacitors are tan, inductors gray, and chip LEDs white
-  with a clear lens. Molded bodies are black. The colors are the standard library's
-  palette ([§13.5](#135-the-standard-library)).
+- **Colors** follow the part family, from the `refdes` ([§13.5](#135-the-standard-library)).
+  Chip resistors are white ceramic with a black top, chip capacitors are tan, inductors
+  ferrite gray, and chip LEDs white with a clear lens. Molded bodies are black. The
+  colors are the standard library's palette.
+- **Families** add their own details. A crystal or oscillator (`Y`, `X`) on a sawn or
+  block body is a ceramic package under a metal lid, all within H. A diode on wires
+  with a round body is an LED: a lens with a domed top, on a flange whose flat marks
+  the cathode, red unless `body color:` says otherwise. A J-lead diode is a PLCC LED: a
+  white housing with the leads folded flat under it and a round lens on top. An axial
+  resistor has color bands.
 
 Omitted pins have no lead. Per-pin `lead` statements ([§11.3](#113-leads)) change one
 pin's lead, remove it (`lead 2 none`), or, in land mode, put leads on explicit pads.
@@ -919,9 +930,11 @@ Named colors: `black`, `gray`, `white`, `red`, `green`, `blue`, `yellow`, `orang
 `aluminum`. Metals render shiny. The standard library's palette adds names of its own.
 
 `body shape: NAME(…)` and `leads shape: NAME(…)` draw this footprint's body or leads with
-a feature of your own instead of the library's. The feature gets the values and flags
-the library's would ([§13.5](#135-the-standard-library)); the arguments written in the
-statement come first.
+another feature than the library would pick: one of your own, or one of the library's
+packages, `to92`, `to220`, `hc49`, `tact_switch` and `buzzer`
+([`examples/tht_parts.stomp`](examples/tht_parts.stomp)). The feature gets the values and
+flags the library's would ([§13.5](#135-the-standard-library)); the arguments written
+in the statement come first.
 
 ### 13.3 Solids
 
@@ -952,7 +965,8 @@ Each solid takes these, in any order:
 - `at (x, y)` or `at (x, y, z)`: where it goes (below);
 - `rotate: (rx, ry, rz)` in degrees, about x, then y, then z; `rotate: A` turns it about z;
 - `color: C`: any color (§7);
-- `name: "…"`: the name of its mesh in the model and the exports;
+- `name: "…"`: the name of its mesh in the model and the exports; a parameter or
+  other name that holds text works too, and empty text means no name;
 - `kind: body`, `kind: lead` or `kind: mark`, in a feature: what it's highlighted with,
   and where it goes in the model's order (§13.5);
 - `segments: N`: how many sides a round solid has;
@@ -1008,21 +1022,26 @@ its angles are degrees.
 
 | file | holds |
 |---|---|
-| [`colors.stomp`](stdlib/colors.stomp) | the palette: `epoxy`, `can_blue`, `ferrite`, `solder`, … |
+| [`colors.stomp`](stdlib/colors.stomp) | the palette: `epoxy`, `can_blue`, `ferrite`, `solder`, `led_red`, … |
+| [`shapes.stomp`](stdlib/shapes.stomp) | solids to build with: `rounded_box`, `chamfered_box`, `beveled_box`, `dome`, `torus`, `hex_prism`, `post` |
+| [`symbols.stomp`](stdlib/symbols.stomp) | silk symbols: `triangle`, `arrow`, `plus`, `minus`, `cross`, `ring`, `frame`, `corners` |
 | [`marks.stomp`](stdlib/marks.stomp) | `top_marks` and the marks it draws; `polarity` |
 | [`molded.stomp`](stdlib/molded.stomp) | molded, DIP, block and radial bodies; gull-wing, J-lead, L-bend, straight and tab leads |
 | [`leadless.stomp`](stdlib/leadless.stomp) | sawn bodies; flat, end-cap and grid-contact leads; exposed pads |
 | [`chips.stomp`](stdlib/chips.stomp) | chip, MELF and axial bodies |
 | [`arrays.stomp`](stdlib/arrays.stomp) | BGA and CGA bodies; balls and columns |
-| [`cans.stomp`](stdlib/cans.stomp) | cans, and their vent, stripe and lid mark |
+| [`cans.stomp`](stdlib/cans.stomp) | cans, and their vent, stripe, lid mark and SMD base |
+| [`leds.stomp`](stdlib/leds.stomp) | radial LEDs, and a PLCC LED's lens |
 | [`through_hole.stomp`](stdlib/through_hole.stomp) | header housings; header, DIP, axial and plain through-hole leads |
+| [`packages.stomp`](stdlib/packages.stomp) | bodies to name with `body shape:`: `to92`, `to220`, `hc49`, `tact_switch`, `buzzer` |
 | [`modules.stomp`](stdlib/modules.stomp) | module boards and castellations |
 | [`silk.stomp`](stdlib/silk.stomp) | the silk's pin-1 and polarity marks |
 
 **Replacing a feature.** A feature in your file named like one of the library's
 replaces it everywhere in your file, including where the library's own features place
 it. So `feature can_vent(D)` (its solids, then `end`) changes the vent of every can,
-and `feature pin1_dot(d = 0.3)` every `pin1: dot`. A replacement must take what the
+and `feature pin1_dot(d = 0.3)` every `pin1: dot`. The full list, with what each
+feature takes, is [`stdlib/README.md`](stdlib/README.md). A replacement must take what the
 library passes it; a parameter the library never gives a value gets a warning unless it
 has a default. Library features see the library's names; your file sees them too,
 after its own, so `color: can_blue` works anywhere.
@@ -1032,13 +1051,14 @@ the body and one per lead, by name:
 
 | feature | for | values passed (by name, each only if the feature declares it) |
 |---|---|---|
-| `body_STYLE` | the body: `body_molded`, `body_dip`, `body_block`, `body_radial`, `body_sawn`, `body_chip`, `body_melf`, `body_axial`, `body_bga`, `body_cga`, `body_can`, `body_header`, `body_module` | `W`, `L`, `H` (the body), `z0` (the standoff), `draft` (`draft:`), `body_color`, `lead_color`, `e` (the pitch), `above` (`leads above:`), `ball_d`, `cast_d` (the widest castellation), `turn` (0, or 90 for a part along y), `T` (an end cap's length), and for the marks `sx`, `sy` (toward pin 1's corner), `nx`, `ny` (toward the notched end), `ex`, `ey` (toward the striped end) and `ma` (the striped lead's direction, in degrees) |
+| `body_STYLE` | the body: `body_molded`, `body_dip`, `body_block`, `body_radial`, `body_sawn`, `body_chip`, `body_melf`, `body_axial`, `body_bga`, `body_cga`, `body_can`, `body_led`, `body_header`, `body_module` | `W`, `L`, `H` (the body), `z0` (the standoff), `draft` (`draft:`), `body_color`, `lead_color`, `e` (the pitch), `above` (`leads above:`), `ball_d`, `cast_d` (the widest castellation), `turn` (0, or 90 for a part along y), `T` (an end cap's length), and for the marks `sx`, `sy` (toward pin 1's corner), `nx`, `ny` (toward the notched end), `ex`, `ey` (toward the striped end) and `ma` (the striped lead's direction, in degrees) |
 | `lead_FORM` | each lead: `lead_gullwing`, `lead_jlead`, `lead_lbend`, `lead_straight`, `lead_flat`, `lead_endcap`, `lead_tab`, `lead_contact` (no side), `lead_ball`, `lead_column`, `lead_castellated`, and for pins and wires `lead_dip`, `lead_axial`, `lead_header` or `lead_tht` | `edge` (the body's edge), `pad_u` (the pad's center), `toe` (the lead's tip, if the span gives it), `across` (the length of the body's side), `b`, `T`, `d` (the lead statement's sizes), `drill`, `pad_across`, `pad_along`, `z0`, `H`, `e`, `c` (`leads thickness:`), `below` (`leads below:`), `lead_color`, and what the body exports: `zp`, `housing`, `zc`, `len`, `ts` |
 | `exposed_pad` | each thermal pad | `w`, `l` (the pad), `z0`, `H`, `c`, `lead_color` |
 | `polarity` | which pin a stripe or bar marks: its `stripe_at` | (flags only) |
 
 The silk's marks are called the same way: `pin1_dot`, `pin1_bar(len, depth)`,
-`polarity_bar(len)`, `polarity_hatch(r)` and `polarity_plus`.
+`polarity_bar(len)`, `polarity_hatch(r)` and `polarity_plus`, with the style and family
+flags.
 
 A body is drawn with the body's center at the origin. A lead with a side is drawn in
 its side's frame: x outward from the body's center, y along the side, z up, so `edge`,
@@ -1046,12 +1066,23 @@ its side's frame: x outward from the body's center, y along the side, z up, so `
 right and bottom. A ball, column, grid contact, header pin or plain pin is drawn around
 its pad's center. An end cap of a chip or MELF is drawn by the body, not by a lead.
 
-**Flags passed.** The style (`molded`, `chip`, …), the main lead form (`gullwing`, …),
-the family (`resistor`, `capacitor`, `inductor`, `diode`, from the refdes), the mark
-asked for (`dimple`, `dot`, `notch` or `stripe`), `bare` or `sleeved` (whether the body
-color is a metal), and `silk_mark` when the silk marks pin 1 with a dot or a chamfer. A
-lead gets its form and the style, and a pin or wire `round` or `square`. A feature gets
-only the flags it has sections for; a mark it can't draw is reported as none.
+**Flags passed.** The style (`molded`, `chip`, `led`, …), the main lead form
+(`gullwing`, …), the family (below), the mark asked for (`dimple`, `dot`, `notch` or
+`stripe`), `bare` or `sleeved` (whether the body color is a metal), and `silk_mark`
+when the silk marks pin 1 with a dot or a chamfer. A lead gets its form, the style and
+the family, and a pin or wire `round` or `square`. A feature gets only the flags it has
+sections for; a mark it can't draw is reported as none.
+
+The **family** comes from the refdes's first letters, the longest match first:
+
+| refdes | family | | refdes | family |
+|---|---|---|---|---|
+| `R` | `resistor` | | `Y`, `XTAL` | `crystal` |
+| `C` | `capacitor` | | `X`, `XO`, `OSC` | `oscillator` |
+| `L`, `FB` | `inductor` | | `S`, `SW` | `switch` |
+| `D`, `LED` | `diode` | | `BZ`, `LS` | `buzzer` |
+| `Q` | `transistor` | | `J`, `P`, `CON`, `CN` | `connector` |
+| `U`, `IC` | `ic` | | `F` | `fuse` |
 
 **Flags worked out.** Some flags depend on the part's measurements in ways the library
 decides. A feature that defines `NAME_if = …` gets flag NAME when that value is
@@ -1088,7 +1119,8 @@ body's solids are named `body` unless they say otherwise; a lead's are `lead N` 
 `NAME N` with `name: "NAME"`), and an exposed pad's `exposed pad N`. A body's solids of
 `kind: mark` come after the leads and exposed pads, then the extra solids. A body's
 solids highlight with the `body` statement, a lead's with its `lead` statement, and
-marks with `pin1`, `polarized` and the model block.
+marks with `pin1`, `polarized` and the model block. A lead's marks (a socket's
+openings) highlight with its `lead` statement.
 
 ## 14. Templates, tables and inheritance
 
@@ -1296,7 +1328,8 @@ spec wins for *meaning*.
 | [`examples/qfn_library.stomp`](examples/qfn_library.stomp) | templates as functions: interpolated `name`, `description` and pad names, `footprints from` tables, an unnamed call, `extends` of a generated footprint |
 | [`examples/sot223.stomp`](examples/sot223.stomp) | per-pin lead: the wide tab lead widens its own land and 3D lead |
 | [`examples/do41.stomp`](examples/do41.stomp) | axial through-hole: a cylinder body lying down, bent wires, a cathode band |
-| [`examples/crystal3225.stomp`](examples/crystal3225.stomp) | extra 3D solids: a ceramic package with a metal lid |
+| [`examples/crystal3225.stomp`](examples/crystal3225.stomp) | a family's details: for a `Y` refdes, a ceramic package with a metal lid |
+| [`examples/tht_parts.stomp`](examples/tht_parts.stomp) | through-hole parts: the library's packages by name (TO-92, TO-220, HC-49, tact switch, buzzer), radial LEDs, a resistor's bands, and an encoder of your own from the library's shapes, with symbols in its silk |
 | [`examples/custom_models.stomp`](examples/custom_models.stomp) | features of your own: replacing the library's `can_vent` and `pin1_dot`, a `body shape:` with sections and flags, a feature's solids placed on a body |
 | [`examples/syntax_zoo.stomp`](examples/syntax_zoo.stomp) | not a real part: covers everything else, and can double as a parser test |
 
@@ -1313,9 +1346,9 @@ Libraries, each a template or two and a table per family:
 | [`examples/diode_library.stomp`](examples/diode_library.stomp) | SOD, flat-lead SOD and SMF, SMA/SMB/SMC and MELF; four lead forms |
 | [`examples/tantalum_library.stomp`](examples/tantalum_library.stomp) | tantalum cases A to E: `lbend` leads, and a custom `+` feature as the pin-1 mark |
 | [`examples/polymer_cap_library.stomp`](examples/polymer_cap_library.stomp) | aluminum polymer caps, SMD and radial, in bare cans |
-| [`examples/inductor_library.stomp`](examples/inductor_library.stomp) | shielded power inductors with bottom terminals |
+| [`examples/inductor_library.stomp`](examples/inductor_library.stomp) | shielded power inductors with bottom terminals, in ferrite |
 | [`examples/crystal_library.stomp`](examples/crystal_library.stomp) | four-pad crystals and oscillators with a ceramic base and metal lid |
-| [`examples/led_library.stomp`](examples/led_library.stomp) | chip LEDs and PLCC LEDs with a lens |
+| [`examples/led_library.stomp`](examples/led_library.stomp) | chip LEDs, and PLCC LEDs, which the library draws with a lens |
 | [`examples/dip_library.stomp`](examples/dip_library.stomp) | DIPs from 6 to 48 pins, written in mils with `units: mil` in the template |
 | [`examples/header_library.stomp`](examples/header_library.stomp) | 2.54, 2.0 and 1.27 mm pin headers in one and two rows |
 

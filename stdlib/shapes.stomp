@@ -1,0 +1,60 @@
+# Shapes: solids to build features from, in the library and in your own files.
+#
+# Each is drawn around its own origin: a box's or prism's in the middle of its
+# bottom, a dome's at the middle of its base, a torus's at its center. Place
+# one as any feature, `feature rounded_box(2, 1, 0.5, r: 0.2, color: nickel) at
+# (0, 0, z)`, and turn it with `rotate:`. `color` and `name` (the mesh's name in
+# the model and the exports) are parameters of every shape.
+
+units: mm
+
+# A box with its vertical edges rounded, radius r
+feature rounded_box(W, L, H, r = 0.1, color = solid_color, name = "")
+  q = max(1e-3, min(r, 0.499 * min(W, L)))
+  a = W / 2 - q
+  b = L / 2 - q
+  prism arc (a, b) r: q from 0 to 90 segments: 6, arc (-a, b) r: q from 90 to 180 segments: 6, arc (-a, -b) r: q from 180 to 270 segments: 6, arc (a, -b) r: q from 270 to 360 segments: 6 h: H color: color name: name
+end
+
+# A box with its vertical edges cut at 45 degrees, c back from each corner
+feature chamfered_box(W, L, H, c = 0.1, color = solid_color, name = "")
+  k = max(1e-3, min(c, 0.499 * min(W, L)))
+  prism (W / 2 - k, -L / 2), (W / 2, -L / 2 + k), (W / 2, L / 2 - k), (W / 2 - k, L / 2), (-W / 2 + k, L / 2), (-W / 2, L / 2 - k), (-W / 2, -L / 2 + k), (-W / 2 + k, -L / 2) h: H color: color name: name
+end
+
+# A box whose top edges are beveled, b in and b down
+feature beveled_box(W, L, H, b = 0.1, color = solid_color, name = "")
+  k = max(0, min(b, 0.499 * min(W, L), 0.999 * H))
+  loft W x L at 0, W x L at H - k, W - 2 * k x L - 2 * k at H color: color name: name
+end
+
+# A dome d across and h tall, its base on z = 0: the top half of an
+# ellipsoid. The other half lies below z = 0, hidden in what the dome sits on.
+feature dome(d, h, color = solid_color, name = "", segments = 32)
+  sphere d: d h: 2 * h at (0, 0, -h) segments: segments color: color name: name
+end
+
+# A flat ring of round wire, d across its outside and wd thick, around its
+# origin: half of it is below z = 0
+feature torus(d, wd, color = solid_color, name = "", segments = 12)
+  wire d: wd along arc (0, 0) r: (d - wd) / 2 from 0 to 360 rotate: (90, 0, 0) segments: segments color: color name: name
+end
+
+# A hexagonal prism af across its flats, which face +y and -y: a nut, a standoff
+feature hex_prism(af, h, color = solid_color, name = "")
+  r = af / sqrt(3)
+  prism (r, 0), (r / 2, af / 2), (-r / 2, af / 2), (-r, 0), (-r / 2, -af / 2), (r / 2, -af / 2) h: h color: color name: name
+end
+
+# A pin from z0 up to z1, its ends beveled: round and b across, or b x T with
+# the flag `square`. Header pins are drawn with it.
+feature post(b, T = b, z0 = 0, z1 = 1, bevel = min(0.25 * b, 0.2), color = gold, name = "")
+  d = b                                       # the round pin's; zero when square
+  section square
+    d = 0
+    loft b * 0.55 x T * 0.55 at z0, b x T at z0 + bevel, b x T at z1 - bevel, b * 0.55 x T * 0.55 at z1 color: color name: name
+  end
+  cylinder d: d * 0.55 to d h: bevel at (0, 0, z0) open top segments: 14 color: color name: name
+  cylinder d: d h: z1 - z0 - 2 * bevel at (0, 0, z0 + bevel) open segments: 14 color: color name: name
+  cylinder d: d to d * 0.55 h: bevel at (0, 0, z1 - bevel) open bottom segments: 14 color: color name: name
+end

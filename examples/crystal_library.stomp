@@ -1,9 +1,9 @@
 # Crystal and oscillator library: SMD packages with four pads.
 #
 # Each row is a ceramic package D x E x H with four contacts, b x L at the body
-# edges and P apart. Pin 1 is at the bottom left, then counterclockwise. The
-# model is a ceramic base with a metal lid. Values are typical; check your
-# part's datasheet.
+# edges and P apart. Pin 1 is at the bottom left, then counterclockwise. For a Y
+# (crystal) or X (oscillator) refdes, the standard library draws a ceramic base
+# under a metal lid. Values are typical; check your part's datasheet.
 
 template quartz(code, D, E, H, b, L, P, prefix = "Y", kind = "Crystal")
   name: "{kind}_SMD_{code}-4Pin_{D:.1}x{E:.1}mm"
@@ -17,12 +17,6 @@ template quartz(code, D, E, H, b, L, P, prefix = "Y", kind = "Crystal")
   end
   lead flat b x L                     # contacts at the package edge
   pin1: none
-
-  model
-    height: H - 0.1                   # the base; the lid adds 0.1
-    body color: ceramic
-    box (D - 0.3) x (E - 0.3) x 0.1 on body color: tin
-  end
 end
 
 footprints from quartz

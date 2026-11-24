@@ -374,7 +374,7 @@ solid_opt       <- 'at' (point3 / point)                 # see SPEC 13.3 for whe
                  / 'on' 'body'                           # sits on top of the body
                  / 'rotate:' rotation
                  / 'color:' color
-                 / 'name:' STRING
+                 / 'name:' (STRING / expr)               # an expr: a name that holds text
                  / 'kind:' ('body' / 'lead' / 'mark')
                  / 'open' ('top' / 'bottom')?            # a cylinder without its ends
                  / 'from' angle 'to' angle               # part of a cylinder or disc

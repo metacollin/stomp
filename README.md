@@ -32,7 +32,7 @@ that one object is some distance in some direction from another, measured center
 center, edge to edge or mixed, and you type every number as the drawing gives it:
 
 ```stomp
-footprint "TO-252" {                    # DPAK
+footprint "TO-252"                      # DPAK
   pad 1 rect 1.1 x 1.6
   pad 3 rect 1.1 x 1.6
   pad 2 rect 5.5 x 6.2                  # the tab
@@ -40,29 +40,31 @@ footprint "TO-252" {                    # DPAK
   pad 3 is 4.56 right of pad 1          # center to center
   pad 2 is centered between pad 1 and pad 3 horizontally
   pad 2 inner is 1.9 above pad 1        # the tab's near edge to the pin centers
-}
+end
 ```
 
 `inner` is the edge facing the other object and `outer` the edge facing away, so span
 (outer to outer), gap (inner to inner), pitch (center to center) and mixed dimensions all
 go in exactly as drawn.
 
-Numbers are in mm unless the file, a footprint or the number itself says otherwise
-(`units mil`, `50mil`). When a drawing gives a pad's height first, mark the sides:
-`pad 2 rect 6.2h x 5.5w` is the same pad as `pad 2 rect 5.5 x 6.2`. Marks can be your
-own: define a `feature` once, such as a "+", and use it as `pin1 plus`.
+A block is a header line, its statements and `end`. A value with a name takes a colon
+(`pitch: 1.27`), and `e = 0.65` gives a name a value. Numbers are in mm unless the file,
+a footprint or the number itself says otherwise (`units: mil`, `50mil`). When a drawing
+gives a pad's height first, mark the sides: `pad 2 rect 6.2h x 5.5w` is the same pad as
+`pad 2 rect 5.5 x 6.2`. Marks can be your own: define a `feature` once, such as a "+",
+and use it as `pin1: plus`.
 
 Common packages don't need any of that. Generators cover pins per side, pitch, lead
 form, span, thermal pads, ball grids and pin-1 marks, and size the pads from the part's
 dimensions the way IPC-7351 does:
 
 ```stomp
-footprint "SOIC-8" {
+footprint "SOIC-8"
   body 3.9 x 4.9 x 1.5
-  pins 8 dual pitch 1.27
-  lead gullwing 0.41 x 1.04 span 6.0
-  pin1 dot
-}
+  pins 8 dual pitch: 1.27
+  lead gullwing 0.41 x 1.04 span: 6.0
+  pin1: dot
+end
 ```
 
 Generated pads are ordinary named objects, so "a standard package, except..." is a
@@ -74,20 +76,20 @@ their parameters, and a table calls one once per row. A whole library is a templ
 the datasheet's table of variations:
 
 ```stomp
-template qfn(n, D, D2, e = 0.5) {
-  name "QFN-{n}-1EP_{D}x{D}mm_P{e}mm_EP{D2}x{D2}mm"
+template qfn(n, D, D2, e = 0.5)
+  name: "QFN-{n}-1EP_{D}x{D}mm_P{e}mm_EP{D2}x{D2}mm"
   body D x D x 0.9
-  pins n quad pitch e
+  pins n quad pitch: e
   lead flat e / 2 x 0.4
   thermal pad "{n + 1}" D2 x D2
-}
+end
 
-footprints from qfn {           # one footprint per row
+footprints from qfn             # one footprint per row
   n    D    D2
   16   3    1.7
   32   5    3.45
   48   7    5.6
-}
+end
 ```
 
 The same lines also describe the part in 3D. The body, pin layout and lead form are
@@ -97,16 +99,18 @@ through-hole wire bends down through the board. A `model` block adjusts the rest
 one pin can differ from the others:
 
 ```stomp
-footprint "SOT-223" {
+footprint "SOT-223"
   body 6.5 x 3.5 x 1.8
-  pins {
-    bottom: 1, 2, 3 pitch 2.3
+  pins
+    bottom: 1, 2, 3 pitch: 2.3
     top: 4
-  }
-  lead gullwing 0.7 x 0.9 span 7.0
+  end
+  lead gullwing 0.7 x 0.9 span: 7.0
   lead 4 gullwing 3.0 x 0.9          # the wide tab lead; its land follows
-  model { leads thickness 0.3 }      # optional: standoff, height, draft, colors, extra solids
-}
+  model                              # optional: standoff, height, draft, colors, extra solids
+    leads thickness: 0.3
+  end
+end
 ```
 
 ## Models in stomp
@@ -116,21 +120,19 @@ standard library of stomp features in [`stdlib/`](stdlib/), so the vent in a can
 is a few lines you can read:
 
 ```stomp
-feature can_vent(D) {
-  let vl = D / 2 * 0.9
-  let vw = max(0.06, D / 2 * 0.04)
-  model {
-    box vl x vw x 0.006 color vent_metal name "vent"
-    box vw x vl x 0.006 color vent_metal name "vent"
-  }
-}
+feature can_vent(D)
+  vl = D / 2 * 0.9
+  vw = max(0.06, D / 2 * 0.04)
+  box vl x vw x 0.006 color: vent_metal name: "vent"
+  box vw x vl x 0.006 color: vent_metal name: "vent"
+end
 ```
 
 Define a feature with the same name in your file and every can in it gets yours. A
 feature chooses between versions of itself with **sections**, turned on by flags in the
 call, with no `if` needed: the library's can is `bare` or `sleeved`, `vented` or not,
-and the model passes the flags that fit the part. `model { body shape NAME }` gives one
-footprint a body of your own. See SPEC §12.1 and §13.5, and
+and the model passes the flags that fit the part. `body shape: NAME` in a footprint's
+`model` block gives that footprint a body of your own. See SPEC §12.1 and §13.5, and
 [`examples/custom_models.stomp`](examples/custom_models.stomp).
 
 ## Repository layout

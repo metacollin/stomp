@@ -52,8 +52,8 @@ are kept in the browser's local storage, and **Reset** restores the original.
   the example picker, under *Standard library*. Edit one and every model that uses it
   changes: the preview shows an example that uses the file, and your edits apply to the
   other examples too, until you press Reset. To change a model in your own file
-  instead, define a feature with the library's name (`feature can_vent(D) { … }`), or
-  give a footprint its own with `model { body shape NAME }`.
+  instead, define a feature with the library's name (`feature can_vent(D)`, its solids,
+  then `end`), or give a footprint its own with `body shape: NAME` in its `model` block.
   `examples/custom_models.stomp` does both.
 - Problems found while building the 3D model (a feature of your own that fails, say)
   are listed under Problems with the rest, for the footprint on screen.
@@ -75,9 +75,9 @@ The engine prototypes the whole draft, from `grammar.peg` to finished layers:
 
 | file | what it does |
 |---|---|
-| `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4) |
-| `js/parser.js` | recursive descent in `grammar.peg`'s choice order; recovers from errors one statement at a time |
-| `js/compile.js` | units (per file, footprint or template), `let` and `{...}` interpolation; functions and colors; custom features with sections and flags, and the standard library they're looked up in; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-block generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks (from library features); `model` blocks merged down `extends`, and their solids as descriptors for the 3D model; diagnostics (§15); a build cache |
+| `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4); a brace is reported, and a `}` still closes its block |
+| `js/parser.js` | recursive descent in `grammar.peg`'s choice order, with keywords that count only where expected; recovers from errors one statement at a time, and reports a missing `end` at the block that lacks it |
+| `js/compile.js` | units (per file, footprint or template), names (`NAME = value`) and `{...}` interpolation; functions and colors; custom features with sections and flags, and the standard library they're looked up in; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-list generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks (from library features); `model` blocks merged down `extends`, and their solids as descriptors for the 3D model; diagnostics (§15); a build cache |
 | `js/model3d.js` | the 3D model (SPEC §13): measures the part, calls the library's body, lead, exposed-pad and polarity features (SPEC §13.5), works out the flags they ask for, and turns the solids they draw into meshes; the board under it; VRML and STL export |
 | `js/kicad.js` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded, and whole `.pretty` libraries |
 | `js/geom.js` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
@@ -135,7 +135,7 @@ on purpose: its checksum ignores a final 12-15 bytes it can't fill out to 16, so
 ## Tests
 
 ```sh
-node --test demo/test/*.test.mjs     # engine, library, 3D and KiCad tests
+node --test demo/test/*.test.mjs     # syntax, engine, library, 3D and KiCad tests
 node demo/tools/build.mjs            # rebuild js/examples.js and js/stdlib.js after editing
                                      # examples/ or stdlib/
 node demo/tools/snapshot.mjs         # compare every model with the recorded snapshot
@@ -149,6 +149,9 @@ The tests check:
 - rectangular courtyards, custom features, the L-bend, straight and column lead forms,
   and which end the polarity marks go on;
 - that every library builds with no warnings and unique names;
+- the syntax: blocks and their `end`, a missing `end` and where it's reported, braces,
+  names given values with `=`, named values with a colon (and without), named
+  arguments, keywords used as names, flat features, footprint graphics and their layers;
 - the diagnostics and where they point;
 - that `js/examples.js` matches `examples/`;
 - that half-typed and mangled versions of every example don't break the compiler, and
@@ -226,8 +229,8 @@ The draft leaves some meanings open. The demo picks these, and the page's
    the ball. Through-hole drills are the lead plus 0.15 to 0.25 mm. Mask expansion
    defaults to 0.05 mm per side.
 7. **Courtyards are always one rectangle** (SPEC §12): the automatic one is the
-   smallest rectangle around the lands and body, plus the clearance. Silk and assembly
-   blocks add to their automatic layers, as §12 describes.
+   smallest rectangle around the lands and body, plus the clearance. Graphics in a
+   footprint add to the automatic silk and assembly layers, as §12 describes.
 8. **Two grammar extensions.** `omit` and `only` take name ranges (`only 1..5`, used in
    the syntax zoo), and sizes can be written without spaces (`0.6x1.5`).
 9. **Interpolation output.** Numbers print in their shortest form, up to 6 decimals, so
@@ -244,7 +247,7 @@ The draft leaves some meanings open. The demo picks these, and the page's
     Lead thickness follows the pitch: 0.15 mm below 1 mm, 0.2 mm up to 2 mm, 0.3 mm
     above.
 12. **A gull-wing's foot is shortened if the bend needs the room.** SOIC-8 gives
-    `lead gullwing 0.41 x 1.04 span 6.0`, and 1.04 is the whole lead beyond the 3.9 mm
+    `lead gullwing 0.41 x 1.04 span: 6.0`, and 1.04 is the whole lead beyond the 3.9 mm
     body. Taken as the foot alone, it would leave no room to bend down, so the model's
     foot is 0.79 mm and the rest is the bend. The lands still use the full 1.04.
 13. **Per-pin leads.** `lead 4 gullwing 3.0 x 0.9` sizes pin 4's land from its own
@@ -259,11 +262,11 @@ The draft leaves some meanings open. The demo picks these, and the page's
     band marks pin 1, the way tantalums are marked. The library's `polarity` feature
     says which, and the silk bar and the 3D stripe both ask it, so an axial or MELF
     capacitor's bar is at pin 2 like its band.
-16. **Model blocks merge down `extends`.** A child's `model { standoff 0.2 }` changes
-    one setting and keeps the parent's solids. `no model` ends the model at that level.
+16. **Model blocks merge down `extends`.** A child's model block with `standoff: 0.2`
+    changes one setting and keeps the parent's solids. `no model` ends the model at that level.
 17. **Sections, not `if`.** A feature chooses with sections turned on by flags (SPEC
     §12.1), and the engine turns flags on from measurements by asking the library: a
-    feature's `let bent_if = …` above zero means `bent`. So the thresholds and formulas
+    feature's `bent_if = …` above zero means `bent`. So the thresholds and formulas
     (when a gull-wing has room to bend, when a can gets a vent) are library code, and
     only the comparison with zero is the engine's.
 18. **Two ways to place a solid.** In a feature, `at` puts the solid's own origin (a
@@ -280,6 +283,15 @@ The draft leaves some meanings open. The demo picks these, and the page's
 21. **Library errors point at your file.** The library's code isn't in the editor, so a
     problem inside it is reported at the statement that used it, with the chain of
     library features it went through.
+22. **A missing `end` is found by what comes next.** A `footprint`, `template` or
+    `footprints` line, or a feature declaration at the left margin, can't be inside a
+    block, so an open block stops there and is reported at its header. When an inner
+    block was closed by an `end` that lines up with an outer header, the inner block is
+    the one reported, since that `end` was most likely meant for the outer one.
+23. **Keywords count only where they're expected.** So the library's parameters have
+    natural names (`draft`, `below`, `d`, `top`), and a template's can be `pitch`.
+    Object names keep the old rule: `pad at` would read as part of the statement, so a
+    pad named after a keyword is quoted.
 
 ## Notes on the spec from implementing it
 
@@ -292,7 +304,7 @@ The draft leaves some meanings open. The demo picks these, and the page's
 - §6 says all coordinates are relative to the final origin, but `origin at (x, y)` can't
   be relative to itself. ZOO-GRID's courtyard implies the reading in decision 3.
 - `dshape` needs a default flat side (the demo uses `left`). It also needs a rule for
-  when the round end doesn't fit: `dshape 0.6 x 1.5 flat left` asks for a 0.75 mm radius
+  when the round end doesn't fit: `dshape 0.6 x 1.5 flat: left` asks for a 0.75 mm radius
   in a 0.6 mm width. The demo caps the radius.
 - In ZOO-DUAL, `pad "TP1" is 60 left of side left outer` uses the left row's edge facing
   away from TP1, which is its right edge, by §8.2. TP1 then just touches pin 9. If the
@@ -303,6 +315,6 @@ The draft leaves some meanings open. The demo picks these, and the page's
   pin, but `lead` describes the pins a generator already made. The demo treats a general
   `lead tab` like a flat terminal, and a per-pin `lead 2 tab` as a slab under pad 2,
   which is how the DPAK example models its drain tab.
-- The old `model` block had only `pin1 dimple|stripe`. A DIP's notch and a QFN's laser
+- The old `model` block had only the `dimple` and `stripe` marks. A DIP's notch and a QFN's laser
   dot need their own names, so the block now takes `dimple`, `dot`, `notch`, `stripe`
   and `none`, and defaults from the footprint's `pin1` where it can.

@@ -5,33 +5,33 @@
 # silk bar and a "+" all mark it. Sizes follow EIA 535BAAC; check your part's
 # datasheet.
 
-# A custom pin-1 mark: a "+" drawn around its own origin. `pin1 plus` puts it
+# A custom pin-1 mark: a "+" drawn around its own origin. `pin1: plus` puts it
 # where the pin-1 dot would go, clear of the copper.
-feature plus(s = 0.7) {
-  silk {
-    line (-s / 2, 0) (s / 2, 0)
-    line (0, -s / 2) (0, s / 2)
-  }
-}
+feature plus(s = 0.7)
+  line (-s / 2, 0) (s / 2, 0)
+  line (0, -s / 2) (0, s / 2)
+end
 
-template tantalum(cs, eia, L, W, H, b, f) {
-  name "CP_Tantalum_Case-{cs}_EIA-{eia}"
-  description "Tantalum capacitor, case {cs} (EIA {eia}), {L} x {W} x {H} mm"
-  refdes "C"
+template tantalum(cs, eia, L, W, H, b, f)
+  name: "CP_Tantalum_Case-{cs}_EIA-{eia}"
+  description: "Tantalum capacitor, case {cs} (EIA {eia}), {L} x {W} x {H} mm"
+  refdes: "C"
 
   body L x W x H
   pins 2 horizontal
   lead lbend b x f
   polarized                           # on a capacitor the band marks pin 1
-  pin1 plus
-  model { body color "#d99a1e" }      # amber, as most tantalums are molded
-}
+  pin1: plus
+  model
+    body color: "#d99a1e"
+  end      # amber, as most tantalums are molded
+end
 
-footprints from tantalum {
+footprints from tantalum
   cs    eia         L     W     H     b     f
   "A"   "3216-18"   3.2   1.6   1.6   1.2   0.8
   "B"   "3528-21"   3.5   2.8   1.9   2.2   0.8
   "C"   "6032-28"   6.0   3.2   2.5   2.2   1.3
   "D"   "7343-31"   7.3   4.3   2.8   2.4   1.3
   "E"   "7343-43"   7.3   4.3   4.0   2.4   1.3
-}
+end

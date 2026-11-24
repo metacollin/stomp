@@ -9,12 +9,55 @@
   const S = root.Stomp = root.Stomp || {};
 
   // highlight classes for keyword families
-  const DECL = new Set(['footprint', 'template', 'extends', 'from', 'let', 'units', 'description', 'datasheet', 'manufacturer', 'mpn', 'refdes', 'tags']);
+  const DECL = new Set(['footprint', 'footprints', 'template', 'feature', 'section', 'end', 'extends', 'from', 'units', 'description', 'datasheet', 'manufacturer', 'mpn', 'refdes', 'tags']);
   const RELATION = new Set(['is', 'at', 'of', 'left', 'right', 'above', 'below', 'and', 'centered', 'between', 'on', 'mirrors', 'across', 'align', 'with',
     'horizontally', 'vertically', 'inner', 'outer', 'center', 'top', 'bottom', 'span', 'gap', 'pitch', 'to', 'going', 'up', 'down', 'origin']);
   const OBJECT = new Set(['pad', 'pads', 'hole', 'row', 'group', 'side', 'ball', 'body', 'pins', 'balls', 'lead', 'thermal', 'default', 'delete', 'omit', 'only']);
 
   function esc(s) { return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;')); }
+
+  /**
+   * What the lexer can't tell: a word before `:` names a value, so it reads as a
+   * keyword, and the names a file gives values (`w = 1`, parameters, table
+   * columns) read as names wherever they appear, keywords elsewhere or not.
+   */
+  function annotate(tokens) {
+    const names = new Set();
+    const isP = (k, v) => !!k && k.t === 'p' && k.v === v;
+    const lineEnd = (k) => !k || k.t === 'nl' || k.t === 'eof' || isP(k, ';');
+    let start = true, headerNext = false, inHeader = false;
+    for (let i = 0; i < tokens.length; i++) {
+      const k = tokens[i], next = tokens[i + 1];
+      if (k.t === 'nl' || isP(k, ';')) {
+        if (k.t === 'nl') { inHeader = headerNext; headerNext = false; }
+        start = true;
+        continue;
+      }
+      if (k.t === 'word') {
+        if (isP(next, ':')) k.key = true;
+        if (inHeader) names.add(k.v);
+        if (start && isP(next, '=') && k.v !== 'x' && k.v !== 'end') names.add(k.v);
+        if (start && k.v === 'footprints') headerNext = true;
+        if (start && (k.v === 'template' || k.v === 'feature') && next && next.t === 'word' && isP(tokens[i + 2], '(')) {
+          // a declaration's parameters (a line that places a feature has args instead)
+          const params = [];
+          let depth = 0, j = i + 2;
+          for (; j < tokens.length && tokens[j].t !== 'nl' && tokens[j].t !== 'eof'; j++) {
+            const q = tokens[j];
+            if (isP(q, '(')) depth++;
+            else if (isP(q, ')')) { if (--depth === 0) { j++; break; } }
+            else if (depth === 1 && q.t === 'word' && (isP(tokens[j - 1], '(') || isP(tokens[j - 1], ','))) params.push(q.v);
+          }
+          if (lineEnd(tokens[j])) for (const v of params) names.add(v);
+        }
+      }
+      start = false;
+    }
+    for (const k of tokens) {
+      if (k.t === 'word' && !k.key && names.has(k.v)) k.name = true;
+      if (k.t === 'str' && k.parts) for (const p of k.parts) for (const c of p.all || []) if (c.t === 'word' && names.has(c.v)) c.name = true;
+    }
+  }
 
   function tokenClass(t) {
     switch (t.t) {
@@ -22,15 +65,36 @@
       case 'str': return 'tk-str';
       case 'num': return 'tk-num';
       case 'bad': return 'tk-bad';
-      case 'p': return t.v === '{' || t.v === '}' ? 'tk-brace' : 'tk-op';
+      case 'p': return 'tk-op';
       case 'word':
-        if (!t.kw) return 'tk-id';
+        if (t.name || (!t.kw && !t.key)) return 'tk-id';
         if (DECL.has(t.v)) return 'tk-decl';
         if (RELATION.has(t.v)) return 'tk-rel';
         if (OBJECT.has(t.v)) return 'tk-obj';
         return 'tk-kw';
       default: return '';
     }
+  }
+
+  /** Does a line open a block, so the next line goes in a level? Not a line that
+   *  closes its own block (`section wide; n = 2; end`). */
+  function opensBlock(line) {
+    const t = line.replace(/#.*$/, '').trim();
+    if (!t || /(^|[;\s])end$/.test(t)) return false;
+    if (/^footprint\b/.test(t)) return !/\bfrom\b/.test(t) || /\bwith$/.test(t);
+    if (/^(template|section|footprints)\b/.test(t)) return true;
+    if (/^feature\b/.test(t)) return !/\bat\b|\bon\s+body\b/.test(t);
+    return /^(model|pins)$/.test(t);
+  }
+  const closesBlock = (line) => /^end$/.test(line.replace(/#.*$/, '').trim());
+  /** The indentation of the header of the block that an `end` after `lines` closes. */
+  function headerIndent(lines) {
+    let depth = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (closesBlock(lines[i])) depth++;
+      else if (opensBlock(lines[i])) { if (depth === 0) return /^[ \t]*/.exec(lines[i])[0]; depth--; }
+    }
+    return '';
   }
 
   function createEditor(host, opts) {
@@ -114,6 +178,7 @@
     function paint() {
       const text = ta.value;
       const lx = S.lexer.lex(text, null);
+      annotate(lx.tokens);
       const spans = spansOf(lx.all.filter((t) => t.t !== 'nl'));
       // boundaries from spans and diagnostics
       const ranges = showDiags ? diags.map((d) => {
@@ -227,26 +292,16 @@
         const v = ta.value;
         const pos = ta.selectionStart;
         const ls = lineStartOf(pos);
-        const indent = /^[ \t]*/.exec(v.slice(ls, pos))[0];
-        const before = v.slice(ls, pos).replace(/#.*$/, '').trimEnd();
-        const after = v.slice(ta.selectionEnd);
-        if (before.endsWith('{')) {
-          if (/^\s*}/.test(after.split('\n')[0])) {
-            insert('\n' + indent + '  \n' + indent);
-            const p = ta.selectionStart - (indent.length + 1);
-            ta.setSelectionRange(p, p);
-          } else insert('\n' + indent + '  ');
-        } else insert('\n' + indent);
-        return;
-      }
-      if (e.key === '}' && !e.ctrlKey && !e.metaKey) {
-        const v = ta.value, pos = ta.selectionStart;
-        const ls = lineStartOf(pos);
         const head = v.slice(ls, pos);
-        if (/^ +$/.test(head) && ta.selectionStart === ta.selectionEnd) {
-          e.preventDefault();
-          insert(head.slice(0, Math.max(0, head.length - 2)) + '}', ls, pos);
-        }
+        const indent = /^[ \t]*/.exec(head)[0];
+        if (closesBlock(head) && ta.selectionStart === ta.selectionEnd) {
+          // `end`: line it up with the header of the block it closes, and go on there
+          const prev = v.slice(0, ls).split('\n');
+          prev.pop();
+          const want = headerIndent(prev);
+          insert(want + head.slice(indent.length) + '\n' + want, ls, pos);
+        } else if (opensBlock(head)) insert('\n' + indent + '  ');
+        else insert('\n' + indent);
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {

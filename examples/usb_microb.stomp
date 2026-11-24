@@ -5,20 +5,20 @@
 # front tabs by their span about the centerline. Every number is entered as
 # drawn. (Illustrative dimensions, not a specific vendor's.)
 
-units mm
+units: mm
 
-footprint "USB-MICRO-B" {
-  description "USB micro-B receptacle, SMD signals + through-hole shield"
-  refdes "J"
-  tags usb, connector
+footprint "USB-MICRO-B"
+  description: "USB micro-B receptacle, SMD signals + through-hole shield"
+  refdes: "J"
+  tags: usb, connector
 
-  let e  = 0.65        # signal pitch ("e" on the drawing)
-  let C1 = 2.89        # peg to pin 1 center, x ("C1")
-  let C2 = 0.55        # peg below the pin row, y ("C2")
+  e  = 0.65            # signal pitch ("e" on the drawing)
+  C1 = 2.89            # peg to pin 1 center, x ("C1")
+  C2 = 0.55            # peg below the pin row, y ("C2")
 
   # Signal pads
   default pad rect 0.4 x 1.35
-  row sig pads 1..5 pitch e going right
+  row sig pads 1..5 pitch: e going: right
   pad 3 at (0, 0)                          # the D+ pin is on the origin
 
   # Locating pegs (NPTH)
@@ -27,7 +27,7 @@ footprint "USB-MICRO-B" {
   hole PEG2 mirrors hole PEG1 across y     # symmetric about the centerline
 
   # Shield legs: plated slots, measured from the pegs
-  pad "SH1" tht oval 1.2 x 1.9 drill slot 0.6 x 1.3
+  pad "SH1" tht oval 1.2 x 1.9 drill: slot 0.6 x 1.3
   pad "SH1" is 1.05 left of hole PEG1 and 0.25 above hole PEG1
   pad "SH2" mirrors pad "SH1" across y
 
@@ -37,7 +37,7 @@ footprint "USB-MICRO-B" {
   span pad "SH3" to pad "SH4" is 8.0       # outer edge to outer edge
   pad "SH3" is 0.9 above pad "SH1"
 
-  pads "SH1", "SH2", "SH3", "SH4" { mask +0.1 }
+  pads "SH1", "SH2", "SH3", "SH4" mask: +0.1
 
   # Body, measured from the shield pads
   group shield = pad "SH1", pad "SH2", pad "SH3", pad "SH4"
@@ -46,13 +46,11 @@ footprint "USB-MICRO-B" {
   body top is 0.5 above hole PEG1
 
   # Graphics and 3D
-  silk {
-    line (-4.1, -2.6) (-4.1, -1.2) width 0.12    # marks the mating-face corners
-    line (4.1, -2.6) (4.1, -1.2) width 0.12
-  }
-  courtyard auto 0.5
+  line (-4.1, -2.6) (-4.1, -1.2) width: 0.12     # marks the mating-face corners
+  line (4.1, -2.6) (4.1, -1.2) width: 0.12
+  courtyard: auto 0.5
 
-  model {
-    step "models/usb_microb.step" offset (0, 0, 0) rotate (0, 0, -90) scale 1.0
-  }
-}
+  model
+    step: "models/usb_microb.step" offset: (0, 0, 0) rotate: (0, 0, -90) scale: 1.0
+  end
+end

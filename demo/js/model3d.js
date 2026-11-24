@@ -542,7 +542,7 @@
       if (md.step) notes.push(`Uses the STEP file ${md.step.file}, which the demo can't load, so this is the generated model.`);
       this.solidColor = (() => { try { return matOfValue(this.hooks.libColor('solid_color')); } catch (e) { return EPOXY; } })();
       if (!b) {
-        if (md.solids && md.solids.length) notes.push('No body, so only the model block\'s solids are shown.');
+        if (md.solids && md.solids.length) notes.push('No body, so only the extra solids are shown.');
         else notes.push('No body. Add `body W x L x H` to generate a model.');
         this.extraSolids(null, 0);
         const nx = md.extras != null ? md.extras : (md.solids || []).length;
@@ -561,11 +561,11 @@
 
       // what the body is drawn from
       const V = { W: len(b.w), L: len(b.l), ball_d: len(ballD) };
-      if (P.draft != null) V.taper = num(P.draft);
+      if (P.draft != null) V.draft = num(P.draft);
       if (P.bodyColor) V.body_color = colorVal(P.bodyColor);
       if (P.leadsColor) V.lead_color = colorVal(P.leadsColor);
       if (pitch != null) V.e = len(pitch);
-      if (P.above != null) V.rise = len(P.above);
+      if (P.above != null) V.above = len(P.above);
       let castD = 0;
       for (const l of leads) if (l.form === 'castellated' && l.side) castD = Math.max(castD, l.castellated || l.d || l.v || 0.6);
       V.cast_d = len(castD);
@@ -635,7 +635,7 @@
       if (mark !== 'none' && !B.flags.has(mark)) mark = 'none';
       const exp = {};
       for (const k of EXPORTS) if (B.has(k)) exp[k] = B.len(k);
-      const bodyTop = B.has('top_z') ? B.len('top_z') : H;
+      const bodyTop = B.has('top') ? B.len('top') : H;
       this.bodyColor = B.has('body_color') ? matOfValue(B.color('body_color')) : (bodyColor ? matOfValue(bodyColor) : this.solidColor);
       const leadColor = P.leadsColor ? matOfValue(P.leadsColor) : (B.has('lead_color') ? matOfValue(B.color('lead_color')) : TIN);
       const markSrc = (md.src || []).concat(this.markNodes());
@@ -672,18 +672,18 @@
           pad_across: l.padAcross ? len(l.padAcross) : undefined, pad_along: l.padAlong ? len(l.padAlong) : undefined,
         };
         for (const k of Object.keys(exp)) lv[k] = len(exp[k]);
-        if (F) { lv.edge = len(F.uEdge); lv.pad_u = len(F.uPad); if (F.uToe != null) lv.toe = len(F.uToe); lv.side_len = len(l.side === 'left' || l.side === 'right' ? b.l : b.w); }
+        if (F) { lv.edge = len(F.uEdge); lv.pad_u = len(F.uPad); if (F.uToe != null) lv.toe = len(F.uToe); lv.across = len(l.side === 'left' || l.side === 'right' ? b.l : b.w); }
         const wl = hook === 'lead_tab' || hook === 'lead_contact';
         if (l.w != null) lv.b = len(l.w);
         const T = wl ? l.l : (l.l != null ? l.l : l.v);
         if (T != null) lv.T = len(T);
         const Dm = l.form === 'castellated' ? (l.castellated || l.d || l.v) : (l.form === 'ball' || l.form === 'column') ? (l.v != null ? l.v : l.d) : (l.d != null ? l.d : l.v);
-        if (Dm != null) lv.D = len(Dm);
-        if (l.drill) lv.drill_d = len(l.drill);
+        if (Dm != null) lv.d = len(Dm);
+        if (l.drill) lv.drill = len(l.drill);
         const e = l.pitch || pitch;
         if (e != null) lv.e = len(e);
         if (P.thickness != null) lv.c = len(P.thickness);
-        if (P.below != null) lv.tail = len(P.below);
+        if (P.below != null) lv.below = len(P.below);
         if (P.leadsColor) lv.lead_color = colorVal(P.leadsColor);
         for (const k of Object.keys(lv)) if (lv[k] === undefined) delete lv[k];
         const lf = [l.form, style];
@@ -768,7 +768,7 @@
       return (r.markSrc || []);
     }
 
-    /** The model block's own solids and placed features. */
+    /** The extra solids: a model block's own, and those of the features the footprint places. */
     extraSolids(bodyMat, bodyTop) {
       const md = this.md;
       for (const d of md.solids || []) {

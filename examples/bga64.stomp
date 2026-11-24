@@ -1,21 +1,21 @@
 # BGA-64: ball grid with JEDEC row letters and two empty corners.
 
-footprint "BGA-64" {
-  description "64-ball BGA, 0.8 mm pitch, rows A..H"
-  refdes "U"
+footprint "BGA-64"
+  description: "64-ball BGA, 0.8 mm pitch, rows A..H"
+  refdes: "U"
 
   body 8 x 8 x 1.2
-  balls 8 x 8 pitch 0.8        # a grid with ball leads and BGA numbering
+  balls 8 x 8 pitch: 0.8       # a grid with ball leads and BGA numbering
   lead ball 0.4                # ball diameter. The land would default to 80% of it,
   default pad circle 0.35      # but we set it here (NSMD)
   omit A1, H8                  # no balls at these corners
-  pin1 dot                     # silk dot at the A1 corner
+  pin1: dot                    # silk dot at the A1 corner
 
   # A region works too: omit rows D..E cols 4..5
-}
+end
 
 # A variant without ball D4
-footprint "BGA-64-DEPOP" extends "BGA-64" {
-  description "BGA-64 with D4 unballed"
+footprint "BGA-64-DEPOP" extends "BGA-64"
+  description: "BGA-64 with D4 unballed"
   delete ball D4               # `ball` is another name for a grid pad
-}
+end

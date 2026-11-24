@@ -1,18 +1,16 @@
 # QFN-32: quad leadless package with an exposed pad, paste windows and thermal vias.
 
-footprint "QFN-32" {
-  description "32-lead 5x5 mm QFN, 0.5 mm pitch, exposed pad"
-  datasheet "https://example.com/qfn32.pdf"
-  refdes "U"
-  tags qfn, leadless
+footprint "QFN-32"
+  description: "32-lead 5x5 mm QFN, 0.5 mm pitch, exposed pad"
+  datasheet: "https://example.com/qfn32.pdf"
+  refdes: "U"
+  tags: qfn, leadless
 
   body 5 x 5 x 0.9
-  pins 32 quad pitch 0.5       # four sides, counterclockwise from top left
+  pins 32 quad pitch: 0.5      # four sides, counterclockwise from top left
   lead flat 0.25 x 0.4         # the span defaults to the body edge
-  pin1 chamfer
+  pin1: chamfer
 
-  thermal pad 33 3.7 x 3.7 {   # exposed pad, pin 33, centered on the body
-    paste divide 2 x 2 coverage 68%
-    vias 3 x 3 drill 0.3 pitch 1.1
-  }
-}
+  thermal pad 33 3.7 x 3.7 paste: divide 2 x 2 coverage: 68%   # exposed pad, pin 33, on the body's center
+  pad 33 vias: 3 x 3 drill: 0.3 pitch: 1.1                       # thermal vias in it
+end

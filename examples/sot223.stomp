@@ -1,16 +1,16 @@
 # SOT-223: three gull-wing leads and a wide tab. A per-pin lead line sizes pin 4's land and 3D lead.
 
-footprint "SOT-223" {
-  description "SOT-223 (JEDEC TO-261AA): 3 leads + tab lead, 2.3 mm pitch"
-  refdes "U"
-  tags regulator, sot
+footprint "SOT-223"
+  description: "SOT-223 (JEDEC TO-261AA): 3 leads + tab lead, 2.3 mm pitch"
+  refdes: "U"
+  tags: regulator, sot
 
   body 6.5 x 3.5 x 1.8              # D x E1 x A
-  pins {
-    bottom: 1, 2, 3 pitch 2.3       # pin 1 bottom left
+  pins
+    bottom: 1, 2, 3 pitch: 2.3      # pin 1 bottom left
     top: 4                          # the tab, opposite pin 2
-  }
-  lead gullwing 0.7 x 0.9 span 7.0  # b x L, span E (tip to tip)
+  end
+  lead gullwing 0.7 x 0.9 span: 7.0  # b x L, span E (tip to tip)
   lead 4 gullwing 3.0 x 0.9         # b2: the tab is 3 mm wide
-  pin1 dot
-}
+  pin1: dot
+end

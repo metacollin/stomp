@@ -2,100 +2,90 @@
 #
 # Each body is drawn along x, then turned by `turn` (0, or 90 for parts along
 # y). Its colors follow the part's family: resistor, capacitor, inductor or
-# diode.
+# diode. A round body sets `top`, where solids placed `on body` rest.
 
-units mm
+units: mm
 
 # A chip passive or LED: a ceramic block between two metal caps
-feature body_chip(W, L, H, turn = 0, T = 0.2 * len, body_color = alumina, lead_color = tin, pin1_mark = "none", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0) {
-  section capacitor { body_color = mlcc }
-  section inductor { body_color = ferrite }
-  section diode { body_color = led_white }
-  let len = abs(cos(turn)) * W + abs(sin(turn)) * L
-  let breadth = abs(sin(turn)) * W + abs(cos(turn)) * L
-  let cap = max(0.02, min(0.45 * len, T))
-  let mid = len - 2 * cap - 0.02
-  let cross = breadth - 2 * 0.012
-  model {
-    feature chip_parts(len, breadth, H, cap, body_color, lead_color) rotate turn
-    feature top_marks(abs(cos(turn)) * mid + abs(sin(turn)) * cross, abs(sin(turn)) * mid + abs(cos(turn)) * cross, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
-  }
-}
+feature body_chip(W, L, H, turn = 0, T = 0.2 * len, body_color = alumina, lead_color = tin, pin1_mark = "none", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0)
+  section capacitor; body_color = mlcc; end
+  section inductor; body_color = ferrite; end
+  section diode; body_color = led_white; end
+  len = abs(cos(turn)) * W + abs(sin(turn)) * L
+  across = abs(sin(turn)) * W + abs(cos(turn)) * L
+  cap = max(0.02, min(0.45 * len, T))
+  mid = len - 2 * cap - 0.02
+  cross = across - 2 * 0.012
+  feature chip_parts(len, across, H, cap, body_color, lead_color) at (0, 0) rotate: turn
+  feature top_marks(abs(cos(turn)) * mid + abs(sin(turn)) * cross, abs(sin(turn)) * mid + abs(cos(turn)) * cross, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+end
 
 # A chip's parts along x: the body, its caps, and a resistor's film or an LED's lens
-feature chip_parts(len, breadth, H, cap, body_color, lead_color) {
-  let mid = len - 2 * cap - 0.02
-  let cross = breadth - 2 * 0.012
-  model {
-    box len - 2 * 0.012 x cross x H - 2 * 0.012 at (0, 0, 0.012) color body_color
-    box cap x breadth x H at (-(len / 2 - cap / 2), 0, 0) color lead_color kind lead name "end caps"
-    box cap x breadth x H at (len / 2 - cap / 2, 0, 0) color lead_color kind lead name "end caps"
-  }
-  section resistor {
-    model { box mid x cross - 0.04 x 0.031 at (0, 0, H - 0.035) color thick_film name "resistive layer" }
-  }
-  section diode {
-    model { box mid x cross - 0.08 x min(0.45 * H, H - 0.02) - 0.004 at (0, 0, H - min(0.45 * H, H - 0.02)) color led_lens name "lens" }
-  }
-}
+feature chip_parts(len, across, H, cap, body_color, lead_color)
+  mid = len - 2 * cap - 0.02
+  cross = across - 2 * 0.012
+  box len - 2 * 0.012 x cross x H - 2 * 0.012 at (0, 0, 0.012) color: body_color
+  box cap x across x H at (-(len / 2 - cap / 2), 0, 0) color: lead_color kind: lead name: "end caps"
+  box cap x across x H at (len / 2 - cap / 2, 0, 0) color: lead_color kind: lead name: "end caps"
+  section resistor
+    box mid x cross - 0.04 x 0.031 at (0, 0, H - 0.035) color: thick_film name: "resistive layer"
+  end
+  section diode
+    box mid x cross - 0.08 x min(0.45 * H, H - 0.02) - 0.004 at (0, 0, H - min(0.45 * H, H - 0.02)) color: led_lens name: "lens"
+  end
+end
 
 # A MELF: a glass or ceramic cylinder lying on its two metal caps
-feature body_melf(W, L, H, z0 = 0, turn = 0, T = 0.2 * len, body_color = ferrite, lead_color = tin, pin1_mark = "none", ex = 1, ey = 0) {
-  section resistor { body_color = melf_blue }
-  section diode { body_color = melf_red }
-  section capacitor { body_color = mlcc }
-  let len = abs(cos(turn)) * W + abs(sin(turn)) * L
-  let D = abs(sin(turn)) * W + abs(cos(turn)) * L
-  let zc = z0 + D / 2
-  let top_z = z0 + D
-  let cap = min(len * 0.4, T)
-  let band_color = band
-  section diode { band_color = glass_band }
-  model { feature melf_parts(len, D, cap, body_color, lead_color) at (0, 0, zc) rotate turn }
-  section stripe {
-    model { feature axial_band(len, D, cap, ex * cos(turn) + ey * sin(turn), band_color) at (0, 0, zc) rotate turn }
-  }
-}
+feature body_melf(W, L, H, z0 = 0, turn = 0, T = 0.2 * len, body_color = ferrite, lead_color = tin, pin1_mark = "none", ex = 1, ey = 0)
+  section resistor; body_color = melf_blue; end
+  section diode; body_color = melf_red; end
+  section capacitor; body_color = mlcc; end
+  len = abs(cos(turn)) * W + abs(sin(turn)) * L
+  D = abs(sin(turn)) * W + abs(cos(turn)) * L
+  zc = z0 + D / 2
+  top = z0 + D
+  cap = min(len * 0.4, T)
+  band_color = band
+  section diode; band_color = glass_band; end
+  feature melf_parts(len, D, cap, body_color, lead_color) at (0, 0, zc) rotate: turn
+  section stripe
+    feature axial_band(len, D, cap, ex * cos(turn) + ey * sin(turn), band_color) at (0, 0, zc) rotate: turn
+  end
+end
 
 # A MELF's parts along x, around its axis
-feature melf_parts(len, D, cap, body_color, lead_color) {
-  model {
-    cylinder d D - 2 * 0.012 h len - 0.02 at (-(len / 2 - 0.01), 0, 0) rotate (0, 90, 0) segments 32 color body_color
-    cylinder d D h cap at (-len / 2, 0, 0) rotate (0, 90, 0) segments 32 color lead_color kind lead name "end caps"
-    cylinder d D h cap at (len / 2 - cap, 0, 0) rotate (0, 90, 0) segments 32 color lead_color kind lead name "end caps"
-  }
-}
+feature melf_parts(len, D, cap, body_color, lead_color)
+  cylinder d: D - 2 * 0.012 h: len - 0.02 at (-(len / 2 - 0.01), 0, 0) rotate: (0, 90, 0) segments: 32 color: body_color
+  cylinder d: D h: cap at (-len / 2, 0, 0) rotate: (0, 90, 0) segments: 32 color: lead_color kind: lead name: "end caps"
+  cylinder d: D h: cap at (len / 2 - cap, 0, 0) rotate: (0, 90, 0) segments: 32 color: lead_color kind: lead name: "end caps"
+end
 
 # An axial part: a cylinder with rounded shoulders lying on its two wires
-feature body_axial(W, L, H, z0 = 0, turn = 0, body_color = resistor_tan, pin1_mark = "none", ex = 1, ey = 0) {
-  section diode { body_color = diode_black }
-  section capacitor { body_color = cap_blue }
-  section inductor { body_color = inductor_green }
-  let len = abs(cos(turn)) * W + abs(sin(turn)) * L
-  let D = abs(sin(turn)) * W + abs(cos(turn)) * L
-  let zc = z0 + D / 2
-  let top_z = z0 + D
-  model { feature axial_parts(len, D, body_color) at (0, 0, zc) rotate turn }
-  section stripe {
-    model { feature axial_band(len, D, 0, ex * cos(turn) + ey * sin(turn)) at (0, 0, zc) rotate turn }
-  }
-}
+feature body_axial(W, L, H, z0 = 0, turn = 0, body_color = resistor_tan, pin1_mark = "none", ex = 1, ey = 0)
+  section diode; body_color = diode_black; end
+  section capacitor; body_color = cap_blue; end
+  section inductor; body_color = inductor_green; end
+  len = abs(cos(turn)) * W + abs(sin(turn)) * L
+  D = abs(sin(turn)) * W + abs(cos(turn)) * L
+  zc = z0 + D / 2
+  top = z0 + D
+  feature axial_parts(len, D, body_color) at (0, 0, zc) rotate: turn
+  section stripe
+    feature axial_band(len, D, 0, ex * cos(turn) + ey * sin(turn)) at (0, 0, zc) rotate: turn
+  end
+end
 
 # An axial body along x, around its axis
-feature axial_parts(len, D, body_color) {
-  let k = min(0.12 * len, 0.6 * (D / 2))
-  model {
-    cylinder d D * 0.78 to D h k at (-len / 2, 0, 0) rotate (0, 90, 0) open top segments 32 color body_color
-    cylinder d D h len - 2 * k at (-len / 2 + k, 0, 0) rotate (0, 90, 0) open segments 32 color body_color
-    cylinder d D to D * 0.78 h k at (len / 2 - k, 0, 0) rotate (0, 90, 0) open bottom segments 32 color body_color
-  }
-}
+feature axial_parts(len, D, body_color)
+  k = min(0.12 * len, 0.6 * (D / 2))
+  cylinder d: D * 0.78 to D h: k at (-len / 2, 0, 0) rotate: (0, 90, 0) open top segments: 32 color: body_color
+  cylinder d: D h: len - 2 * k at (-len / 2 + k, 0, 0) rotate: (0, 90, 0) open segments: 32 color: body_color
+  cylinder d: D to D * 0.78 h: k at (len / 2 - k, 0, 0) rotate: (0, 90, 0) open bottom segments: 32 color: body_color
+end
 
 # A cathode band near the end at s (1 along +x, -1 along -x), inside a cap of length cap
-feature axial_band(len, D, cap, s, band_color = band) {
-  let bw = max(0.12 * len, 0.25)
-  let c0 = s * (len / 2 - cap - bw / 2 - 0.08 * len)
-  model {
-    cylinder d D + 2 * 0.012 h bw at (c0 - bw / 2, 0, 0) rotate (0, 90, 0) segments 32 color band_color kind mark name "cathode band"
-  }
-}
+feature axial_band(len, D, cap, s, band_color = band)
+  bw = max(0.12 * len, 0.25)
+  c0 = s * (len / 2 - cap - bw / 2 - 0.08 * len)
+  cylinder d: D + 2 * 0.012 h: bw at (c0 - bw / 2, 0, 0) rotate: (0, 90, 0) segments: 32 color: band_color kind: mark name: "cathode band"
+end

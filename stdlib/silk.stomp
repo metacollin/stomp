@@ -6,33 +6,31 @@
 # ends get it turned or mirrored. The polarity marks go by the pin `polarity`
 # names. A line marked `clear` is cut back from the copper, as the outline is.
 
-units mm
+units: mm
 
-# `pin1 dot`: a filled dot
-feature pin1_dot(dia = 0.3) {
-  silk { circle (0, 0) d dia fill }
-}
+# `pin1: dot`: a filled dot
+feature pin1_dot(d = 0.3)
+  circle (0, 0) d: d fill
+end
 
-# `pin1 bar`: a line across the outline's end, len long, inset into a body depth deep
-feature pin1_bar(len, depth) {
-  let inset = max(0.25, 0.08 * depth)
-  silk { line (-len / 2, -inset) (len / 2, -inset) clear }
-}
+# `pin1: bar`: a line across the outline's end, len long, inset into a body depth deep
+feature pin1_bar(len, depth)
+  inset = max(0.25, 0.08 * depth)
+  line (-len / 2, -inset) (len / 2, -inset) clear
+end
 
 # `polarized` on a part that isn't round: a bar len long beyond the marked pin's land, along y
-feature polarity_bar(len) {
-  silk { line (0, -len / 2) (0, len / 2) }
-}
+feature polarity_bar(len)
+  line (0, -len / 2) (0, len / 2)
+end
 
-# `polarized` on a round part: chords across the outline, radius `radius`, on the marked side (+x)
-feature polarity_hatch(radius) {
-  silk { hatch (0, 0) d 2 * radius from 0.55 * radius to radius - 0.05 pitch 0.25 clear }
-}
+# `polarized` on a round part: chords across the outline, of radius r, on the marked side (+x)
+feature polarity_hatch(r)
+  hatch (0, 0) d: 2 * r from 0.55 * r to r - 0.05 pitch: 0.25 clear
+end
 
 # and a "+" by the other pin
-feature polarity_plus(s = 0.5) {
-  silk {
-    line (-s / 2, 0) (s / 2, 0)
-    line (0, -s / 2) (0, s / 2)
-  }
-}
+feature polarity_plus(s = 0.5)
+  line (-s / 2, 0) (s / 2, 0)
+  line (0, -s / 2) (0, s / 2)
+end

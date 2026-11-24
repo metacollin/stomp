@@ -304,7 +304,7 @@
       empty.hidden = !!res;
       if (!res) {
         for (const k of ['courtyard', 'fab', 'copper', 'drills', 'paste', 'mask', 'silk', 'hl', 'labels', 'origin', 'dims']) g[k].innerHTML = '';
-        empty.textContent = 'Nothing to draw yet. Write a `footprint "NAME" { ... }` block.';
+        empty.textContent = 'Nothing to draw yet. Write a `footprint "NAME"` block, closed with `end`.';
         if (!state.cam) { size(); state.cam = { cx: 0, cy: 0, s: 40 }; applyCam(); }
         return;
       }

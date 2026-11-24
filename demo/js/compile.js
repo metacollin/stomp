@@ -68,8 +68,8 @@
   // What the engine passes to the features it calls (SPEC 13.5): values by name,
   // each only if the feature declares it, and flags, each only if it has a section
   // for it. Lengths are mm, angles degrees.
-  const BODY_ARGS = ['W', 'L', 'H', 'z0', 'taper', 'body_color', 'lead_color', 'e', 'rise', 'ball_d', 'cast_d', 'turn', 'T', 'sx', 'sy', 'nx', 'ny', 'ex', 'ey', 'ma'];
-  const LEAD_ARGS = ['edge', 'pad_u', 'toe', 'side_len', 'b', 'T', 'D', 'drill_d', 'pad_across', 'pad_along', 'z0', 'H', 'zp', 'housing', 'zc', 'len', 'ts', 'e', 'c', 'tail', 'lead_color'];
+  const BODY_ARGS = ['W', 'L', 'H', 'z0', 'draft', 'body_color', 'lead_color', 'e', 'above', 'ball_d', 'cast_d', 'turn', 'T', 'sx', 'sy', 'nx', 'ny', 'ex', 'ey', 'ma'];
+  const LEAD_ARGS = ['edge', 'pad_u', 'toe', 'across', 'b', 'T', 'd', 'drill', 'pad_across', 'pad_along', 'z0', 'H', 'zp', 'housing', 'zc', 'len', 'ts', 'e', 'c', 'below', 'lead_color'];
   const STYLES = ['molded', 'dip', 'block', 'radial', 'sawn', 'cga', 'bga', 'chip', 'melf', 'axial', 'can', 'header', 'module'];
   const LEAD_HOOKS = ['gullwing', 'jlead', 'lbend', 'straight', 'flat', 'endcap', 'tab', 'contact', 'ball', 'column', 'castellated', 'dip', 'axial', 'header', 'tht'];
   const HOOKS = Object.assign(
@@ -81,7 +81,7 @@
       pin1_dot: { kind: 'silk', args: [] },
       pin1_bar: { kind: 'silk', args: ['len', 'depth'] },
       polarity_bar: { kind: 'silk', args: ['len'] },
-      polarity_hatch: { kind: 'silk', args: ['radius'] },
+      polarity_hatch: { kind: 'silk', args: ['r'] },
       polarity_plus: { kind: 'silk', args: [] },
     },
   );
@@ -287,7 +287,7 @@
   }
 
   class Scope {
-    /** A root scope may name `library`: the standard library's lets, found after everything else. */
+    /** A root scope may name `library`: the standard library's names, found after everything else. */
     constructor(parent, library) { this.parent = parent; this.defs = new Map(); this.library = library || null; }
     root() { let sc = this; while (sc.parent) sc = sc.parent; return sc; }
     has(name) { for (let sc = this; sc; sc = sc.parent) if (sc.defs.has(name)) return true; return false; }
@@ -302,7 +302,7 @@
         try { d.value = evalExpr(d.x, { scope: d.scope || sc, scale: UNIT_MM[d.unit || 'mm'] }); } finally { d.busy = false; }
         return d.value;
       }
-      // built-in names: pi, the color names, then the standard library's lets
+      // built-in names: pi, the color names, then the standard library's
       if (name === 'pi') return { k: 'num', v: Math.PI };
       const c = parseColor(name, node);
       if (c && !/^#/.test(name)) return { k: 'color', v: c };
@@ -322,7 +322,7 @@
   // Compile
 
   // Results of earlier compiles, keyed by the text a footprint is built from: its own
-  // text, its template and the file's lets. Editing one table row then rebuilds only
+  // text, its template and the file's names. Editing one table row then rebuilds only
   // that row. A row's position isn't part of its key; its diagnostics are moved when
   // a cached result is reused.
   const CACHE = new Map();
@@ -432,7 +432,7 @@
     };
   }
 
-  // The standard library (SPEC 13.5): stomp files of features and lets, parsed once.
+  // The standard library (SPEC 13.5): stomp files of features and names, parsed once.
   // Each file is read at an offset of its own from LIB_BASE up.
   const LIBS = new Map();
   let libCount = 0;
@@ -459,13 +459,13 @@
       for (const d of parseDiags) diags.push(where(d, base));
       for (const it of ast.items) {
         if (it.type === 'Let') {
-          if (lets.defs.has(it.name)) diags.push(where({ severity: 'error', message: `\`let ${it.name}\` is defined twice in the standard library`, s: it.nameS, e: it.nameE }, base));
+          if (lets.defs.has(it.name)) diags.push(where({ severity: 'error', message: `\`${it.name}\` is defined twice in the standard library`, s: it.nameS, e: it.nameE }, base));
           else lets.defs.set(it.name, { x: it.x, unit: it.unit, scope: lets });
         } else if (it.type === 'Feature') {
           if (features.has(it.name)) diags.push(where({ severity: 'error', message: `feature \`${it.name}\` is defined twice in the standard library`, s: it.nameS, e: it.nameE }, base));
           else { it.lib = f.file; features.set(it.name, it); }
         } else if (it.type !== 'Units') {
-          diags.push(where({ severity: 'error', message: 'a library file holds features and lets only', s: it.s, e: it.e }, base));
+          diags.push(where({ severity: 'error', message: 'a library file holds features and `NAME = value` lines only', s: it.s, e: it.e }, base));
         }
       }
       sources.push({ file: f.file, base, source: f.source });
@@ -580,7 +580,7 @@
     for (const it of ast.items) {
       if (it.type === 'Let') {
         if (lets.defs.has(it.name)) {
-          diags.push({ severity: 'error', message: `\`let ${it.name}\` is already defined — let names are single-assignment`, s: it.nameS, e: it.nameE });
+          diags.push({ severity: 'error', message: `\`${it.name}\` already has a value in this file (a name gets one value)`, s: it.nameS, e: it.nameE });
         } else lets.defs.set(it.name, { x: it.x, unit: it.unit, scope: lets });
       } else if (it.type === 'Template') {
         if (templates.has(it.name)) diags.push({ severity: 'error', message: `template \`${it.name}\` is defined twice`, s: it.nameS, e: it.nameE });
@@ -618,8 +618,7 @@
       for (const it of items || []) {
         if (!it) continue;
         if (it.type === 'Section') walk(it.body);
-        else if (it.type === 'FeatureLayer') { for (const g of it.items) if (g && g.op === 'feature' && g.feature.name === f.name) calls.push(g.feature); }
-        else if (it.type === 'FeatureModel') { for (const q of it.items) if (q && q.key === 'feature' && q.feature.name === f.name) calls.push(q.feature); }
+        else if (it.type === 'FeaturePlace' && it.feature.name === f.name) calls.push(it.feature);
       }
     };
     for (const g of lib.features.values()) walk(g.body);
@@ -630,7 +629,7 @@
       const missing = f.params.filter((q, i) => !q.def && i >= values.length && !keys.includes(q.name));
       if (missing.length) { warn(`the standard library places \`${f.name}\` without a value for ${missing.map((q) => `\`${q.name}\``).join(', ')}: give ${missing.length > 1 ? 'them defaults' : 'it a default'}`, missing[0]); return; }
       const unknown = keys.filter((k) => !f.params.some((q) => q.name === k));
-      if (unknown.length) { warn(`the standard library places \`${f.name}\` with ${unknown.map((k) => `\`${k} = …\``).join(', ')}, which yours doesn't take`, name); return; }
+      if (unknown.length) { warn(`the standard library places \`${f.name}\` with ${unknown.map((k) => `\`${k}: …\``).join(', ')}, which yours doesn't take`, name); return; }
     }
   }
   /** A library feature's flags, within the library alone (for checkReplacement). */
@@ -644,8 +643,7 @@
         for (const it of items || []) {
           if (!it) continue;
           if (it.type === 'Section') { for (const n of it.names) out.add(n.name); visit(it.body); }
-          else if (it.type === 'FeatureLayer') { for (const x of it.items) if (x && x.op === 'feature') walk(lib.features.get(x.feature.name)); }
-          else if (it.type === 'FeatureModel') { for (const q of it.items) if (q && q.key === 'feature') walk(lib.features.get(q.feature.name)); }
+          else if (it.type === 'FeaturePlace') walk(lib.features.get(it.feature.name));
         }
       };
       visit(g.body);
@@ -768,7 +766,7 @@
     }
 
     // Build
-    /** Expand templates and parents, bind parameters, define lets, fill in strings. */
+    /** Expand templates and parents, bind parameters, define names, fill in strings. */
     prepare() {
       if (this.prepared) return;
       this.prepared = true;
@@ -790,8 +788,8 @@
       if (!best) {
         const t = d.template.name;
         this.err(d.table
-          ? `template \`${t}\` doesn't name its footprints, so these rows have no names — add \`name "…"\` to the template, e.g. \`name "${t.toUpperCase()}-{…}"\``
-          : `this footprint has no name — add one (\`footprint "NAME" from ${t}(…)\`) or give template \`${t}\` a \`name "…"\` statement`,
+          ? `template \`${t}\` doesn't name its footprints, so these rows have no names — add \`name: "…"\` to the template, e.g. \`name: "${t.toUpperCase()}-{…}"\``
+          : `this footprint has no name — add one (\`footprint "NAME" from ${t}(…)\`) or give template \`${t}\` a \`name: "…"\` line`,
         d.table ? { s: d.table.callS, e: d.table.callE } : { s: d.callS, e: d.callE });
         return null;
       }
@@ -889,9 +887,6 @@
     bindParams(list) {
       for (const { template: t, decl } of list) {
         const given = new Map();
-        for (const a of decl.args) {
-          if (a.word != null && a.kw) this.err(`\`${a.word}\` is a keyword: a template takes values, not flags`, a);
-        }
         const pos = decl.args.filter((a) => !a.key && a.x);
         if (pos.length > t.params.length) this.err(`template \`${t.name}\` takes ${t.params.length} parameter(s), got ${pos.length}`, pos[t.params.length]);
         pos.forEach((a, i) => { if (i < t.params.length) given.set(t.params[i].name, a); });
@@ -908,21 +903,21 @@
           else if (p.def) this.scope.defs.set(p.name, { x: p.def, unit: t.unit, scope: this.scope, level: 0 });
           else {
             this.err(decl.table
-              ? `template parameter \`${p.name}\` has no value — add a \`${p.name}\` column, or give it in the call: \`footprints from ${t.name}(${p.name} = …)\``
+              ? `template parameter \`${p.name}\` has no value — add a \`${p.name}\` column, or give it in the call: \`footprints from ${t.name}(${p.name}: …)\``
               : `missing argument for template parameter \`${p.name}\``, decl.missingAt || { s: decl.template.s, e: decl.e });
           }
         }
       }
     }
 
-    /** The footprint's lets, evaluated on use and in any order. A child's let replaces its parent's. */
+    /** The footprint's names (`NAME = value`), evaluated on use and in any order. A child's replaces its parent's. */
     defineLets() {
       for (const it of this.items) {
         const s = it.s;
         if (s.type !== 'Let') continue;
         const prev = this.scope.defs.get(s.name);
         if (prev && prev.level === it.level && prev.node) {
-          this.err(`\`let ${s.name}\` is already defined in this footprint — let names are single-assignment`, { s: s.nameS, e: s.nameE });
+          this.err(`\`${s.name}\` already has a value in this footprint (a name gets one value)`, { s: s.nameS, e: s.nameE });
           continue;
         }
         if (!prev || prev.level <= it.level) this.scope.defs.set(s.name, { x: s.x, unit: s.unit, scope: this.scope, level: it.level, node: s });
@@ -958,7 +953,7 @@
           case 'Meta': st.meta[s.key] = { value: s.value, node: s }; break;
           case 'Name':
             if (this.decl.mode !== 'from' && it.level === this.ownLevel) {
-              this.err('`name` belongs in a template (or a `from` call\'s block) — this footprint is already named in its header', s);
+              this.err('`name:` belongs in a template (or a `from … with` block) — this footprint is already named in its header', s);
             }
             break;
           case 'Body': single('body', it, 'body'); break;
@@ -1117,7 +1112,7 @@
     specFromGeom(g, stmt) {
       const spec = { shape: this.shapeFrom(g.shape, stmt), tht: !!g.tht, drill: g.drill ? this.drillFrom(g.drill, stmt) : null, rot: 0, mask: null, paste: null, vias: null };
       for (const p of g.props) this.applyProp(spec, p, stmt);
-      if (spec.tht && !spec.drill) throw new StompError('a `tht` pad needs a drill: add `drill D` or `drill slot W x L`', g);
+      if (spec.tht && !spec.drill) throw new StompError('a `tht` pad needs a drill: add `drill: D` or `drill: slot W x L`', g);
       if (!spec.tht && spec.drill) {
         this.warn('this pad has a drill but isn\'t marked `tht`; treating it as through-hole', g);
         spec.tht = true;
@@ -1195,14 +1190,14 @@
         const nx = this.countOf(node.nx, node), ny = this.countOf(node.ny, node);
         if (nx < 1 || ny < 1) throw new StompError('a grid needs at least one row and one column', node);
         const px = pitch ? pitch.x : null, py = pitch ? (pitch.y != null ? pitch.y : pitch.x) : null;
-        if ((nx > 1 || ny > 1) && px == null) throw new StompError('the grid needs a `pitch`', node);
+        if ((nx > 1 || ny > 1) && px == null) throw new StompError('the grid needs a `pitch:`', node);
         const isBalls = node.type === 'Balls';
         gen.kind = isBalls ? 'balls' : 'grid';
         if (isBalls && lead && lead.form !== 'ball' && lead.form !== 'column') this.warn('`balls` implies `lead ball`, but the lead form here is `' + lead.form + '`', lead.node);
         let gridProto = proto, derived = null;
         if (!gridProto) { gridProto = this.ipcGridSpec(isBalls, node); derived = lead && (lead.form === 'ball' || lead.form === 'column') ? 'ball' : 'tht'; }
         const sch = scheme || (isBalls ? 'bga' : 'zigzag');
-        if (sch === 'ccw' || sch === 'cw') throw new StompError(`\`numbering ${sch}\` walks the package perimeter; grids use zigzag, row-major, col-major or bga`, C.numbering);
+        if (sch === 'ccw' || sch === 'cw') throw new StompError(`\`numbering: ${sch}\` walks the package perimeter; grids use zigzag, row-major, col-major or bga`, C.numbering);
         const names = numberGrid(nx, ny, sch, start, px, py);
         for (let r = 0; r < ny; r++) {
           for (let c = 0; c < nx; c++) {
@@ -1305,7 +1300,7 @@
       }
       if (lead.form === 'column') {
         const d = lead.v != null ? lead.v : lead.d;
-        if (d == null) throw new StompError('`lead column` needs the column diameter: `lead column d 0.5`', lead.node);
+        if (d == null) throw new StompError('`lead column` needs the column diameter: `lead column d: 0.5`', lead.node);
         this.ipcNote = `column lands: the ${fmtMM(d)} column + ${fmtMM(COLUMN_LAND)}`;
         return { shape: { kind: 'circle', d: ceilTo(d + COLUMN_LAND, 0.01) }, tht: false, drill: null, rot: 0, mask: null, paste: null, vias: null, ipc: true };
       }
@@ -1316,7 +1311,7 @@
     thtSpec(lead) {
       const lv = this.lv;
       const dim = lead.d != null ? lead.d : lead.w != null ? Math.hypot(lead.w, lead.l) : lead.v;
-      if (dim == null) throw new StompError(`\`lead ${lead.form}\` needs its size (\`d 0.6\` or \`W x L\`)`, lead.node);
+      if (dim == null) throw new StompError(`\`lead ${lead.form}\` needs its size (\`d: 0.6\` or \`W x L\`)`, lead.node);
       const drill = ceilTo(dim + THT.allowance[lv], 0.05);
       const pad = ceilTo(drill + 2 * THT.ring[lv], 0.05);
       this.ipcNote = `through-hole: drill = lead ${fmtMM(dim)} + ${fmtMM(THT.allowance[lv])}, pad = drill + 2 × ${fmtMM(THT.ring[lv])} ring`;
@@ -1355,7 +1350,7 @@
       if (!lead) {
         if (pspan) return { C: padMeasured(pspan.v, pspan.qual), how: `span ${fmtMM(pspan.v)} (pads, ${pspan.qual})` };
         if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (centers)` };
-        throw new StompError('the pad rows need a spacing: add `span …` / `gap …` (measured on the pads), or describe the leads with `lead … span …`', node);
+        throw new StompError('the pad rows need a spacing: add `span: …` or `gap: …` (measured on the pads), or describe the leads with `lead … span: …`', node);
       }
       ctx.src.push(lead.node);
       const span = pspan || lead.span;
@@ -1364,7 +1359,7 @@
         const t = lead.d != null ? lead.d : lead.l != null ? lead.l : lead.v;
         if (!span) {
           if (ctx.twoPin && ctx.pitch != null) return { C: ctx.pitch, how: `pitch ${fmtMM(ctx.pitch)} (lead centers)` };
-          throw new StompError(`through-hole rows need the lead spacing: add \`span … centers\` to \`pins\` or \`lead\``, node);
+          throw new StompError(`through-hole rows need the lead spacing: add \`span: … centers\` to \`pins\` or \`lead\``, node);
         }
         const v = span.qual === 'centers' ? span.v : span.qual === 'inner' ? span.v + (t || 0) : span.v - (t || 0);
         return { C: v, how: `lead span ${fmtMM(span.v)} ${span.qual}` };
@@ -1374,7 +1369,7 @@
       let T, W;
       if (f === 'castellated') {
         const d = lead.d != null ? lead.d : lead.v;
-        if (d == null) throw new StompError('`lead castellated` needs the hole size: `lead castellated d 0.6`', lead.node);
+        if (d == null) throw new StompError('`lead castellated` needs the hole size: `lead castellated d: 0.6`', lead.node);
         const Lc = span ? toOuter(span, 0) : bodyAlong;
         if (Lc == null) throw new StompError('castellations need a `body` (they sit on its edges) or a span', node);
         return { C: Lc, how: 'castellations on the body edge', castellated: d };
@@ -1434,7 +1429,7 @@
           if (N < 2 || N % 2) throw new StompError(`\`pins ${N} dual\` needs an even count`, node.count);
           sides = [['left', N / 2], ['right', N / 2]]; break;
         case 'quad':
-          if (N < 4 || N % 4) throw new StompError(`\`pins ${N} quad\` needs a multiple of 4 (use a \`pins { … }\` side block for uneven sides)`, node.count);
+          if (N < 4 || N % 4) throw new StompError(`\`pins ${N} quad\` needs a multiple of 4 (for uneven sides, list them under a \`pins\` line)`, node.count);
           sides = [['left', N / 4], ['bottom', N / 4], ['right', N / 4], ['top', N / 4]]; break;
         case 'horizontal':
           if (N !== 2) throw new StompError('`horizontal` is for two-terminal parts: `pins 2 horizontal`', node.count);
@@ -1449,17 +1444,17 @@
       gen.kind = arr === 'horizontal' || arr === 'vertical' ? 'two' : arr;
       const twoPin = gen.kind === 'two';
       const P = pitch ? pitch.x : null;
-      if (!twoPin && sides.some(([, k]) => k > 1) && P == null) throw new StompError('this package needs a `pitch`', node);
+      if (!twoPin && sides.some(([, k]) => k > 1) && P == null) throw new StompError('this package needs a `pitch:`', node);
       this.layoutSides(node, sides.map(([side, k]) => ({ side, slots: Array.from({ length: k }, () => ({})), pitch: P })), proto, { twoPin, pitch: P });
       // numbering
       const sch = scheme || 'ccw';
       const pos = gen.positions;
-      if (sch === 'bga') throw new StompError('`numbering bga` needs a grid (`balls` or `pins grid`)', node.clauses.numbering);
+      if (sch === 'bga') throw new StompError('`numbering: bga` needs a grid (`balls` or `pins grid`)', node.clauses.numbering);
       if (sch === 'ccw' || sch === 'cw') {
         const order = walkOrder(pos, sch, start, arr === 'single');
         order.forEach((idx, k) => { pos[idx].name = String(k + 1); pos[idx].order = k; });
       } else {
-        if (arr === 'quad') throw new StompError(`\`numbering ${sch}\` needs rows and columns; quad packages use ccw or cw`, node.clauses.numbering);
+        if (arr === 'quad') throw new StompError(`\`numbering: ${sch}\` needs rows and columns; quad packages use ccw or cw`, node.clauses.numbering);
         // treat the arrangement as a small grid
         let cols = 1, rows = 1;
         for (const p of pos) {
@@ -2482,7 +2477,7 @@
     manualLayers() {
       for (const it of this.st.silk) if (it.s.mode === 'block') this.gfx(it.s.items, 'silk', this.manual.silk, D.silkW);
       for (const it of this.st.assembly) if (it.s.mode === 'block') this.gfx(it.s.items, 'assembly', this.manual.assembly, D.fabW);
-      // The courtyard is one rectangle: auto [clearance], rect W x L, none, or a block
+      // The courtyard is one rectangle: auto [clearance], rect W x L, none, or a rect or polygon
       // holding one rectangle. The last statement wins; a child's replaces its parent's.
       const items = this.st.courtyard;
       let base = { mode: 'auto', clearance: null, node: null };
@@ -2513,14 +2508,8 @@
         this.guard(it.s, () => {
           const u = it.s;
           const items = this.featureItems(u.feature, u);
-          let at;
-          if (u.at.point) at = this.shift([this.len(u.at.point.x, u), this.len(u.at.point.y, u)]);
-          else if (u.at.ref.kind === 'origin') at = [0, 0];
-          else {
-            const inf = this.info(u.at.ref, u);
-            at = AXES.map((a) => this.anchor(inf, a, this.whichStatic(u.at.ref, a)).f(this.V[a]) - this.O[a]);
-          }
-          const [cs, sn] = G.cosSin(u.rotate ? this.angleOf(u.rotate, u) : 0);
+          const at = this.featureAt(u);
+          const [cs, sn] = G.cosSin(u.rotate ? this.deg(u.rotate.z, u) : 0);
           const map = (q) => [at[0] + q[0] * cs - q[1] * sn, at[1] + q[0] * sn + q[1] * cs];
           this.manual.silk.push(...mapItems(items.silk, map, u));
           this.manual.assembly.push(...mapItems(items.assembly, map, u));
@@ -2532,6 +2521,17 @@
         if (!g || g.kind !== 'two' || !this.pads.get('2')) this.warn('`polarized` marks two-terminal parts (pins 1 and 2)', this.st.polarized.s);
       }
       this.marks2d = this.layerBase('silk') === 'auto' ? this.evalMarks() : {};
+    }
+
+    /** Where a footprint's `feature NAME at …` goes, in footprint coordinates: its
+     *  point, an object's anchor, or (`on body` alone) the body's center. */
+    featureAt(u) {
+      if (u.onBody && !this.body) throw new StompError('`on body` needs a `body` to rest on', u);
+      if (!u.at) return [this.body.x, this.body.y];
+      if (u.at.point) return this.shift([this.len(u.at.point.x, u), this.len(u.at.point.y, u)]);
+      if (u.at.ref.kind === 'origin') return [0, 0];
+      const inf = this.info(u.at.ref, u);
+      return AXES.map((a) => this.anchor(inf, a, this.whichStatic(u.at.ref, a)).f(this.V[a]) - this.O[a]);
     }
 
     /** The main lead form, as the 3D model takes it: the footprint's `lead`, else the
@@ -2598,7 +2598,7 @@
         const horiz = Math.abs(p2.x - cx) >= Math.abs(p2.y - cy);
         const P = out.polarity = { mk, other, cx, cy, horiz, src: pz };
         if (b && b.kind === 'cyl') {
-          P.hatch = this.markItems('polarity_hatch', { radius: L(b.w / 2 + D.silkOffset) }, [], pz);
+          P.hatch = this.markItems('polarity_hatch', { r: L(b.w / 2 + D.silkOffset) }, [], pz);
           if (other) P.plus = this.markItems('polarity_plus', {}, [], pz);
         } else {
           const half = horiz ? Math.max(b ? b.l / 2 + D.silkOffset : 0, (mk.bb.y.hi - mk.bb.y.lo) / 2 + 0.1) : Math.max(b ? b.w / 2 + D.silkOffset : 0, (mk.bb.x.hi - mk.bb.x.lo) / 2 + 0.1);
@@ -2636,8 +2636,7 @@
         for (const it of items) {
           if (!it) continue;
           if (it.type === 'Section') { for (const n of it.names) out.add(n.name); walk(it.body); }
-          else if (it.type === 'FeatureLayer') { for (const g of it.items) if (g && g.op === 'feature') sub(g.feature.name); }
-          else if (it.type === 'FeatureModel') { for (const q of it.items) if (q && q.key === 'feature') sub(q.feature.name); }
+          else if (it.type === 'FeaturePlace') sub(it.feature.name);
         }
       };
       walk(f.body);
@@ -2647,7 +2646,7 @@
     }
 
     /**
-     * Bind a call of a feature: its parameters and lets in a scope of its own, the
+     * Bind a call of a feature: its parameters and names in a scope of its own, the
      * flags in effect (those passed down to it, and its own) and the sections they
      * turn on. Returns { f, scope, flags, active, depth, lib }.
      *   call  { name, args, s, e } as written; args may hold flags (lone words)
@@ -2662,7 +2661,7 @@
       const f = this.lookupFeature(call.name);
       if (!f) {
         const hint = Parser.suggest(call.name, this.featureNames());
-        throw new StompError(`unknown feature \`${call.name}\`${hint ? ` — did you mean \`${hint}\`?` : ` — define it with \`feature ${call.name} { silk { … } }\``}`, call);
+        throw new StompError(`unknown feature \`${call.name}\`${hint ? ` — did you mean \`${hint}\`?` : ` — define it: \`feature ${call.name}\`, its graphics or solids, then \`end\``}`, call);
       }
       const depth = o.depth || 0;
       if (depth > MAX_DEPTH) throw new StompError(`features place each other more than ${MAX_DEPTH} deep: does \`${f.name}\` place itself?`, call);
@@ -2685,11 +2684,12 @@
           continue;
         }
         if (a.word != null) {
-          const known = !a.kw && (callScope.has(a.word) || a.word === 'pi' || parseColor(a.word, a) || (callScope.root().library && callScope.root().library.defs.has(a.word)));
+          const known = callScope.has(a.word) || a.word === 'pi' || parseColor(a.word, a) || (callScope.root().library && callScope.root().library.defs.has(a.word));
+          // a lone word that's neither a flag nor a name: most likely a mistyped flag
           const hint = Parser.suggest(a.word, [...accepted]);
-          if (a.kw || (!known && hint)) {
-            const list = accepted.size ? ` (its flags: ${[...accepted].sort().join(', ')})` : ' (it has no sections, so it takes no flags)';
-            throw new StompError(`feature \`${f.name}\` has no flag \`${a.word}\`${hint ? ` — did you mean \`${hint}\`?` : list}`, a);
+          if (!known && hint) throw new StompError(`feature \`${f.name}\` has no flag \`${a.word}\` — did you mean \`${hint}\`?`, a);
+          if (!known && accepted.size) {
+            throw new StompError(`feature \`${f.name}\` has no flag \`${a.word}\` (its flags: ${[...accepted].sort().join(', ')}), and no name \`${a.word}\` is defined`, a);
           }
         }
         if (flagAfterPos) throw new StompError(`a flag goes before or after the values, not between them: move \`${flagAfterPos.word}\``, flagAfterPos);
@@ -2747,15 +2747,15 @@
         if (!l || l.type !== 'Let') continue;
         if (sc.defs.has(l.name)) {
           throw new StompError(f.params.some((q) => q.name === l.name)
-            ? `\`let ${l.name}\` has the name of a parameter of \`${f.name}\``
-            : `\`let ${l.name}\` is already defined in \`${f.name}\``, { s: l.nameS, e: l.nameE });
+            ? `\`${l.name}\` is a parameter of \`${f.name}\`: give it a default in the parameter list, or a new value in a section`
+            : `\`${l.name}\` already has a value in \`${f.name}\` (a name gets one value)`, { s: l.nameS, e: l.nameE });
         }
         const st = sets.get(l.name);
         sc.defs.set(l.name, st ? { x: st.st.x, unit: st.st.unit || unit, scope: sc } : { x: l.x, unit: l.unit || unit, scope: sc });
       }
       for (const [name, v] of sets) {
         if (!f.params.some((q) => q.name === name) && !f.body.some((l) => l && l.type === 'Let' && l.name === name)) {
-          throw new StompError(`section ${label(v.sec)} sets \`${name}\`, which isn't a parameter or a \`let\` of \`${f.name}\``, { s: v.st.nameS, e: v.st.nameE });
+          throw new StompError(`section ${label(v.sec)} sets \`${name}\`, which isn't a parameter of \`${f.name}\` or a name defined in it`, { s: v.st.nameS, e: v.st.nameE });
         }
       }
       return { f, scope: sc, flags, active, depth, lib: !!f.lib, call };
@@ -2787,8 +2787,18 @@
       const out = [];
       this.inFeature(bound, () => this.eachItem(bound, (it) => {
         if (it.type === 'FeatureLayer' && it.layer === layer) this.gfx(it.items, layer, out, layer === 'silk' ? D.silkW : D.fabW, map, bound);
+        else if (it.type === 'FeaturePlace') this.guard(it, () => out.push(...this.placedLayer(it, bound, layer, map)));
       }));
       return out;
+    }
+
+    /** The items of a feature placed in another (`feature NAME at (x, y) rotate: A`) on
+     *  one layer: at its point, turned about z, then through the outer feature's map. */
+    placedLayer(u, bound, layer, map) {
+      const sub = this.bindFeature(u.feature, { inherit: bound.flags, depth: bound.depth + 1, unit: u.unit, scope: this.scope });
+      const o = [this.len(u.at.x, u), this.len(u.at.y, u)];
+      const [cs, sn] = G.cosSin(u.rotate ? this.deg(u.rotate.z, u) : 0);
+      return this.featureLayer(sub, layer, (q) => map([o[0] + q[0] * cs - q[1] * sn, o[1] + q[0] * sn + q[1] * cs]));
     }
 
     /** A feature's graphics around its own origin: { silk: [...], assembly: [...] }.
@@ -2804,21 +2814,20 @@
     featureSolids(bound, M) {
       const out = [];
       this.inFeature(bound, () => this.eachItem(bound, (it) => {
-        if (it.type !== 'FeatureModel') return;
-        for (const q of it.items) {
-          this.guard(q, () => {
-            if (q.key === 'feature') {
-              const sub = this.bindFeature(q.feature, { inherit: bound.flags, depth: bound.depth + 1, unit: q.unit, scope: this.scope });
-              out.push(...this.featureSolids(sub, G.compose3(M, this.placement3(q, true))));
-            } else out.push(this.solidDesc(q, M, true));
+        if (it.type === 'FeaturePlace') {
+          this.guard(it, () => {
+            const sub = this.bindFeature(it.feature, { inherit: bound.flags, depth: bound.depth + 1, unit: it.unit, scope: this.scope });
+            out.push(...this.featureSolids(sub, G.compose3(M, this.placement3(it))));
           });
+        } else if (it.type === 'FeatureModel') {
+          for (const q of it.items) this.guard(q, () => out.push(this.solidDesc(q, M, true)));
         }
       }));
       return out;
     }
 
-    /** The frame a model-block `feature … at … rotate …` puts its feature in. */
-    placement3(q, inFeature) {
+    /** The frame `feature NAME at (x, y, z) rotate: R` puts its feature in. */
+    placement3(q) {
       const at = q.at ? [this.len(q.at.x, q), this.len(q.at.y, q), q.at.z ? this.len(q.at.z, q) : 0] : [0, 0, 0];
       const rot = q.rotate ? [this.deg(q.rotate.x, q), this.deg(q.rotate.y, q), this.deg(q.rotate.z, q)] : null;
       return G.frame3(at, rot);
@@ -2930,11 +2939,11 @@
       return d;
     }
 
-    /** The rectangle a `courtyard { ... }` block draws: one `rect`, or a polygon with
+    /** The rectangle `courtyard: rect (x, y) W x L` or `courtyard: polygon …` draws: a polygon with
      *  four corners and sides parallel to x and y. */
     courtyardBox(items, node) {
       const shapes = items.filter((g) => g && g.op);
-      const one = 'a courtyard is one rectangle: write `courtyard rect W x L`, or one `rect` (or four-corner `polygon`) in the block';
+      const one = 'a courtyard is one rectangle: `courtyard: rect W x L`, `courtyard: rect (x, y) W x L`, or a four-corner `courtyard: polygon`';
       if (shapes.length !== 1) throw new StompError(one, shapes[1] || node);
       const g = shapes[0];
       if (g.op !== 'rect' && g.op !== 'polygon') throw new StompError(one, g);
@@ -3382,7 +3391,7 @@
               if (!this.body) throw new StompError('`outline body` needs a `body`', g);
               const o = g.offset ? this.len(g.offset, g) : 0;
               const pts = this.bodyOutline(o, null);
-              out.push({ type: 'line', pts: pts.concat([pts[0]]), w: defW, src: g });
+              out.push({ type: 'line', pts: pts.concat([pts[0]]), w: wOf(), src: g });
               break;
             }
             case 'line': out.push({ type: 'line', pts: [P(g.a, g), P(g.b, g)], w: wOf(), src: g }); break;
@@ -3406,7 +3415,7 @@
             }
             case 'polygon': {
               const pts = g.pts.map((p) => P(p, g));
-              out.push(g.fill ? { type: 'poly', pts, fill: true, src: g } : { type: 'line', pts: pts.concat([pts[0]]), w: defW, src: g });
+              out.push(g.fill ? { type: 'poly', pts, fill: true, src: g } : { type: 'line', pts: pts.concat([pts[0]]), w: wOf(), src: g });
               break;
             }
             case 'hatch': {
@@ -3421,25 +3430,6 @@
                 const h = Math.sqrt(R * R - t * t);
                 out.push({ type: 'line', pts: [M([c[0] + t, c[1] - h]), M([c[0] + t, c[1] + h])], w, src: g });
               }
-              break;
-            }
-            case 'feature': {
-              // another feature's items on this layer, at a point, turned
-              const u = g;
-              if (map && !u.at.point) throw new StompError('in a feature, place another feature at a point: `feature NAME at (x, y)`', u.at.ref || u);
-              const sub = this.bindFeature(u.feature, { inherit: bound ? bound.flags : null, depth: bound ? bound.depth + 1 : 0, unit: u.unit, scope: this.scope });
-              let o;
-              if (u.at.point) o = at(u.at.point, u);
-              else if (u.at.ref.kind === 'origin') o = null;
-              else {
-                const inf = this.info(u.at.ref, u);
-                o = AXES.map((a) => this.anchor(inf, a, this.whichStatic(u.at.ref, a)).f(this.V[a]) - this.O[a]);
-              }
-              const [cs, sn] = G.cosSin(u.rotate ? this.angleOf(u.rotate, u) : 0);
-              const local = (q) => [q[0] * cs - q[1] * sn, q[0] * sn + q[1] * cs];
-              const to = u.at.point || !o ? (q) => { const r = local(q); return M([(o ? o[0] : 0) + r[0], (o ? o[1] : 0) + r[1]]); }
-                : (q) => { const r = local(q); return [o[0] + r[0], o[1] + r[1]]; };
-              out.push(...this.featureLayer(sub, layer, to));
               break;
             }
             case 'text':
@@ -3646,9 +3636,9 @@
       const models = this.st.models.slice().sort((a, b) => a.level - b.level);
       const info = { none: false, props: {}, solids: [], extras: 0, step: null, src: [] };
       const LABEL = {
-        standoff: 'standoff', height: 'height', draft: 'draft', bodyColor: 'body color', leadsColor: 'leads color',
-        thickness: 'leads thickness', below: 'leads below', above: 'leads above', pin1: 'pin1', step: 'step',
-        bodyShape: 'body shape', leadsShape: 'leads shape',
+        standoff: 'standoff:', height: 'height:', draft: 'draft:', bodyColor: 'body color:', leadsColor: 'leads color:',
+        thickness: 'leads thickness:', below: 'leads below:', above: 'leads above:', pin1: 'pin1:', step: 'step:',
+        bodyShape: 'body shape:', leadsShape: 'leads shape:',
       };
       let nodes = [];
       for (const it of models) {
@@ -3658,7 +3648,7 @@
         nodes.push(m);
         const seen = new Map();
         for (const p of m.props) {
-          if (p.key !== 'solid' && p.key !== 'feature') {
+          if (p.key !== 'solid') {
             const prev = seen.get(p.key);
             if (prev) this.warn(`\`${LABEL[p.key]}\` is given twice in this model block — the later one wins`, p, [{ message: 'first given here', node: prev }]);
             seen.set(p.key, p);
@@ -3670,8 +3660,8 @@
               case 'standoff': info.props.standoff = nonNeg('the standoff'); break;
               case 'height': info.props.height = pos('the model height'); break;
               case 'thickness': info.props.thickness = pos('the lead thickness'); break;
-              case 'below': info.props.below = nonNeg('`leads below`'); break;
-              case 'above': info.props.above = nonNeg('`leads above`'); break;
+              case 'below': info.props.below = nonNeg('`leads below:`'); break;
+              case 'above': info.props.above = nonNeg('`leads above:`'); break;
               case 'draft': {
                 const a = this.angleOf(p.angle, p);
                 if (!(a >= 0 && a < 45)) throw new StompError(`a draft is between 0 and 45 degrees (got ${formatNumber(a)})`, p.angle);
@@ -3685,7 +3675,6 @@
                 info.props[p.key] = { call: p.call, unit: p.unit, node: { s: p.s, e: p.e } };
                 break;
               }
-              case 'feature': info.solids.push(...this.modelFeatureSolids(p)); info.extras++; break;
               case 'pin1': info.props.pin1 = p.v; break;
               case 'step': {
                 const x = p.xform;
@@ -3700,13 +3689,20 @@
           });
         }
       }
+      // features placed in the footprint add their solids
+      if (!info.none) {
+        for (const it of this.st.features) {
+          const list = this.guard(it.s, () => this.featureUseSolids(it.s));
+          if (list && list.length) { info.solids.push(...list); info.extras++; }
+        }
+      }
       // properties that only some leads can use
       const forms = new Set();
       if (this.lead) forms.add(this.lead.form);
       for (const pl of this.pinLeads.values()) forms.add(pl.lead.form);
       const prop = (key) => { for (let i = nodes.length - 1; i >= 0; i--) { const q = (nodes[i].props || []).find((x) => x.key === key); if (q) return q; } return null; };
-      if (info.props.below != null && !forms.has('pin') && !forms.has('wire')) this.warn('`leads below` sets how far through-hole leads reach under the board; these leads are surface-mount', prop('below'));
-      if (info.props.above != null && !(forms.has('pin') && this.gen && this.gen.kind !== 'dual')) this.warn('`leads above` is for straight through-hole pins (headers), which rise above their housing', prop('above'));
+      if (info.props.below != null && !forms.has('pin') && !forms.has('wire')) this.warn('`leads below:` sets how far through-hole leads reach under the board; these leads are surface-mount', prop('below'));
+      if (info.props.above != null && !(forms.has('pin') && this.gen && this.gen.kind !== 'dual')) this.warn('`leads above:` is for straight through-hole pins (headers), which rise above their housing', prop('above'));
       info.src = nodes.filter((n) => n.s != null).map((n) => ({ s: n.s, e: n.e }));
       info.generated = !info.none && !info.step && !!this.body;
       info.props.pin1 = info.props.pin1 || null;
@@ -3714,21 +3710,20 @@
       return info;
     }
 
-    /** A model block's `feature NAME … at (x, y, z)`: its solids in footprint
-     *  coordinates (z from the board, or from the body's top with `on body`). */
-    modelFeatureSolids(p) {
-      const bound = this.bindFeature(p.feature, { unit: p.unit, scope: this.scope });
-      const b = this.body;
-      const at = p.at ? [this.len(p.at.x, p) - this.O.x, this.len(p.at.y, p) - this.O.y, p.at.z ? this.len(p.at.z, p) : 0] : [b ? b.x : 0, b ? b.y : 0, 0];
-      if (p.at && p.at.z && p.onBody) this.warn('`on body` and a z coordinate both set the height — the z wins', p.at);
-      if (p.onBody && !b) throw new StompError('`on body` needs a `body` to rest on', p);
-      const rot = p.rotate ? [this.deg(p.rotate.x, p), this.deg(p.rotate.y, p), this.deg(p.rotate.z, p)] : null;
-      const list = this.featureSolids(bound, G.frame3(at, rot));
+    /** A footprint's `feature NAME at …`: its solids in footprint coordinates, z from
+     *  the board (or from the body's top with `on body`). */
+    featureUseSolids(u) {
+      const bound = this.bindFeature(u.feature, { unit: u.unit, scope: this.scope });
+      const xy = this.featureAt(u);
+      const zp = u.at && u.at.point && u.at.point.z;
+      if (zp && u.onBody) this.warn('`on body` and a z coordinate both set the height — the z wins', u.at.point);
+      const rot = u.rotate ? [this.deg(u.rotate.x, u), this.deg(u.rotate.y, u), this.deg(u.rotate.z, u)] : null;
+      const list = this.featureSolids(bound, G.frame3([xy[0], xy[1], zp ? this.len(zp, u) : 0], rot));
       for (const d of list) {
-        d.src = [{ s: p.s, e: p.e }];
-        if (!d.name) d.name = p.feature.name;
+        d.src = [{ s: u.s, e: u.e }];
+        if (!d.name) d.name = u.feature.name;
         if (!d.kind) d.kind = 'solid';
-        if (p.onBody && !(p.at && p.at.z)) d.lift = true;
+        if (u.onBody && !zp) d.lift = true;
       }
       return list;
     }

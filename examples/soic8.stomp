@@ -1,11 +1,11 @@
 # SOIC-8: standard two-row gull-wing package in four lines.
 
-footprint "SOIC-8" {
-  description "8-lead SOIC, 3.9 mm body, 1.27 mm pitch"
-  refdes "U"
+footprint "SOIC-8"
+  description: "8-lead SOIC, 3.9 mm body, 1.27 mm pitch"
+  refdes: "U"
 
   body 3.9 x 4.9 x 1.5
-  pins 8 dual pitch 1.27               # left and right rows, counterclockwise, pin 1 top left
-  lead gullwing 0.41 x 1.04 span 6.0   # lead width x foot length; span is tip to tip
-  pin1 dot
-}
+  pins 8 dual pitch: 1.27              # left and right rows, counterclockwise, pin 1 top left
+  lead gullwing 0.41 x 1.04 span: 6.0  # lead width x foot length; span is tip to tip
+  pin1: dot
+end

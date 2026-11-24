@@ -299,7 +299,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
 .tk-str { color: var(--tk-str); }
 .tk-interp { color: var(--tk-decl); font-weight: 600; }
 .tk-com { color: var(--tk-com); font-style: italic; }
-.tk-op, .tk-brace { color: var(--tk-op); }
+.tk-op { color: var(--tk-op); }
 .tk-bad { color: var(--err); }
 .sq-err { text-decoration: underline wavy var(--err); text-decoration-skip-ink: none; text-underline-offset: 3px; text-decoration-thickness: 1.2px; }
 .sq-warn { text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; text-underline-offset: 3px; text-decoration-thickness: 1.2px; }

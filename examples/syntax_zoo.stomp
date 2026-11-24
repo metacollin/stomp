@@ -1,22 +1,22 @@
 # Syntax zoo: not a real part. Covers the syntax the other examples don't use.
 # Every line is valid, and no position is set twice.
 
-units mil            # default unit for this file; suffixes still work
+units: mil           # default unit for this file; suffixes still work
 
-let big = 200
+big = 200
 
 # 1. Pad shapes, mask and paste options, every kind of placement
-footprint "ZOO-SHAPES" {
-  description "grammar coverage fixture; do not manufacture"
-  manufacturer "n/a"
-  mpn "n/a"
+footprint "ZOO-SHAPES"
+  description: "grammar coverage fixture; do not manufacture"
+  manufacturer: "n/a"
+  mpn: "n/a"
 
-  pad 1 roundrect 40 x 60 r 25%
-  pad 2 dshape 40 x 60 flat left rotate -90
-  pad 3 oval 40 x 60 mask defined
-  pad 4 rect 40 x 60 paste divide 2 x 2 gutter 8
-  pad 5 circle 30 mask none paste none
-  pad 6 rect 40 x 60 rotate 0.7854rad
+  pad 1 roundrect 40 x 60 r: 25%
+  pad 2 dshape 40 x 60 flat: left rotate: -90
+  pad 3 oval 40 x 60 mask: defined
+  pad 4 rect 40 x 60 paste: divide 2 x 2 gutter: 8
+  pad 5 circle 30 mask: none paste: none
+  pad 6 rect 40 x 60 rotate: 0.7854rad
   pad 7 rect 40 x 60
   pad 8 rect 40 x 60
   pad 9 rect 40 x 60
@@ -35,91 +35,89 @@ footprint "ZOO-SHAPES" {
   pitch pad 8 to pad 9 is 300
   align pad 8 with pad 1 horizontally
   hole Z1 is 80 above pad 1
-}
+end
 
 # 2. Generator options, overrides, graphics, model settings
-footprint "ZOO-DUAL" {
+footprint "ZOO-DUAL"
   body 200 x 300 x 60
-  pins 10 dual pitch 50 span 260 inner numbering cw pad roundrect 30 x 45 r 8
+  pins 10 dual pitch: 50 span: 260 inner numbering: cw pad: roundrect 30 x 45 r: 8
   lead jlead 20 x 35
-  density most
-  pin1 bar
+  density: most
+  pin1: bar
   thermal pad 90 x 140                 # unnamed, so it's called "EP"
 
-  pad 3 { size 34 x 52 }               # change some generated pads
-  pad 4 { width 40 }
-  pads 6..8 { mask +2 }
+  pad 3 size: 34 x 52                  # change some generated pads
+  pad 4 width: 40
+  pads 6..8 mask: +2
   delete pad 10
 
   pad "TP1" circle 30                  # a manual pad next to generated ones
   pad "TP1" is 60 left of side left outer
 
-  text ref at (0, 190) size 40
-  text value at (0, -190) size 40 layer assembly
-  silk {
-    outline body offset 6
-    arc (0, 0) r 80 from 30 to 150 width 4
-    circle (0, 120) d 12 fill
-    rect (0, -120) 60 x 20 width 4
-    polygon (90, 90) (110, 90) (100, 110) fill
-  }
-  courtyard rect 320 x 380
+  text ref at (0, 190) size: 40
+  text value at (0, -190) size: 40 layer: assembly
+  outline body offset: 6
+  arc (0, 0) r: 80 from 30 to 150 width: 4
+  circle (0, 120) d: 12 fill
+  rect (0, -120) 60 x 20 width: 4
+  polygon (90, 90) (110, 90) (100, 110) fill
+  courtyard: rect 320 x 380
   lead 1 jlead 24 x 35                 # per-pin lead; 3D only, since the pins line sets the lands
   lead 9 none                          # pin 9 has no lead
-  model {
-    standoff 2
-    height 55
-    draft 6deg
-    body color black
-    leads color "#c8ccd0"
-    leads thickness 8
-    pin1 dimple
-    box 120 x 160 x 4 on body color tin                      # extra solids
-    cylinder d 30 h 20 at (0, 0, 80) rotate (90, 0, 0) color gray
-  }
-}
+  model
+    standoff: 2
+    height: 55
+    draft: 6deg
+    body color: black
+    leads color: "#c8ccd0"
+    leads thickness: 8
+    pin1: dimple
+    box 120 x 160 x 4 on body color: tin                     # extra solids
+    cylinder d: 30 h: 20 at (0, 0, 80) rotate: (90, 0, 0) color: gray
+  end
+end
 
 # 3. One row of pins, castellations, `only`
-footprint "ZOO-CASTELLATED" {
-  description "edge module: castellations along one side"
+footprint "ZOO-CASTELLATED"
+  description: "edge module: castellations along one side"
   body 400 x 300 x 40
-  pins 6 single bottom pitch 50
-  lead castellated d 24
-  density least
+  pins 6 single bottom pitch: 50
+  lead castellated d: 24
+  density: least
   only 1..5                            # keep 1 to 5, drop position 6
-  pin1 dot
-}
+  pin1: dot
+end
 
 # 4. Grid with a different pitch per axis, layers turned off
-footprint "ZOO-GRID" {
+footprint "ZOO-GRID"
   origin at (0, -25)
-  pins grid 3 x 2 pitch 50 x 80 numbering row-major start bottom-left
-  lead pin d 18
-  default pad tht circle 44 drill 24
-  pad 1 { drill 28 }                   # drill override in a block
-  pads 2..3 { mask -2 }
+  pins grid 3 x 2 pitch: 50 x 80 numbering: row-major start: bottom-left
+  lead pin d: 18
+  default pad tht circle 44 drill: 24
+  pad 1 drill: 28                      # a new drill for a generated pad
+  pads 2..3 mask: -2
   omit 5
-  silk none
-  assembly none
-  courtyard { polygon (-90, -70) (90, -70) (90, 70) (-90, 70) }
+  silk: none
+  assembly: none
+  courtyard: polygon (-90, -70) (90, -70) (90, 70) (-90, 70)
   no model
-}
+end
 
 # 5. Through-hole model settings
-footprint "ZOO-SOCKET" {
+footprint "ZOO-SOCKET"
   body 400 x 100 x 340
-  pins grid 4 x 1 pitch 100
+  pins grid 4 x 1 pitch: 100
   lead pin 25 x 25
-  model {
-    leads above 0                      # a socket: pins stay inside the housing
-    leads below 120
-    pin1 notch
-  }
-}
+  model
+    leads above: 0                     # a socket: pins stay inside the housing
+    leads below: 120
+    pin1: notch
+  end
+end
 
 # 6. Side marks, and a footprint with its own units
-footprint "ZOO-MARKS" {
-  units mm                             # this footprint is in mm; the file is in mil
+footprint "ZOO-MARKS"
+  units: mm                            # this footprint is in mm; the file is in mil
   pad 1 rect 1.1w x 1.6h               # w marks the width, h the height
   pad 2 rect 1.6h x 1.1w               # the same size, sides in the other order
   pad 3 rect (0.5 + 0.6)w x 1.6        # a mark goes after the whole side
@@ -128,40 +126,38 @@ footprint "ZOO-MARKS" {
   pad 2 is 2 right of pad 1
   pad 3 is 2 right of pad 2
   pad 4 is 2 right of pad 3
-}
+end
 
 # 7. Custom features: graphics around their own origin, used as a pin-1 mark or placed anywhere
-feature arrow(tail = 40) {
-  silk {
-    polygon (0, 0) (-20, 10) (-20, -10) fill
-    line (-20, 0) (-tail, 0)
-  }
-  assembly { text "1" at (-tail - 15, 0) size 20 }
-}
+feature arrow(tail = 40)
+  polygon (0, 0) (-20, 10) (-20, -10) fill
+  line (-20, 0) (-tail, 0)
+  text "1" at (-tail - 15, 0) size: 20 layer: assembly
+end
 
-footprint "ZOO-FEATURES" {
+footprint "ZOO-FEATURES"
   body 120 x 80 x 30
-  pins 6 dual pitch 25 span 140
+  pins 6 dual pitch: 25 span: 140
   lead gullwing 10 x 15
-  pin1 arrow(60)                       # where the dot would go, clear of the copper
-  feature arrow at pad 4 rotate 180    # at a point or an object, turned
-  courtyard { rect (0, 0) 220 x 140 }  # a courtyard is always one rectangle
-}
+  pin1: arrow(60)                      # where the dot would go, clear of the copper
+  feature arrow at pad 4 rotate: 180   # at a point or an object, turned
+  courtyard: rect (0, 0) 220 x 140     # a courtyard is always one rectangle
+end
 
 # 8. A lead of your own for every lead of a footprint, with a flag, and computed colors
-feature zoo_lead(edge, pad_u, toe = pad_u, b = 15, c = 6) {
-  section thin { c = 4 }
-  model {
-    sweep b x c fillet 2 * c step 15 along (edge - 10, 3 * c), (edge + 10, 3 * c), (toe - 20, c / 2), (toe, c / 2) color metal("#b08d57")
-  }
-}
+feature zoo_lead(edge, pad_u, toe = pad_u, b = 15, c = 6)
+  section thin
+    c = 4
+  end
+  sweep b x c fillet: 2 * c step: 15 along (edge - 10, 3 * c), (edge + 10, 3 * c), (toe - 20, c / 2), (toe, c / 2) color: metal("#b08d57")
+end
 
-footprint "ZOO-MODEL" {
+footprint "ZOO-MODEL"
   body 200 x 200 x 60
-  pins 8 dual pitch 50 span 300
+  pins 8 dual pitch: 50 span: 300
   lead gullwing 15 x 40
-  model {
-    leads shape zoo_lead(thin)
-    body color mix(black, "#304050", 0.4)
-  }
-}
+  model
+    leads shape: zoo_lead(thin)
+    body color: mix(black, "#304050", 0.4)
+  end
+end

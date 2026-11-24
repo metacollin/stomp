@@ -1,23 +1,23 @@
 # TSSOP-20: dimensions entered by their JEDEC MO-153 letters, plus a hand-solder variant.
 
-let e  = 0.65        # pitch
-let D  = 6.5         # body length
-let E1 = 4.4         # body width
-let E  = 6.4         # lead span, tip to tip
-let b  = 0.25        # lead width
-let L  = 0.6         # foot length
+e  = 0.65            # pitch
+D  = 6.5             # body length
+E1 = 4.4             # body width
+E  = 6.4             # lead span, tip to tip
+b  = 0.25            # lead width
+L  = 0.6             # foot length
 
-footprint "TSSOP-20" {
-  refdes "U"
+footprint "TSSOP-20"
+  refdes: "U"
 
   body E1 x D x 1.2
-  pins 20 dual pitch e
-  lead gullwing b x L span E
-  pin1 dot
-}
+  pins 20 dual pitch: e
+  lead gullwing b x L span: E
+  pin1: dot
+end
 
-footprint "TSSOP-20-HS" extends "TSSOP-20" {
-  description "hand-solder variant: longer pads, roomier courtyard"
+footprint "TSSOP-20-HS" extends "TSSOP-20"
+  description: "hand-solder variant: longer pads, roomier courtyard"
   default pad rect 0.4 x 1.8
-  courtyard auto 0.5
-}
+  courtyard: auto 0.5
+end

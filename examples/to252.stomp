@@ -4,9 +4,9 @@
 # to center, the tab from the pin row by its near edge, the body from the pin
 # row again. Enter each number as drawn and let stomp work out the positions.
 
-footprint "TO-252" {
-  description "DPAK, 2 leads + tab"
-  refdes "Q"
+footprint "TO-252"
+  description: "DPAK, 2 leads + tab"
+  refdes: "Q"
 
   pad 1 rect 1.1 x 1.6
   pad 3 rect 1.1 x 1.6
@@ -23,10 +23,12 @@ footprint "TO-252" {
   body 6.6 x 6.1 x 2.3
   body bottom is 1.1 above pad 1             # body edge, also measured from the pin row
   body is centered on pad 2 horizontally     # otherwise SPEC 9.2 lines it up with pad 1
-  pin1 none
+  pin1: none
 
   # 3D: leads on the explicit pads. The pads keep their sizes.
   lead 1, 3 gullwing 0.75 x 1.0              # b x L of the two outer leads
   lead 2 tab                                 # the drain tab under the body
-  model { leads thickness 0.5 }
-}
+  model
+    leads thickness: 0.5
+  end
+end

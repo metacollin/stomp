@@ -3,48 +3,47 @@
 # Frames are as in molded.stomp. A contact with no side, on a land grid, is
 # drawn around its pad's center with x and y as in the footprint.
 
-units mm
+units: mm
 
 # A sawn block on its terminals, with a dot by pin 1
-feature body_sawn(W, L, H, z0 = 0.02, body_color = epoxy, pin1_mark = "dot", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0) {
-  model {
-    box W x L x H - z0 at (0, 0, z0) color body_color
-    feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
-  }
-}
+feature body_sawn(W, L, H, z0 = 0.02, body_color = epoxy, pin1_mark = "dot", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0)
+  box W x L x H - z0 at (0, 0, z0) color: body_color
+  feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+end
 
 # Flat terminals: plates under the body's edge, flush with it or out to the
 # toe. A tip at the edge shows a little beyond it.
-feature lead_flat(edge, pad_u, toe = pad_u + T / 2, b = 0.8 * pad_across, T = 0.55 * pad_along, pad_across = 0.5, pad_along = 1, c = min(0.2, 0.3 * H), H = 1, lead_color = tin) {
-  let straddle_if = min(edge - (pad_u - pad_along / 2), pad_u + pad_along / 2 - edge)   # the land crosses the edge
-  section straddle { toe = edge }
-  let flush_if = 0.02 - abs(toe - edge)
-  let tip = toe
-  section flush { tip = toe + 0.015 }
-  model { sweep b x c along (toe - T, c / 2), (tip, c / 2) color lead_color }
-}
+feature lead_flat(edge, pad_u, toe = pad_u + T / 2, b = 0.8 * pad_across, T = 0.55 * pad_along, pad_across = 0.5, pad_along = 1, c = min(0.2, 0.3 * H), H = 1, lead_color = tin)
+  straddle_if = min(edge - (pad_u - pad_along / 2), pad_u + pad_along / 2 - edge)       # the land crosses the edge
+  section straddle; toe = edge; end
+  flush_if = 0.02 - abs(toe - edge)
+  tip = toe
+  section flush; tip = toe + 0.015; end
+  sweep b x c along (toe - T, c / 2), (tip, c / 2) color: lead_color
+end
 
-# End caps on a body that doesn't draw its own: a block the body's height over each end
-feature lead_endcap(edge, pad_u, toe = pad_u + T / 2, b = side_len, side_len = 1, T = 0.55 * pad_along, pad_along = 1, H = 1, lead_color = tin) {
-  let straddle_if = min(edge - (pad_u - pad_along / 2), pad_u + pad_along / 2 - edge)
-  section straddle { toe = edge }
-  let flush_if = 0.02 - abs(toe - edge)
-  let tip = toe
-  section flush { tip = toe + 0.015 }
-  model { sweep b x H along (toe - T, H / 2), (tip, H / 2) color lead_color }
-}
+# End caps on a body that doesn't draw its own: a block the body's height over
+# each end, as wide as the body is across
+feature lead_endcap(edge, pad_u, toe = pad_u + T / 2, b = across, across = 1, T = 0.55 * pad_along, pad_along = 1, H = 1, lead_color = tin)
+  straddle_if = min(edge - (pad_u - pad_along / 2), pad_u + pad_along / 2 - edge)
+  section straddle; toe = edge; end
+  flush_if = 0.02 - abs(toe - edge)
+  tip = toe
+  section flush; tip = toe + 0.015; end
+  sweep b x H along (toe - T, H / 2), (tip, H / 2) color: lead_color
+end
 
 # A contact with no side: a plate on the board, smaller than its pad
-feature lead_contact(b = 0.8 * pad_across, T = 0.8 * pad_along, pad_across = 0.5, pad_along = 0.5, z0 = 0, lead_color = tin) {
-  model { box b x T x max(0.03, min(0.06, z0 + 0.03)) color lead_color }
-}
+feature lead_contact(b = 0.8 * pad_across, T = 0.8 * pad_along, pad_across = 0.5, pad_along = 0.5, z0 = 0, lead_color = tin)
+  box b x T x max(0.03, min(0.06, z0 + 0.03)) color: lead_color
+end
 
 # An exposed pad: a plate under a leadless or molded body, w x l around its center
-feature exposed_pad(w, l, z0 = 0, H = 1, c = min(0.2, 0.3 * H), lead_color = tin) {
-  section sawn {
-    model { box w x l x c color lead_color }
-  }
-  section molded, block {
-    model { box w x l x max(0.05, z0 + 0.04) color lead_color }
-  }
-}
+feature exposed_pad(w, l, z0 = 0, H = 1, c = min(0.2, 0.3 * H), lead_color = tin)
+  section sawn
+    box w x l x c color: lead_color
+  end
+  section molded, block
+    box w x l x max(0.05, z0 + 0.04) color: lead_color
+  end
+end

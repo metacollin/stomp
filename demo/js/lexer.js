@@ -2,13 +2,16 @@
  *
  * Produces two streams:
  *   tokens: what the parser reads. Comments are dropped, and so are newlines that
- *           can't end a statement (inside ( ... ) and after '{', ',' or an operator).
+ *           can't end a statement (inside ( ... ) and after ',' or an operator).
  *   all:    every token, comments included, for syntax highlighting.
+ *
+ * There are no braces: a block ends with the word `end`. A `{` or `}` is reported,
+ * and a `}` still closes a block, so the rest of the file reads as meant.
  *
  * Token: { t, v, s, e, line, col }
  *   t: 'word' | 'num' | 'str' | 'p' (punctuation) | 'nl' | 'comment' | 'bad' | 'eof'
- *   word: v = text, kw = reserved?            num: v = value, text, suffix, axis, isInt
- *   str:  v = unescaped value                 p:   v = '{' '}' '(' ')' ',' ';' ':' '=' '+' '-' '*' '/' '..'
+ *   word: v = text, kw = a keyword?           num: v = value, text, suffix, axis, isInt
+ *   str:  v = unescaped value                 p:   v = '(' ')' ',' ';' ':' '=' '+' '-' '*' '/' '..'
  *         parts = null, or (interpolated) [{ lit, s, e } | { open, close, codeS, codeE, fmt, toks, all }]
  */
 (function (root, factory) {
@@ -17,15 +20,18 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  // Keywords. Only `x` and `end` are reserved everywhere (HARD); the rest mean
+  // something only where the grammar expects them, and can be names elsewhere,
+  // though an object (a pad, hole, row or group) named after one needs quotes.
   const RESERVED = new Set((
     'above across align and arc assembly at auto ball balls bar below between ' +
     'bga body bottom bottom-left bottom-right box castellated ccw center centered ' +
     'centers chamfer circle col-major color cols column copper courtyard coverage cw ' +
     'cylinder d datasheet default defined deg delete density description ' +
-    'dimple divide dot down draft drill dshape dual endcap extends feature fill flat ' +
+    'dimple divide dot down draft drill dshape dual end endcap extends feature fill flat ' +
     'footprint footprints from gap going grid group gullwing gutter h height hole ' +
     'horizontal horizontally in inner is jlead layer lbend lead leads least left ' +
-    'length let line manufacturer mask mil mirrors mm model most mpn name nc nm no ' +
+    'length line manufacturer mask mil mirrors mm model most mpn name nc nm no ' +
     'nominal none notch numbering of offset omit on only origin outer outline ' +
     'oval pad pads paste pin pin1 pins pitch polarized polygon quad r rad ' +
     'rect ref refdes right rotate roundrect row row-major rows scale shape ' +
@@ -34,6 +40,9 @@
     'vertical vertically vias wire with width x y zigzag ' +
     // 3D solids and feature sections
     'section loft sweep prism sphere disc face slab hatch').split(/\s+/));
+  const HARD = new Set(['x', 'end']);
+  // words that start a top-level item: an unclosed `(` stops swallowing newlines there
+  const RESET = new Set(['end', 'footprint', 'footprints', 'template']);
 
   const HYPHENATED = ['row-major', 'col-major', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
   const UNIT_SUFFIX = new Set(['mm', 'um', 'nm', 'mil', 'in']);
@@ -56,9 +65,9 @@
     if (/^(mm|um|nm|mil|in)?[WH]$/.test(word)) return 'side marks are lowercase: `w` and `h`';
     return 'units are mm, um, nm, mil and in (angles: deg, rad), and `w` and `h` mark the sides of a size';
   }
-  const PUNCT = new Set(['{', '}', '(', ')', ',', ';', ':', '=', '+', '-', '*', '/']);
+  const PUNCT = new Set(['(', ')', ',', ';', ':', '=', '+', '-', '*', '/']);
   // a newline right after one of these doesn't end a statement (SPEC 4)
-  const JOINERS = new Set(['{', ',', '+', '-', '*', '/']);
+  const JOINERS = new Set([',', '+', '-', '*', '/']);
 
   const isDigit = (c) => c >= '0' && c <= '9';
   const isIdStart = (c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_';
@@ -211,6 +220,12 @@
         continue;
       }
       if (c === '.' && src[i + 1] === '.') { i += 2; tok('p', s, i, { v: '..' }); continue; }
+      if (c === '{' || c === '}') {
+        i++;
+        report(c === '{' ? 'stomp has no braces: a block starts on the line after its header, and closes with `end`' : 'close a block with `end`, not `}`', s, i);
+        tok('bad', s, i, { v: c, brace: c });
+        continue;
+      }
       if (PUNCT.has(c)) { i++; tok('p', s, i, { v: c }); continue; }
       // anything else
       i++;
@@ -228,8 +243,12 @@
     const tokens = [];
     let depth = 0;
     let prev = null;
-    for (const k of all) {
-      if (k.t === 'comment' || k.t === 'bad') continue;
+    for (let k of all) {
+      if (k.t === 'comment') continue;
+      if (k.t === 'bad') {
+        if (k.brace !== '}') continue;
+        k = { t: 'word', v: 'end', kw: true, s: k.s, e: k.e, line: k.line, col: k.col, brace: true };
+      }
       if (k.t === 'nl') {
         if (depth > 0) continue;
         if (prev && prev.t === 'p' && JOINERS.has(prev.v)) continue;
@@ -238,9 +257,9 @@
       }
       if (k.t === 'p' && k.v === '(') depth++;
       if (k.t === 'p' && k.v === ')' && depth > 0) depth--;
-      // parentheses never span braces; resetting keeps an unclosed '(' typed
+      // parentheses never span blocks; resetting keeps an unclosed '(' typed
       // mid-edit from swallowing the newlines of the rest of the file
-      if (k.t === 'p' && (k.v === '{' || k.v === '}')) depth = 0;
+      if (k.t === 'word' && RESET.has(k.v)) depth = 0;
       tokens.push(k);
       prev = k;
     }
@@ -260,5 +279,5 @@
     return { tokens, all: r.all.filter((k) => k.t !== 'nl') };
   }
 
-  return { lex, RESERVED, UNIT_SUFFIX };
+  return { lex, RESERVED, HARD, UNIT_SUFFIX };
 });

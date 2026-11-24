@@ -230,16 +230,16 @@ test('QFN-32: exposed pad with paste windows and tented via pads', () => {
 });
 
 test('mask and paste overrides become pad margins', () => {
-  const src = `footprint "M" {
-  pad 1 rect 1 x 2 mask +0.1
-  pad 2 rect 1 x 2 mask none
-  pad 3 rect 1 x 2 paste -0.05
-  pad 4 rect 1 x 2 mask defined
+  const src = `footprint "M"
+  pad 1 rect 1 x 2 mask: +0.1
+  pad 2 rect 1 x 2 mask: none
+  pad 3 rect 1 x 2 paste: -0.05
+  pad 4 rect 1 x 2 mask: defined
   pad 1 at (-1, 0)
   pad 2 at (1, 0)
   pad 3 at (3, 0)
   pad 4 at (5, 0)
-}
+end
 `;
   assert.deepEqual(compile(src).diagnostics.filter((d) => d.severity === 'error').map((d) => d.message), []);
   const pads = kids(parse(exportOf(src).out.text), 'pad');

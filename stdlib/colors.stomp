@@ -4,30 +4,30 @@
 # wherever a color goes, in your own files too, unless you define the name
 # yourself. tin, gold, aluminum and the other built-in names are in SPEC 7.
 
-units mm
+units: mm
 
-let epoxy = "#26272b"              # black molded plastic
-let solder = metal("#c9ccd1")
-let alumina = "#ece9df"            # white ceramic: chip resistors, CGA bodies
-let thick_film = "#18191b"         # the resistive layer of a chip resistor
-let mlcc = "#bf9a6c"               # ceramic capacitor
-let ferrite = "#4d5055"            # chip inductor
-let led_white = "#f1efe7"          # chip LED body
-let led_lens = "#f1e4a2"
-let led_mark = "#2f8a52"           # the green cathode mark of a chip LED
-let laminate = "#46512f"           # BGA substrate
-let pcb_blue = "#23436a"           # module board
-let can_blue = "#2b3a52"           # electrolytic sleeve
-let rubber = "#2a2b2d"             # a can's seal, a bare can's lid mark
-let marking = "#d9dcdf"            # printed stripes
-let band = "#c8ccd1"               # an axial part's cathode band
-let etch = "#8e9197"               # a laser-etched pin-1 dot
-let vent_metal = metal("#7d8186")  # the scored vent in a can's lid
-let resistor_tan = "#d8c29c"       # axial resistor
-let diode_black = "#232427"        # axial diode
-let cap_blue = "#2f63a8"           # axial capacitor
-let inductor_green = "#3d6e43"     # axial inductor
-let melf_blue = "#5f8fb5"          # MELF resistor
-let melf_red = "#c4552f"           # glass MELF diode
-let glass_band = "#141517"         # a glass MELF's cathode band
-let solid_color = epoxy            # a model block's solids, when the part has no body
+epoxy = "#26272b"                  # black molded plastic
+solder = metal("#c9ccd1")
+alumina = "#ece9df"                # white ceramic: chip resistors, CGA bodies
+thick_film = "#18191b"             # the resistive layer of a chip resistor
+mlcc = "#bf9a6c"                   # ceramic capacitor
+ferrite = "#4d5055"                # chip inductor
+led_white = "#f1efe7"              # chip LED body
+led_lens = "#f1e4a2"
+led_mark = "#2f8a52"               # the green cathode mark of a chip LED
+laminate = "#46512f"               # BGA substrate
+pcb_blue = "#23436a"               # module board
+can_blue = "#2b3a52"               # electrolytic sleeve
+rubber = "#2a2b2d"                 # a can's seal, a bare can's lid mark
+marking = "#d9dcdf"                # printed stripes
+band = "#c8ccd1"                   # an axial part's cathode band
+etch = "#8e9197"                   # a laser-etched pin-1 dot
+vent_metal = metal("#7d8186")      # the scored vent in a can's lid
+resistor_tan = "#d8c29c"           # axial resistor
+diode_black = "#232427"            # axial diode
+cap_blue = "#2f63a8"               # axial capacitor
+inductor_green = "#3d6e43"         # axial inductor
+melf_blue = "#5f8fb5"              # MELF resistor
+melf_red = "#c4552f"               # glass MELF diode
+glass_band = "#141517"             # a glass MELF's cathode band
+solid_color = epoxy                # a model block's solids, when the part has no body

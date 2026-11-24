@@ -5,19 +5,19 @@
 # here, so the template works it out. Values are typical; check your part's
 # datasheet.
 
-template qfp(n, D1, e, b, D = D1 + 2, L = 0.6, A = 1.6, fam = "LQFP") {
-  name "{fam}-{n}_{D1}x{D1}mm_P{e}mm"
-  description "{fam}, {n} pins, {D1} x {D1} mm body, {e} mm pitch"
-  refdes "U"
+template qfp(n, D1, e, b, D = D1 + 2, L = 0.6, A = 1.6, fam = "LQFP")
+  name: "{fam}-{n}_{D1}x{D1}mm_P{e}mm"
+  description: "{fam}, {n} pins, {D1} x {D1} mm body, {e} mm pitch"
+  refdes: "U"
 
   body D1 x D1 x A
-  pins n quad pitch e                 # counterclockwise from pin 1 at the top left
-  lead gullwing b x L span D
-  pin1 dot
-}
+  pins n quad pitch: e                # counterclockwise from pin 1 at the top left
+  lead gullwing b x L span: D
+  pin1: dot
+end
 
 # LQFP: 1.4 mm body, 1.6 mm seated height
-footprints from qfp {
+footprints from qfp
   n     D1   e     b
   32    7    0.8   0.37
   48    7    0.5   0.22
@@ -32,13 +32,13 @@ footprints from qfp {
   144   20   0.5   0.22
   176   24   0.5   0.22
   208   28   0.5   0.22
-}
+end
 
 # TQFP: 1.0 mm body, 1.2 mm seated height
-footprints from qfp(fam = "TQFP", A = 1.2) {
+footprints from qfp(fam: "TQFP", A: 1.2)
   n     D1   e     b
   32    7    0.8   0.37
   44    10   0.8   0.37
   64    10   0.5   0.22
   100   14   0.5   0.22
-}
+end

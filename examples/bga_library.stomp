@@ -5,18 +5,18 @@
 # JEDEC way: A1 at the top left, and no I, O, Q, S, X or Z. Values are
 # typical; check your part's datasheet.
 
-template ball_grid(nx, ny, e, D, bd, A, E = D) {
-  name "BGA-{nx * ny}_{D:.1}x{E:.1}mm_Layout{nx}x{ny}_P{e:.1}mm"   # sizes to one decimal, as KiCad names them
-  description "BGA, {nx * ny} balls ({nx} x {ny}), {e} mm pitch, {D} x {E} mm body"
-  refdes "U"
+template ball_grid(nx, ny, e, D, bd, A, E = D)
+  name: "BGA-{nx * ny}_{D:.1}x{E:.1}mm_Layout{nx}x{ny}_P{e:.1}mm"  # sizes to one decimal, as KiCad names them
+  description: "BGA, {nx * ny} balls ({nx} x {ny}), {e} mm pitch, {D} x {E} mm body"
+  refdes: "U"
 
   body D x E x A
-  balls nx x ny pitch e
+  balls nx x ny pitch: e
   lead ball bd                        # the lands are 80% of the ball
-  pin1 dot
-}
+  pin1: dot
+end
 
-footprints from ball_grid {
+footprints from ball_grid
   nx   ny   e     D     bd     A
   3    3    0.5   1.5   0.3    0.6
   4    4    0.5   2.0   0.3    0.6
@@ -29,24 +29,26 @@ footprints from ball_grid {
   14   14   1.0   15    0.5    1.5
   16   16   1.0   17    0.5    1.7
   22   22   1.0   23    0.6    2.0
-}
+end
 
 # Ceramic column grid arrays (CGA): solder columns instead of balls. The columns
 # lift the body by its standoff, and their lands are 0.3 mm wider than they are.
-template column_grid(n, e, D, cd, A) {
-  name "CGA-{n * n}_{D:.1}x{D:.1}mm_Layout{n}x{n}_P{e:.2}mm"
-  description "Ceramic column grid array, {n * n} columns, {e} mm pitch, {D} x {D} mm body"
-  refdes "U"
+template column_grid(n, e, D, cd, A)
+  name: "CGA-{n * n}_{D:.1}x{D:.1}mm_Layout{n}x{n}_P{e:.2}mm"
+  description: "Ceramic column grid array, {n * n} columns, {e} mm pitch, {D} x {D} mm body"
+  refdes: "U"
 
   body D x D x A
-  balls n x n pitch e                 # the same grid and JEDEC lettering as a BGA
-  lead column d cd
-  pin1 dot
-  model { standoff 2.2 }              # column height
-}
+  balls n x n pitch: e                # the same grid and JEDEC lettering as a BGA
+  lead column d: cd
+  pin1: dot
+  model
+    standoff: 2.2
+  end              # column height
+end
 
-footprints from column_grid {
+footprints from column_grid
   n    e     D     cd     A
   16   1.27  21    0.51   4.0
   25   1.27  32.5  0.51   4.6
-}
+end

@@ -127,12 +127,12 @@ test('syntax zoo: mirrors + measurements, grids, origin re-basing', () => {
   const dual = fp(src, 'ZOO-DUAL').r;
   assert.ok(pad(dual, 2).x > 0 && pad(dual, 2).y > 0, 'cw: pin 2 is the top of the right side');
   assert.ok(!pad(dual, 10), 'delete pad 10');
-  near(pad(dual, 3).bbox.x1 - pad(dual, 3).bbox.x0, 52 * 0.0254, 'pad 3 { size 34 x 52 }');
+  near(pad(dual, 3).bbox.x1 - pad(dual, 3).bbox.x0, 52 * 0.0254, 'pad 3 size: 34 x 52');
   assert.equal(fp(src, 'ZOO-CASTELLATED').r.pads.length, 5, 'only 1..5');
 });
 
 test('diagnostics: over-constraint cites both statements', () => {
-  const out = compile('footprint "X" {\n  pad 1 rect 1 x 1\n  pad 2 rect 1 x 1\n  pad 1 at (0, 0)\n  pad 2 is 2 right of pad 1\n  pad 2 is 3 right of pad 1\n}');
+  const out = compile('footprint "X"\n  pad 1 rect 1 x 1\n  pad 2 rect 1 x 1\n  pad 1 at (0, 0)\n  pad 2 is 2 right of pad 1\n  pad 2 is 3 right of pad 1\nend');
   const e = errors(out);
   assert.equal(e.length, 1);
   assert.match(e[0].message, /over-constrained/);
@@ -141,14 +141,14 @@ test('diagnostics: over-constraint cites both statements', () => {
 });
 
 test('diagnostics: under-constraint, unknown names, unit errors', () => {
-  assert.match(errors(compile('footprint "X" {\n  pad 1 rect 1 x 1\n  pad 2 rect 1 x 1\n  pad 1 at (0,0)\n}'))[0].message, /pad 2 has no x and y position/);
-  assert.match(errors(compile('footprint "X" {\n  pad 1 rect 1 x 1; pad 2 rect 1 x 1\n  pad 1 at (0,0)\n  pad 2 is 1 right of pad 11\n}'))[0].message, /unknown object: pad 11 — did you mean 1\?/);
-  assert.match(errors(compile('let e = 1\nfootprint "X" { pad 1 rect ee x 1; pad 1 at (0,0) }'))[0].message, /unknown name `ee` — did you mean `e`\?/);
-  assert.match(errors(compile('footprint "X" { pad 1 rect 1mm * 2mm x 1; pad 1 at (0,0) }'))[0].message, /unit error/);
+  assert.match(errors(compile('footprint "X"\n  pad 1 rect 1 x 1\n  pad 2 rect 1 x 1\n  pad 1 at (0,0)\nend'))[0].message, /pad 2 has no x and y position/);
+  assert.match(errors(compile('footprint "X"\n  pad 1 rect 1 x 1; pad 2 rect 1 x 1\n  pad 1 at (0,0)\n  pad 2 is 1 right of pad 11\nend'))[0].message, /unknown object: pad 11 — did you mean 1\?/);
+  assert.match(errors(compile('e = 1\nfootprint "X"; pad 1 rect ee x 1; pad 1 at (0,0); end'))[0].message, /unknown name `ee` — did you mean `e`\?/);
+  assert.match(errors(compile('footprint "X"; pad 1 rect 1mm * 2mm x 1; pad 1 at (0,0); end'))[0].message, /unit error/);
 });
 
 test('diagnostics: syntax errors stay local', () => {
-  const out = compile('footprint "X" {\n  pins 8 dual pitch 1.27 bogus\n  lead gullwing 0.41 x 1.04 span 6.0\n  pad 9 is 4. right\n  body 3.9 x 4.9\n}');
+  const out = compile('footprint "X"\n  pins 8 dual pitch: 1.27 bogus\n  lead gullwing 0.41 x 1.04 span: 6.0\n  pad 9 is 4. right\n  body 3.9 x 4.9\nend');
   const e = errors(out);
   assert.equal(e.length, 2, e.map((d) => d.message).join('; '));
   assert.ok(e.every((d) => d.syntax));
@@ -164,7 +164,8 @@ test('never throws on half-typed or mangled input (fuzz smoke test)', () => {
   let seed = 4242;
   const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
   const bits = ['{', '}', '(', ')', ',', 'pad', 'is', 'at', '1', '.', '..', 'x', '#', '"', '\n', 'left of', 'mirrors', 'span',
-    'pins 4 dual', 'row r pads 1..2 pitch', 'group g =', 'delete pad 1', 'origin at', 'centered between', 'inner', '-', '/', '%', 'mil'];
+    'pins 4 dual', 'row r pads 1..2 pitch:', 'group g =', 'delete pad 1', 'origin at', 'centered between', 'inner', '-', '/', '%', 'mil',
+    'end', '\nend\n', ':', ';', '=', 'with', 'k = 2', 'feature f', '\nfeature f(a)\n', 'section s', 'pitch:', 'mask: +', 'let'];
   const quiet = console.error;
   console.error = () => {};
   try {
@@ -246,27 +247,27 @@ test('templates as functions: names, interpolation, tables', () => {
 });
 
 test('interpolation: formatting, units, escapes, text values', () => {
-  const out = compile('units mil\nlet w = 20\nlet part = "ACME-{w}"\nfootprint "X-{w}-{w * 0.0254mm}-{part}" {\n  description "{w:.2} {25.4mm} \\{x\\} {1/3}"\n  pad 1 rect w x w\n  pad 1 at (0, 0)\n}');
+  const out = compile('units: mil\nw = 20\npart = "ACME-{w}"\nfootprint "X-{w}-{w * 0.0254mm}-{part}"\n  description: "{w:.2} {25.4mm} \\{x\\} {1/3}"\n  pad 1 rect w x w\n  pad 1 at (0, 0)\nend');
   assert.deepEqual(errors(out), []);
   assert.equal(out.footprints[0].name, 'X-20-20-ACME-20', 'lengths print in the file units');
   assert.equal(out.footprints[0].result.meta.description, '20.00 1000 {x} 0.333333');
-  const bad = compile('footprint "A{nope}" { pad 1 rect 1 x 1; pad 1 at (0,0) }\nlet t = "s"\nfootprint "B" { pad 1 rect t x 1; pad 1 at (0,0) }');
+  const bad = compile('footprint "A{nope}"; pad 1 rect 1 x 1; pad 1 at (0,0); end\nt = "s"\nfootprint "B"; pad 1 rect t x 1; pad 1 at (0,0); end');
   assert.match(errors(bad)[0].message, /unknown name `nope`/);
   assert.match(errors(bad)[1].message, /text \("s"\), but a length is needed/);
 });
 
 test('tables: shape errors, unknown columns, duplicates, row-level diagnostics', () => {
-  const tmpl = 'template t(n, w = 1) {\n  name "T-{n}"\n  pins n dual pitch 1.27\n  default pad rect 0.6 x w\n  span 5\n}\n';
-  const out = compile(tmpl + 'footprints from t {\n  n   q\n  8   1\n  9   1\n  8   1\n  14  1  2\n}');
+  const tmpl = 'template t(n, w = 1)\n  name: "T-{n}"\n  pins n dual pitch: 1.27\n  default pad rect 0.6 x w\n  span: 5\nend\n';
+  const out = compile(tmpl + 'footprints from t\n  n   q\n  8   1\n  9   1\n  8   1\n  14  1  2\nend');
   const msgs = out.diagnostics.map((d) => `${d.line}: ${d.message}`);
   assert.ok(msgs.some((m) => /^8: template `t` has no parameter `q`/.test(m)), msgs.join('\n'));
   assert.ok(msgs.some((m) => /^10: `pins 9 dual` needs an even count/.test(m)), 'row-specific error on the row');
   assert.ok(msgs.some((m) => /^11: footprint name "T-8" is already used by row 1/.test(m)), 'duplicate names');
   assert.ok(msgs.some((m) => /^12: this row has 3 values but the header names 2 columns/.test(m)), 'row shape');
-  const once = compile(tmpl.replace('span 5', 'span zz') + 'footprints from t {\n  n\n  8\n  14\n}');
+  const once = compile(tmpl.replace('span: 5', 'span: zz') + 'footprints from t\n  n\n  8\n  14\nend');
   assert.equal(once.diagnostics.filter((d) => /unknown name `zz`/.test(d.message)).length, 1, 'a template bug is reported once');
   assert.equal(once.diagnostics.find((d) => /zz/.test(d.message)).line, 5, '…at the template');
-  assert.match(errors(compile('template t(n) { pad 1 rect n x n; pad 1 at (0,0) }\nfootprints from t {\n  n\n  1\n}'))[0].message, /doesn't name its footprints/);
+  assert.match(errors(compile('template t(n); pad 1 rect n x n; pad 1 at (0,0); end\nfootprints from t\n  n\n  1\nend'))[0].message, /doesn't name its footprints/);
 });
 
 test('lexer: side marks after a number or its unit', () => {
@@ -282,7 +283,7 @@ test('lexer: side marks after a number or its unit', () => {
 
 test('side marks: w and h put the sides of a size in their slots', () => {
   const size = (line) => {
-    const out = compile(`footprint "X" {\n  ${line}\n  pad 1 at (0, 0)\n}`);
+    const out = compile(`footprint "X"\n  ${line}\n  pad 1 at (0, 0)\nend`);
     assert.deepEqual(errors(out).map((d) => d.message), [], line);
     const p = pad(out.footprints[0].result, 1);
     return [+p.shape.w.toFixed(4), +p.shape.l.toFixed(4)];
@@ -293,64 +294,64 @@ test('side marks: w and h put the sides of a size in their slots', () => {
   assert.deepEqual(size('pad 1 rect 1.1wx1.6h'), [1.1, 1.6], 'the separator can touch a mark');
   assert.deepEqual(size('pad 1 rect (1 + 0.6)h x 1.1'), [1.1, 1.6], 'a mark after parentheses');
   assert.deepEqual(size('pad 1 rect 63milh x 43milw'), [1.0922, 1.6002], 'a unit, then the mark');
-  assert.deepEqual(size('pad 1 { shape rect 1 x 1; size 1.6h x 1.1w }'), [1.1, 1.6], 'in a pad block');
-  assert.deepEqual(size('pad 1 { shape rect 1.6h x 1.1w }'), [1.1, 1.6], 'a block alone gives the whole geometry');
+  assert.deepEqual(size('pad 1 shape: rect 1 x 1 size: 1.6h x 1.1w'), [1.1, 1.6], 'in pad properties');
+  assert.deepEqual(size('pad 1 shape: rect 1.6h x 1.1w'), [1.1, 1.6], 'a shape alone gives the whole geometry');
 
   // every 2D size takes marks: drill slots, holes, thermal pads, leads
-  const out = compile(`footprint "Y" {
-  pad 1 tht oval 1.7 x 2.4 drill slot 1.7h x 1w
+  const out = compile(`footprint "Y"
+  pad 1 tht oval 1.7 x 2.4 drill: slot 1.7h x 1w
   pad 1 at (0, 0)
   hole M slot 1.4h x 0.85w
   hole M is 3 right of pad 1
-}
-footprint "Z" {
+end
+footprint "Z"
   body 3 x 3 x 0.9
-  pins 8 dual pitch 0.65
+  pins 8 dual pitch: 0.65
   lead flat 0.3 x 0.4
   thermal pad 2.4h x 1.65w
-}`);
+end`);
   assert.deepEqual(errors(out), []);
   const y = out.footprints[0].result;
   assert.deepEqual(pad(y, 1).spec.drill.slot, { w: 1, l: 1.7 });
   assert.deepEqual([y.holes[0].shape.w, y.holes[0].shape.l], [0.85, 1.4]);
   const ep = out.footprints[1].result.pads.find((p) => p.thermal);
   assert.deepEqual([ep.shape.w, ep.shape.l], [1.65, 2.4]);
-  const soic = (lead) => fp(`footprint "S" {\n  body 3.9 x 4.9 x 1.5\n  pins 8 dual pitch 1.27\n  ${lead}\n}`).r.pads.map((q) => [q.name, q.x, q.y, q.rot, q.shape]);
-  assert.deepEqual(soic('lead gullwing 1.04h x 0.41w span 6.0'), soic('lead gullwing 0.41 x 1.04 span 6.0'), 'lead sizes');
+  const soic = (lead) => fp(`footprint "S"\n  body 3.9 x 4.9 x 1.5\n  pins 8 dual pitch: 1.27\n  ${lead}\nend`).r.pads.map((q) => [q.name, q.x, q.y, q.rot, q.shape]);
+  assert.deepEqual(soic('lead gullwing 1.04h x 0.41w span: 6.0'), soic('lead gullwing 0.41 x 1.04 span: 6.0'), 'lead sizes');
 });
 
 test('side marks: where they are refused', () => {
-  const msg = (body) => errors(compile(`let D = 2\nfootprint "X" {\n  ${body}\n}`)).map((d) => d.message).join(' | ');
+  const msg = (body) => errors(compile(`D = 2\nfootprint "X"\n  ${body}\nend`)).map((d) => d.message).join(' | ');
   assert.match(msg('pad 1 rect 1.1w x 1.6w'), /both sides are marked `w`/);
   assert.match(msg('pad 1 rect 1.1w + 1 x 2'), /after the whole side/);
   assert.match(msg('body 3.9w x 4.9 x 1.5'), /a body is always `W x L x H`/);
-  assert.match(msg('model { box 1w x 1 x 1 }'), /a box is always `W x L x H`/);
-  assert.match(msg('gap 0.5w'), /marks a side of a size, as in `rect 1.1w x 1.6h`/);
+  assert.match(msg('model; box 1w x 1 x 1; end'), /a box is always `W x L x H`/);
+  assert.match(msg('gap: 0.5w'), /marks a side of a size, as in `rect 1.1w x 1.6h`/);
   assert.match(msg('lead endcap 0.3h'), /this is a single value/);
   assert.match(msg('pad 1 rect Dw x 1\n  pad 1 at (0, 0)'), /put the name in parentheses: `\(D\)w`/);
-  const t = compile('template t(a) {\n  name "T{a}"\n  pad 1 rect a x 1\n  pad 1 at (0, 0)\n}\nfootprints from t {\n  a\n  1w\n}');
+  const t = compile('template t(a)\n  name: "T{a}"\n  pad 1 rect a x 1\n  pad 1 at (0, 0)\nend\nfootprints from t\n  a\n  1w\nend');
   assert.match(errors(t).map((d) => d.message).join(), /a table cell holds a plain value/);
   // `h` after a parenthesis outside a size is still the cylinder's height
-  assert.deepEqual(errors(compile('let a = 2\nfootprint "C" {\n  body cylinder d (a)h 3\n  pins 2 horizontal pitch 5\n  lead wire d 0.6\n}')), []);
+  assert.deepEqual(errors(compile('a = 2\nfootprint "C"\n  body cylinder d: (a)h: 3\n  pins 2 horizontal pitch: 5\n  lead wire d: 0.6\nend')), []);
 });
 
 test('units: a footprint or template can set its own', () => {
   const out = compile(`
-footprint "MIL" {
-  units mil
+footprint "MIL"
+  units: mil
   pad 1 rect 40 x 80
   pad 2 rect 40 x 80
   pad 2 is 100 right of pad 1
   pad 1 at (0, 0)
-}
-footprint "AFTER" {
+end
+footprint "AFTER"
   pad 1 rect 1 x 2
   pad 1 at (0, 0)
-}
-footprint "KID" extends "MIL" {
+end
+footprint "KID" extends "MIL"
   pad 3 rect 1 x 1
   pad 3 is 2 right of pad 2
-}`);
+end`);
   assert.deepEqual(errors(out), []);
   const r = (n) => out.footprints.find((f) => f.name === n).result;
   near(pad(r('MIL'), 1).shape.w, 1.016, '40 mil');
@@ -360,18 +361,18 @@ footprint "KID" extends "MIL" {
   near(pad(r('KID'), 3).x, 4.54, "the child's own statements use the file's units");
 
   const dip = compile(`
-template dip(n, D, E = 300) {
-  units mil
-  name "DIP-{n}"
+template dip(n, D, E = 300)
+  units: mil
+  name: "DIP-{n}"
   body 250 x D x 130
-  pins n dual pitch 100 span E centers
+  pins n dual pitch: 100 span: E centers
   lead pin 18 x 10
-  default pad tht oval 60 x 80 drill 32
-}
-footprints from dip {
+  default pad tht oval 60 x 80 drill: 32
+end
+footprints from dip
   n   D
   8   375
-}
+end
 footprint "DIP-8-MM" from dip(8, 9.5mm)`);
   assert.deepEqual(errors(dip), []);
   const a = dip.footprints.find((f) => f.name === 'DIP-8').result;
@@ -379,9 +380,9 @@ footprint "DIP-8-MM" from dip(8, 9.5mm)`);
   near(pad(a, 1).x, -3.81, 'and so does the default E');
   near(dip.footprints.find((f) => f.name === 'DIP-8-MM').result.body.l, 9.5, 'an explicit unit stays');
 
-  const late = compile('footprint "X" {\n  pad 1 rect 1 x 1\n  units mil\n  pad 1 at (0, 0)\n}');
-  assert.match(errors(late).map((d) => d.message).join(), /`units` goes first in a footprint or template/);
-  assert.match(errors(compile('units mils')).map((d) => d.message).join(), /write mils as `mil`/);
+  const late = compile('footprint "X"\n  pad 1 rect 1 x 1\n  units: mil\n  pad 1 at (0, 0)\nend');
+  assert.match(errors(late).map((d) => d.message).join(), /`units:` goes first in a footprint or template/);
+  assert.match(errors(compile('units: mils')).map((d) => d.message).join(), /write mils as `mil`/);
 });
 
 test('libraries: every footprint builds cleanly with a unique name', () => {
@@ -410,43 +411,41 @@ test('courtyards: always one rectangle', () => {
       for (let i = 0; i < 4; i++) assert.ok((p[i][0] === p[i + 1][0]) !== (p[i][1] === p[i + 1][1]), `${f}: ${x.name}: sides along x and y`);
     }
   }
-  const one = (cy) => compile(`footprint "X" {\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\n  ${cy}\n}`);
+  const one = (cy) => compile(`footprint "X"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\n  ${cy}\nend`);
   const msgs = (cy) => one(cy).diagnostics.map((d) => d.message).join(' | ');
-  assert.equal(msgs('courtyard { rect (0, 0) 3 x 2 }'), '');
-  assert.equal(msgs('courtyard { polygon (-1, -1) (1, -1) (1, 1) (-1, 1) }'), '');
-  assert.match(msgs('courtyard { polygon (-1, -1) (1, -1) (0, 1) }'), /this polygon isn't one/);
-  assert.match(msgs('courtyard { polygon (-1, -1) (1, -1) (1.2, 1) (-1, 1) }'), /this polygon isn't one/);
-  assert.match(msgs('courtyard { line (0, 0) (1, 1) }'), /a courtyard is one rectangle/);
-  assert.match(msgs('courtyard { rect (0, 0) 1 x 1; rect (2, 0) 1 x 1 }'), /a courtyard is one rectangle/);
-  assert.match(msgs('courtyard auto 0.5\n  courtyard rect 4 x 3'), /set twice in this footprint; the later one wins/);
+  assert.equal(msgs('courtyard: rect (0, 0) 3 x 2'), '');
+  assert.equal(msgs('courtyard: polygon (-1, -1) (1, -1) (1, 1) (-1, 1)'), '');
+  assert.match(msgs('courtyard: polygon (-1, -1) (1, -1) (0, 1)'), /this polygon isn't one/);
+  assert.match(msgs('courtyard: polygon (-1, -1) (1, -1) (1.2, 1) (-1, 1)'), /this polygon isn't one/);
+  assert.match(msgs('courtyard: line (0, 0) (1, 1)'), /a courtyard is one rectangle/);
+  assert.match(msgs('courtyard: rect (0, 0) 1 x 1 fill'), /isn't an option here|unexpected `fill`/);
+  assert.match(msgs('courtyard: auto 0.5\n  courtyard: rect 4 x 3'), /set twice in this footprint; the later one wins/);
   // the automatic one: the box around lands and body, plus the clearance
-  const r = one('courtyard auto 0.25').footprints[0].result;
+  const r = one('courtyard: auto 0.25').footprints[0].result;
   assert.deepEqual([r.courtyardBox.x0, r.courtyardBox.y0, r.courtyardBox.x1, r.courtyardBox.y1], [-0.75, -0.75, 0.75, 0.75]);
   // a child's courtyard replaces its parent's without a warning
-  const kid = compile('footprint "P" {\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\n  courtyard auto 0.5\n}\nfootprint "K" extends "P" {\n  courtyard rect 3 x 3\n}');
+  const kid = compile('footprint "P"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\n  courtyard: auto 0.5\nend\nfootprint "K" extends "P"\n  courtyard: rect 3 x 3\nend');
   assert.deepEqual(kid.diagnostics, []);
   near(kid.footprints[1].result.courtyardBox.x1, 1.5, 'the child wins');
 });
 
 test('features: pin-1 marks and placed graphics', () => {
   const src = `
-feature plus(s = 0.6) {
-  silk {
-    line (-s / 2, 0) (s / 2, 0)
-    line (0, -s / 2) (0, s / 2)
-  }
-}
-feature tag {
-  assembly { text "T{1 + 1}" at (0, 0) size 0.5 }
-}
-footprint "A" {
+feature plus(s = 0.6)
+  line (-s / 2, 0) (s / 2, 0)
+  line (0, -s / 2) (0, s / 2)
+end
+feature tag
+  text "T{1 + 1}" at (0, 0) size: 0.5 layer: assembly
+end
+footprint "A"
   body 3.2 x 1.6 x 1.6
   pins 2 horizontal
   lead lbend 1.2 x 0.8
-  pin1 plus
-  feature plus(0.4) at (0, 2) rotate 90
+  pin1: plus
+  feature plus(0.4) at (0, 2) rotate: 90
   feature tag at pad 2
-}`;
+end`;
   const out = compile(src);
   assert.deepEqual(out.diagnostics, []);
   const r = out.footprints[0].result;
@@ -464,31 +463,31 @@ footprint "A" {
 
   const err = (s) => errors(compile(s)).map((d) => d.message).join(' | ');
   const pad1 = 'pad 1 rect 1 x 1\n  pad 1 at (0, 0)';
-  assert.match(err(src + '\nfeature plus { silk { circle (0, 0) d 1 } }'), /feature `plus` is defined twice/);
-  assert.match(err(`feature plus { silk { line (0, 0) (1, 0) } }\nfootprint "B" {\n  ${pad1}\n  pin1 pluss\n}`), /unknown feature `pluss` — did you mean `plus`\?/);
-  assert.match(err(`footprint "B" {\n  ${pad1}\n  feature star at (0, 0)\n}`), /unknown feature `star` — define it with/);
-  assert.match(err(`feature frame { silk { outline body } }\nfootprint "C" {\n  body 2 x 2\n  ${pad1}\n  feature frame at (0, 0)\n}`), /can't go in a feature/);
-  assert.match(err(`feature f(a) { silk { line (0, 0) (a, 0) } }\nfootprint "D" {\n  ${pad1}\n  feature f at (0, 0)\n}`), /needs a value for `a`/);
-  assert.match(err(`feature f(a) { silk { line (0, 0) (a, 0) } }\nfootprint "E" {\n  ${pad1}\n  feature f(b = 1) at (0, 0)\n}`), /has no parameter `b`/);
+  assert.match(err(src + '\nfeature plus; circle (0, 0) d: 1; end'), /feature `plus` is defined twice/);
+  assert.match(err(`feature plus; line (0, 0) (1, 0); end\nfootprint "B"\n  ${pad1}\n  pin1: pluss\nend`), /unknown feature `pluss` — did you mean `plus`\?/);
+  assert.match(err(`footprint "B"\n  ${pad1}\n  feature star at (0, 0)\nend`), /unknown feature `star` — define it: `feature star`/);
+  assert.match(err(`feature frame; outline body; end\nfootprint "C"\n  body 2 x 2\n  ${pad1}\n  feature frame at (0, 0)\nend`), /can't go in a feature/);
+  assert.match(err(`feature f(a); line (0, 0) (a, 0); end\nfootprint "D"\n  ${pad1}\n  feature f at (0, 0)\nend`), /needs a value for `a`/);
+  assert.match(err(`feature f(a); line (0, 0) (a, 0); end\nfootprint "E"\n  ${pad1}\n  feature f(b: 1) at (0, 0)\nend`), /has no parameter `b`/);
 });
 
 test('lead forms: inward L-bend, straight and column lands', () => {
   const one = (src) => { const out = compile(src); assert.deepEqual(errors(out), []); return out.footprints[0].result; };
   // IPC inward L-bend, nominal: toe 0.15, heel 0.5, side -0.05. Z = 3.56, G = 0.54, X = 1.16
-  const t = one('footprint "T" {\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n}');
+  const t = one('footprint "T"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\nend');
   near(pad(t, 1).x, -1.025, 'L-bend land center'); near(pad(t, 1).shape.l, 1.51, 'runs on under the body'); near(pad(t, 1).shape.w, 1.16, 'width');
   // flat leads, nominal: toe 0.2, heel 0. Z = 4.06, G = 2.44
-  const s = one('footprint "S" {\n  body 2.7 x 1.7 x 0.95\n  pins 2 horizontal\n  lead straight 0.85 x 0.55 span 3.6\n}');
+  const s = one('footprint "S"\n  body 2.7 x 1.7 x 0.95\n  pins 2 horizontal\n  lead straight 0.85 x 0.55 span: 3.6\nend');
   near(pad(s, 1).x, -1.625, 'flat-lead land center'); near(pad(s, 1).shape.l, 0.81, 'length');
   // columns: round lands 0.3 mm wider than the column, BGA lettering
-  const g = one('footprint "G" {\n  body 10 x 10 x 4\n  balls 7 x 7 pitch 1.27\n  lead column d 0.51\n}');
+  const g = one('footprint "G"\n  body 10 x 10 x 4\n  balls 7 x 7 pitch: 1.27\n  lead column d: 0.51\nend');
   near(pad(g, 'A1').shape.d, 0.81, 'column land');
-  assert.match(errors(compile('footprint "X" {\n  body 2 x 1\n  pins 2 horizontal\n  lead column d 0.5\n}')).map((d) => d.message).join(), /`lead column` belongs with `balls` or `pins grid`/);
+  assert.match(errors(compile('footprint "X"\n  body 2 x 1\n  pins 2 horizontal\n  lead column d: 0.5\nend')).map((d) => d.message).join(), /`lead column` belongs with `balls` or `pins grid`/);
 });
 
 test('polarity: the silk bar marks the same end as the band', () => {
   const bar = (refdes) => {
-    const r = fp(`footprint "P" {\n  refdes "${refdes}"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n  polarized\n}`).r;
+    const r = fp(`footprint "P"\n  refdes: "${refdes}"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n  polarized\nend`).r;
     const sides = r.silk.filter((i) => i.pts && i.pts.length === 2 && i.pts[0][0] === i.pts[1][0] && Math.abs(i.pts[0][0]) > 1.7).map((i) => Math.sign(i.pts[0][0]));
     assert.equal(sides.length, 1, `${refdes}: one bar`);
     return sides[0];

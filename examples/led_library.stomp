@@ -4,48 +4,48 @@
 # part's datasheet.
 
 # Chip LEDs: the same shape as chip resistors, with a clear lens
-template chip_led(code, metric, L, W, H, T) {
-  name "LED_{code}_{metric}Metric"
-  description "LED, {code} ({metric} metric), {L} x {W} mm"
-  refdes "D"
+template chip_led(code, metric, L, W, H, T)
+  name: "LED_{code}_{metric}Metric"
+  description: "LED, {code} ({metric} metric), {L} x {W} mm"
+  refdes: "D"
 
   body L x W x H
   pins 2 horizontal
   lead endcap T
   polarized                           # cathode mark on pin 2's side
-}
+end
 
-footprints from chip_led {
+footprints from chip_led
   code    metric  L     W     H     T
   "0402"  "1005"  1.0   0.5   0.4   0.2
   "0603"  "1608"  1.6   0.8   0.6   0.3
   "0805"  "2012"  2.0   1.25  0.8   0.4
   "1206"  "3216"  3.2   1.6   1.1   0.5
-}
+end
 
 # PLCC LEDs: a white housing, J-leads folded under its ends, and a round lens on
 # top. n pins, half on each end, e apart.
-template plcc_led(n, code, D, E, H, e, b, f, lens) {
-  name "LED_PLCC-{n}_{code}"
-  description "LED, PLCC-{n}, {D} x {E} mm"
-  refdes "D"
+template plcc_led(n, code, D, E, H, e, b, f, lens)
+  name: "LED_PLCC-{n}_{code}"
+  description: "LED, PLCC-{n}, {D} x {E} mm"
+  refdes: "D"
 
   body D x E x H
-  pins n dual pitch e
-  lead jlead b x f span D
-  pin1 dot
+  pins n dual pitch: e
+  lead jlead b x f span: D
+  pin1: dot
 
-  model {
-    standoff 0.15                     # the leads fold flat under the housing
-    leads thickness 0.12
-    body color white
-    cylinder d lens h 0.05 on body color "#f3e7a2"  # the phosphor lens
-  }
-}
+  model
+    standoff: 0.15                    # the leads fold flat under the housing
+    leads thickness: 0.12
+    body color: white
+    cylinder d: lens h: 0.05 on body color: "#f3e7a2"  # the phosphor lens
+  end
+end
 
-footprints from plcc_led {
+footprints from plcc_led
   n    code    D     E     H     e     b     f     lens
   2    "3528"  3.5   2.8   1.9   1.0   2.2   0.8   2.4
   4    "3528"  3.5   2.8   1.9   1.6   0.9   0.8   2.4
   6    "5050"  5.0   5.0   1.6   1.6   1.0   0.9   4.0
-}
+end

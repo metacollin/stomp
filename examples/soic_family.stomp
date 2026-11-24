@@ -1,25 +1,25 @@
 # SOIC family: several packages from one template.
-# Parameters are plain names (keywords like `span` or `pitch` can't be used),
-# and act like `let`s inside each footprint.
+# A template's parameters work like names given a value in each footprint
+# (`bw = 3.9`), so its statements can use them anywhere.
 
-template soic(n, lspan = 6.0, e = 1.27, bw = 3.9) {
+template soic(n, lspan = 6.0, e = 1.27, bw = 3.9)
   body bw x (n/2 - 1) * e + 2.0 x 1.5
-  pins n dual pitch e
-  lead gullwing 0.41 x 1.04 span lspan
-  pin1 dot
-}
+  pins n dual pitch: e
+  lead gullwing 0.41 x 1.04 span: lspan
+  pin1: dot
+end
 
 footprint "SOIC-8"  from soic(8)
 footprint "SOIC-14" from soic(14)
 footprint "SOIC-16" from soic(16)
 
-footprint "SOIC-16W" from soic(16, lspan = 10.3, bw = 7.5) {
-  description "wide-body 300 mil variant"
-}
+footprint "SOIC-16W" from soic(16, lspan: 10.3, bw: 7.5) with
+  description: "wide-body 300 mil variant"
+end
 
 # Inheritance works with templates too:
-footprint "SOIC-8-HS" extends "SOIC-8" {
-  description "hand-solder variant"
+footprint "SOIC-8-HS" extends "SOIC-8"
+  description: "hand-solder variant"
   default pad rect 0.6 x 2.2
-  courtyard auto 0.5
-}
+  courtyard: auto 0.5
+end

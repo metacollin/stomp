@@ -123,7 +123,7 @@ test('through-hole: DIP shoulders and tails, header pins and housing', () => {
   assert.equal(hdr.style, 'header');
   near(box(leads(hdr)).z1, 8.5, 'pins rise to the body height');
   near(box([mesh(hdr, 'body')]).z1, 2.54, 'the housing is one pitch tall');
-  const sock = build(example('hdr2x5.stomp').replace('pin1 dot', 'pin1 dot\n  model { leads above 0 }')).m;
+  const sock = build(example('hdr2x5.stomp').replace('pin1: dot', 'pin1: dot\n  model; leads above: 0; end')).m;
   near(box([mesh(sock, 'body')]).z1, 8.5, '`leads above 0` makes a socket: the housing is the whole height');
 });
 
@@ -140,7 +140,7 @@ test('cans, axial parts and MELFs lie the way their pins say', () => {
   const band = box([mesh(m, 'cathode band')]);
   assert.ok(band.x0 > 0, 'the band is at the cathode, pin 2 (right)');
   near(box(leads(m)).z0, -3, 'wires bend down through the board');
-  const melf = build('footprint "MELF" {\n  refdes "R"\n  body cylinder d 1.4 h 3.5\n  pins 2 horizontal\n  lead endcap 0.45\n}\n');
+  const melf = build('footprint "MELF"\n  refdes: "R"\n  body cylinder d: 1.4 h: 3.5\n  pins 2 horizontal\n  lead endcap 0.45\nend\n');
   assert.equal(errors(melf.out).length, 0);
   assert.equal(melf.r.body.axial, 'x');
   assert.equal(melf.m.style, 'melf');
@@ -162,7 +162,7 @@ test('per-pin leads: land re-derived in part mode, model-only in land mode', () 
   assert.equal(to.r.pads.find((p) => p.name === '1').shape.w, 1.1, 'explicit pads keep their size');
   assert.deepEqual(leads(to.m).map((x) => x.name).sort(), ['lead 1', 'lead 2', 'lead 3']);
   near(box([mesh(to.m, 'lead 2')]).z1, 0.5, 'the tab takes `leads thickness`');
-  const cut = build(example('soic8.stomp').replace('pin1 dot', 'pin1 dot\n  lead 5 none')).m;
+  const cut = build(example('soic8.stomp').replace('pin1: dot', 'pin1: dot\n  lead 5 none')).m;
   assert.equal(leads(cut).length, 7, '`lead 5 none` removes a lead');
   const bad = compile(example('bga64.stomp').replace('lead ball 0.4', 'lead ball 0.4\n  lead A1 ball 0.5\n  lead Z9 ball 0.5'));
   assert.ok(errors(bad).some((d) => /pin A1 is omitted/.test(d.message)), 'an omitted pin has no lead');
@@ -170,27 +170,27 @@ test('per-pin leads: land re-derived in part mode, model-only in land mode', () 
 });
 
 test('model block: knobs, colors, solids, merging down extends', () => {
-  const src = `footprint "P" {
+  const src = `footprint "P"
   body 4 x 4 x 1
-  pins 8 dual pitch 1.27
-  lead gullwing 0.4 x 0.6 span 6
-  model {
-    standoff 0.05
-    draft 0
-    body color "#336699"
-    leads color gold
-    leads thickness 0.12
-    pin1 dot
-    box 2 x 2 x 0.3 on body color tin
-    cylinder d 1 h 2 at (5, 0, 1) rotate (0, 90, 0)
-  }
-}
-footprint "Q" extends "P" {
-  model { standoff 0.2 }
-}
-footprint "R" extends "P" {
+  pins 8 dual pitch: 1.27
+  lead gullwing 0.4 x 0.6 span: 6
+  model
+    standoff: 0.05
+    draft: 0
+    body color: "#336699"
+    leads color: gold
+    leads thickness: 0.12
+    pin1: dot
+    box 2 x 2 x 0.3 on body color: tin
+    cylinder d: 1 h: 2 at (5, 0, 1) rotate: (0, 90, 0)
+  end
+end
+footprint "Q" extends "P"
+  model; standoff: 0.2; end
+end
+footprint "R" extends "P"
   no model
-}
+end
 `;
   const out = compile(src);
   assert.deepEqual(errors(out), []);
@@ -216,15 +216,15 @@ footprint "R" extends "P" {
 });
 
 test('model block diagnostics', () => {
-  const base = (m) => compile(`footprint "P" {\n  body 4 x 4 x 1\n  pins 8 dual pitch 1.27\n  lead gullwing 0.4 x 0.6 span 6\n  model {\n${m}\n  }\n}\n`);
-  assert.ok(errors(base('    body color golf')).some((d) => /unknown color `golf` — did you mean `gold`\?/.test(d.message)));
-  assert.ok(errors(base('    body color "#12345"')).some((d) => /isn't a color/.test(d.message)));
-  assert.ok(errors(base('    draft 50')).some((d) => /between 0 and 45/.test(d.message)));
-  assert.ok(warnings(base('    standoff 0.1\n    standoff 0.2')).some((d) => /given twice in this model block/.test(d.message)));
-  assert.ok(warnings(base('    leads below 3')).some((d) => /surface-mount/.test(d.message)));
+  const base = (m) => compile(`footprint "P"\n  body 4 x 4 x 1\n  pins 8 dual pitch: 1.27\n  lead gullwing 0.4 x 0.6 span: 6\n  model\n${m}\n  end\nend\n`);
+  assert.ok(errors(base('    body color: golf')).some((d) => /unknown color `golf` — did you mean `gold`\?/.test(d.message)));
+  assert.ok(errors(base('    body color: "#12345"')).some((d) => /isn't a color/.test(d.message)));
+  assert.ok(errors(base('    draft: 50')).some((d) => /between 0 and 45/.test(d.message)));
+  assert.ok(warnings(base('    standoff: 0.1\n    standoff: 0.2')).some((d) => /given twice in this model block/.test(d.message)));
+  assert.ok(warnings(base('    leads below: 3')).some((d) => /surface-mount/.test(d.message)));
   assert.ok(errors(base('    box 1 x 1 on body')).length > 0, 'a box needs W x L x H');
-  assert.ok(errors(compile('footprint "P" {\n  model { box 1 x 1 x 1 on body }\n  pad 1 rect 1 x 1 at (0, 0)\n}\n')).some((d) => /needs a `body`/.test(d.message)));
-  assert.ok(errors(compile('footprint "P" {\n  body 1 x 1 x 1\n  model { standoff 1 }\n  model { standoff 2 }\n}\n')).some((d) => /given twice in this footprint/.test(d.message)));
+  assert.ok(errors(compile('footprint "P"\n  model; box 1 x 1 x 1 on body; end\n  pad 1 rect 1 x 1 at (0, 0)\nend\n')).some((d) => /needs a `body`/.test(d.message)));
+  assert.ok(errors(compile('footprint "P"\n  body 1 x 1 x 1\n  model; standoff: 1; end\n  model; standoff: 2; end\nend\n')).some((d) => /given twice in this footprint/.test(d.message)));
 });
 
 test('exports: VRML in 0.1-inch units, binary STL', () => {
@@ -295,17 +295,17 @@ test('the model builder never throws on mangled sources', () => {
 });
 
 test('new lead forms: L-bends fold under, straight leads lie flat, columns lift the body', () => {
-  const t = build('footprint "T" {\n  refdes "C"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\n}').m;
+  const t = build('footprint "T"\n  refdes: "C"\n  body 3.2 x 1.6 x 1.6\n  pins 2 horizontal\n  lead lbend 1.2 x 0.8\nend').m;
   near(t.standoff, 0.15, 'L-bend standoff');
   const tb = box(leads(t));
   near(tb.z0, 0, 'the feet are on the board', 1e-3);
   assert.ok(tb.x1 > 1.6 && tb.x1 < 1.8, `down the end face, got ${tb.x1}`);
   const l1 = box([mesh(t, 'lead 1')]);
   assert.ok(l1.x1 > -0.9, `pin 1's foot runs under the body, got ${l1.x1}`);
-  const s = build('footprint "S" {\n  body 2.7 x 1.7 x 0.95\n  pins 2 horizontal\n  lead straight 0.85 x 0.55 span 3.6\n}').m;
+  const s = build('footprint "S"\n  body 2.7 x 1.7 x 0.95\n  pins 2 horizontal\n  lead straight 0.85 x 0.55 span: 3.6\nend').m;
   const sb = box(leads(s));
   near(sb.z0, 0, 'on the board', 1e-3); near(sb.z1, 0.12, 'flat: one lead thickness', 1e-3); near(sb.x1, 1.8, 'tips at the span', 1e-3);
-  const g = build('footprint "G" {\n  body 10 x 10 x 4\n  balls 4 x 4 pitch 1.27\n  lead column d 0.51\n}').m;
+  const g = build('footprint "G"\n  body 10 x 10 x 4\n  balls 4 x 4 pitch: 1.27\n  lead column d: 0.51\nend').m;
   near(g.standoff, 2.2, 'column height');
   assert.equal(leads(g).length, 16, 'a column per land');
   const gb = box(leads(g));
@@ -314,7 +314,7 @@ test('new lead forms: L-bends fold under, straight leads lie flat, columns lift 
 });
 
 test('bare cans: no vent, and the polarity mark on the lid', () => {
-  const src = (color) => `footprint "CP" {\n  refdes "C"\n  body cylinder d 6.3 h 5.4\n  pins 2 horizontal\n  lead flat 0.65 x 2.3 span 7.3\n  polarized\n  model { body color ${color} }\n}`;
+  const src = (color) => `footprint "CP"\n  refdes: "C"\n  body cylinder d: 6.3 h: 5.4\n  pins 2 horizontal\n  lead flat 0.65 x 2.3 span: 7.3\n  polarized\n  model; body color: ${color}; end\nend`;
   const bare = build(src('aluminum')).m;
   assert.ok(!mesh(bare, 'vent'), 'no vent');
   const mk = box([mesh(bare, 'polarity mark')]);

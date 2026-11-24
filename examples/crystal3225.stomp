@@ -1,20 +1,20 @@
 # Crystal, 3225: ceramic package with a metal lid, added in the model block.
 
-footprint "Crystal_SMD_3225-4Pin_3.2x2.5mm" {
-  description "SMD crystal, 3.2 x 2.5 mm ceramic package, 4 contacts"
-  refdes "Y"
+footprint "Crystal_SMD_3225-4Pin_3.2x2.5mm"
+  description: "SMD crystal, 3.2 x 2.5 mm ceramic package, 4 contacts"
+  refdes: "Y"
 
   body 3.2 x 2.5 x 0.8              # 0.8 mm tall including the lid
-  pins {
-    bottom: 1, 2 pitch 2.2          # pin 1 bottom left, then counterclockwise
+  pins
+    bottom: 1, 2 pitch: 2.2         # pin 1 bottom left, then counterclockwise
     top: 3, 4
-  }
+  end
   lead flat 1.4 x 1.1               # contacts at the package edge
-  pin1 none
+  pin1: none
 
-  model {
-    height 0.7                      # the ceramic base; the lid adds 0.1
-    body color ceramic
-    box 2.9 x 2.2 x 0.1 on body color tin    # the lid
-  }
-}
+  model
+    height: 0.7                     # the ceramic base; the lid adds 0.1
+    body color: ceramic
+    box 2.9 x 2.2 x 0.1 on body color: tin   # the lid
+  end
+end

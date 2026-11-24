@@ -2,91 +2,89 @@
 #
 # The standard library draws every body, lead and mark with stomp features
 # (open them from the picker's Standard library group). A feature of your own
-# with the same name replaces the library's in this file, and `body shape`
+# with the same name replaces the library's in this file, and `body shape:`
 # picks a body for one footprint.
 
 # Every can in this file gets a three-way vent instead of a cross. The library
 # places it with the can's diameter, as `feature can_vent(D)`.
-feature can_vent(D) {
-  let arm = 0.2 * D
-  model {
-    box 2 * arm x 0.08 x 0.006 at (arm * cos(90), arm * sin(90), 0) rotate 90 color vent_metal name "vent"
-    box 2 * arm x 0.08 x 0.006 at (arm * cos(210), arm * sin(210), 0) rotate 210 color vent_metal name "vent"
-    box 2 * arm x 0.08 x 0.006 at (arm * cos(330), arm * sin(330), 0) rotate 330 color vent_metal name "vent"
-  }
-}
+feature can_vent(D)
+  arm = 0.2 * D
+  box 2 * arm x 0.08 x 0.006 at (arm * cos(90), arm * sin(90), 0) rotate: 90 color: vent_metal name: "vent"
+  box 2 * arm x 0.08 x 0.006 at (arm * cos(210), arm * sin(210), 0) rotate: 210 color: vent_metal name: "vent"
+  box 2 * arm x 0.08 x 0.006 at (arm * cos(330), arm * sin(330), 0) rotate: 330 color: vent_metal name: "vent"
+end
 
-# Every `pin1 dot` in this file is a small triangle instead
-feature pin1_dot(dia = 0.3) {
-  silk { polygon (-dia / 2, -dia / 2) (dia / 2, -dia / 2) (0, dia / 2) fill }
-}
+# Every `pin1: dot` in this file is a small triangle instead
+feature pin1_dot(d = 0.3)
+  polygon (-d / 2, -d / 2) (d / 2, -d / 2) (0, d / 2) fill
+end
 
 # A drum-core power inductor: a square base and a round winding on it. The flag
 # picks the kind: `shielded` closes it in ferrite, `unshielded` shows the copper.
-feature drum_inductor(W, L, H, z0 = 0, body_color = ferrite) {
-  let D = min(W, L)
-  let base = 0.4 * (H - z0)
-  model { box W x L x base at (0, 0, z0) color body_color }
-  section shielded {
-    model { cylinder d 0.95 * D h H - z0 - base at (0, 0, z0 + base) segments 40 color body_color }
-  }
-  section unshielded {
-    model {
-      cylinder d 0.7 * D h 0.45 * (H - z0) at (0, 0, z0 + base) segments 40 color copper name "winding"
-      cylinder d 0.9 * D h 0.15 * (H - z0) at (0, 0, H - 0.15 * (H - z0)) segments 40 color body_color
-    }
-  }
-}
+feature drum_inductor(W, L, H, z0 = 0, body_color = ferrite)
+  D = min(W, L)
+  base = 0.4 * (H - z0)
+  box W x L x base at (0, 0, z0) color: body_color
+  section shielded
+    cylinder d: 0.95 * D h: H - z0 - base at (0, 0, z0 + base) segments: 40 color: body_color
+  end
+  section unshielded
+    cylinder d: 0.7 * D h: 0.45 * (H - z0) at (0, 0, z0 + base) segments: 40 color: copper name: "winding"
+    cylinder d: 0.9 * D h: 0.15 * (H - z0) at (0, 0, H - 0.15 * (H - z0)) segments: 40 color: body_color
+  end
+end
 
 # A clip-on heatsink: five fins on a plate, W x L, fins H tall
-feature heatsink(W, L, H) {
-  let p = W / 5
-  model {
-    box W x L x 0.5 color aluminum
-    box 0.4 x L x H at (-2 * p, 0, 0.5) color aluminum
-    box 0.4 x L x H at (-p, 0, 0.5) color aluminum
-    box 0.4 x L x H at (0, 0, 0.5) color aluminum
-    box 0.4 x L x H at (p, 0, 0.5) color aluminum
-    box 0.4 x L x H at (2 * p, 0, 0.5) color aluminum
-  }
-}
+feature heatsink(W, L, H)
+  p = W / 5
+  box W x L x 0.5 color: aluminum
+  box 0.4 x L x H at (-2 * p, 0, 0.5) color: aluminum
+  box 0.4 x L x H at (-p, 0, 0.5) color: aluminum
+  box 0.4 x L x H at (0, 0, 0.5) color: aluminum
+  box 0.4 x L x H at (p, 0, 0.5) color: aluminum
+  box 0.4 x L x H at (2 * p, 0, 0.5) color: aluminum
+end
 
-footprint "CP_Radial_D10mm_H12.5mm_P5mm" {
-  description "Electrolytic capacitor, 10 mm can, with this file's three-way vent"
-  refdes "C"
-  body cylinder d 10 h 12.5
-  pins 2 horizontal pitch 5
-  lead wire d 0.6
-  default pad tht circle 1.8 drill 1
-  pad 2 tht rect 1.8 x 1.8 drill 1
+footprint "CP_Radial_D10mm_H12.5mm_P5mm"
+  description: "Electrolytic capacitor, 10 mm can, with this file's three-way vent"
+  refdes: "C"
+  body cylinder d: 10 h: 12.5
+  pins 2 horizontal pitch: 5
+  lead wire d: 0.6
+  default pad tht circle 1.8 drill: 1
+  pad 2 tht rect 1.8 x 1.8 drill: 1
   polarized
-  pin1 none
-}
+  pin1: none
+end
 
-footprint "L_Drum_7x7mm_Unshielded" {
-  description "Power inductor, drum core, 7 x 7 x 4.5 mm, unshielded"
-  refdes "L"
+footprint "L_Drum_7x7mm_Unshielded"
+  description: "Power inductor, drum core, 7 x 7 x 4.5 mm, unshielded"
+  refdes: "L"
   body 7 x 7 x 4.5
   pins 2 horizontal
-  lead flat 2.2 x 2 span 7.4
-  model { body shape drum_inductor(unshielded) }
-}
+  lead flat 2.2 x 2 span: 7.4
+  model
+    body shape: drum_inductor(unshielded)
+  end
+end
 
-footprint "L_Drum_7x7mm_Shielded" {
-  description "Power inductor, drum core, 7 x 7 x 4.5 mm, shielded"
-  refdes "L"
+footprint "L_Drum_7x7mm_Shielded"
+  description: "Power inductor, drum core, 7 x 7 x 4.5 mm, shielded"
+  refdes: "L"
   body 7 x 7 x 4.5
   pins 2 horizontal
-  lead flat 2.2 x 2 span 7.4
-  model { body shape drum_inductor(shielded) }
-}
+  lead flat 2.2 x 2 span: 7.4
+  model
+    body shape: drum_inductor(shielded)
+  end
+end
 
-footprint "QFN-32_5x5mm_Heatsink" {
-  description "QFN-32 with a heatsink on top, and this file's pin-1 triangle"
+footprint "QFN-32_5x5mm_Heatsink"
+  description: "QFN-32 with a heatsink on top, and this file's pin-1 triangle"
   body 5 x 5 x 0.9
-  pins 32 quad pitch 0.5
+  pins 32 quad pitch: 0.5
   lead flat 0.25 x 0.4
   thermal pad "33" 3.45 x 3.45
-  pin1 dot
-  model { feature heatsink(5, 5, 3) on body }
-}
+  pin1: dot
+  feature heatsink(5, 5, 3) on body
+end

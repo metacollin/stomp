@@ -11,13 +11,13 @@
     'to252.stomp': 'pad 2 inner is 1.9 above pad 1',
     'usb_microb.stomp': 'span pad "SH3" to pad "SH4" is 8.0',
     'soic8.stomp': 'lead gullwing',
-    'qfn32.stomp': 'paste divide',
+    'qfn32.stomp': 'paste: divide',
     'sot23-5.stomp': 'right: 4, nc, 5',
-    'tssop20.stomp': 'lead gullwing b x L span E',
+    'tssop20.stomp': 'lead gullwing b x L span: E',
     'soic_family.stomp': 'footprint "SOIC-16W"',
-    'r0402.stomp': 'gap 0.5',
+    'r0402.stomp': 'gap: 0.5',
     'bga64.stomp': 'omit A1, H8',
-    'dip8.stomp': 'span 300mil centers',
+    'dip8.stomp': 'span: 300mil centers',
     'hdr2x5.stomp': 'origin at pad 1',
     'syntax_zoo.stomp': 'gap pad 6 to pad 7 is 70',
     'qfn_library.stomp': '  32   5    3.45',
@@ -554,7 +554,7 @@
       cards.push(f);
     });
     if (key !== null) html += '</div>';
-    if (!fps.length) html += '<p class="lib-head">Nothing yet. Add a <code>footprint</code>, or a <code>footprints from TEMPLATE { ... }</code> table.</p>';
+    if (!fps.length) html += '<p class="lib-head">Nothing yet. Add a <code>footprint</code>, or a <code>footprints from TEMPLATE</code> table.</p>';
     box.innerHTML = html;
     box.querySelectorAll('.card').forEach((el) => {
       const f = fps[+el.dataset.i];
@@ -617,7 +617,7 @@
   function renderDetails(fp, shown) {
     const box = $('details');
     const r = shown;
-    if (!fp) { box.innerHTML = '<div><h3>Footprint</h3><p class="desc">Add a <code>footprint "NAME" { ... }</code> block to see it here.</p></div>'; return; }
+    if (!fp) { box.innerHTML = '<div><h3>Footprint</h3><p class="desc">Add a <code>footprint "NAME"</code> block, closed with <code>end</code>, to see it here.</p></div>'; return; }
     if (!r) { box.innerHTML = `<div><h3>${escapeHtml(fp.name)}</h3><p class="desc">This footprint has errors that stop it from being drawn. See Problems.</p></div>`; return; }
     const U = state.units;
     const L = (v) => fmt(v);
@@ -958,5 +958,5 @@
   // Start
   const start = saved.file && sourceOf(saved.file) ? saved.file : (byFile.has('to252.stomp') ? 'to252.stomp' : (examples[0] && examples[0].file));
   if (start) openExample(start);
-  else { editor.setValue('footprint "NEW" {\n  \n}\n'); compileNow(); }
+  else { editor.setValue('footprint "NEW"\n  \nend\n'); compileNow(); }
 })();

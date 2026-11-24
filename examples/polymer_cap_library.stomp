@@ -7,25 +7,25 @@
 
 # SMD (V-chip): the can stands on a square plastic base, with a flat terminal
 # under each end. D x H can, terminals b wide and L long, S tip to tip.
-template polymer_smd(D, H, b, L, S, base = D + 0.3) {
-  name "CP_Polymer_SMD_D{D}mm_H{H}mm"
-  description "Aluminum polymer capacitor, SMD, {D} mm can, {H} mm tall"
-  refdes "C"
+template polymer_smd(D, H, b, L, S, base = D + 0.3)
+  name: "CP_Polymer_SMD_D{D}mm_H{H}mm"
+  description: "Aluminum polymer capacitor, SMD, {D} mm can, {H} mm tall"
+  refdes: "C"
 
-  body cylinder d D h H
+  body cylinder d: D h: H
   pins 2 horizontal                   # pin 1 (+) left
-  lead flat b x L span S
-  default pad roundrect (b + 1) x (L + 0.8) r 25%   # wider and longer than the terminals, as can makers advise
+  lead flat b x L span: S
+  default pad roundrect (b + 1) x (L + 0.8) r: 25%  # wider and longer than the terminals, as can makers advise
   polarized
 
-  model {
-    standoff 0.5                      # the can sits on the base
-    body color aluminum
-    box base x base x 0.5 color black # the base
-  }
-}
+  model
+    standoff: 0.5                     # the can sits on the base
+    body color: aluminum
+    box base x base x 0.5 color: black # the base
+  end
+end
 
-footprints from polymer_smd {
+footprints from polymer_smd
   D     H      b     L     S
   4     5.4    0.65  1.8   5.0
   5     5.4    0.65  2.0   6.0
@@ -34,22 +34,24 @@ footprints from polymer_smd {
   8     6.9    0.9   2.8   9.0
   8     10.2   0.9   2.8   9.0
   10    10.2   0.9   3.3   11.0
-}
+end
 
 # Radial: two wires P apart out of the bottom of a bare can
-template polymer_radial(D, H, P, dw) {
-  name "CP_Polymer_Radial_D{D}mm_H{H}mm_P{P}mm"
-  description "Aluminum polymer capacitor, radial, {D} mm can, {H} mm tall, {P} mm lead spacing"
-  refdes "C"
+template polymer_radial(D, H, P, dw)
+  name: "CP_Polymer_Radial_D{D}mm_H{H}mm_P{P}mm"
+  description: "Aluminum polymer capacitor, radial, {D} mm can, {H} mm tall, {P} mm lead spacing"
+  refdes: "C"
 
-  body cylinder d D h H
-  pins 2 horizontal pitch P
-  lead wire d dw
+  body cylinder d: D h: H
+  pins 2 horizontal pitch: P
+  lead wire d: dw
   polarized
-  model { body color aluminum }
-}
+  model
+    body color: aluminum
+  end
+end
 
-footprints from polymer_radial {
+footprints from polymer_radial
   D     H      P     dw
   5     8      2.0   0.5
   6.3   6      2.5   0.5
@@ -57,4 +59,4 @@ footprints from polymer_radial {
   8     9      3.5   0.6
   8     12     3.5   0.6
   10    12.7   5.0   0.6
-}
+end

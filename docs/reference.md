@@ -78,6 +78,23 @@ number takes a unit only where it's used as a length, so in a template that star
 `units: mil`, a default or table cell of `375` is 375 mil.
 [SPEC §6](../SPEC.md#6-coordinate-system-and-units)
 
+```stomp
+template dip(n, D, E = 300)
+  units: mil                            # everything in here is in mils
+  name: "DIP-{n}_W{E}mil"
+  body 250 x D x 130
+  pins n dual pitch: 100 span: E centers
+  lead pin 18 x 10
+  default pad tht oval 60 x 80 drill: 32
+end
+
+footprints from dip
+  n    D
+  8    375                              # 375 mil
+  14   750
+end
+```
+
 ### Sizes, side marks, percentages and angles
 
 `W x L` is a 2D size: the width along x and the length along y, before any rotation
@@ -236,9 +253,14 @@ creating A if needed. `span A to B is D`, `gap A to B is D` and `pitch A to B is
 measure outer edges, facing edges and centers, along the axis of a mirror or `align`
 between the two, or of `horizontally` or `vertically` added at the end. One measurement
 places a mirrored pair not yet placed, B on the -x side for `across y` and the +y side
-for `across x`: `pad "SH4" mirrors pad "SH3" across y` and `span pad "SH3" to pad "SH4"
-is 8.0`. Otherwise it places whichever is free, B on A's positive side.
+for `across x`. Otherwise it places whichever is free, B on A's positive side. A measured
+pair places one axis only: unlike `is … of`, it doesn't line the centers up on the other.
 [SPEC §9.4](../SPEC.md#94-symmetry-mirrors-and-measured-pairs-span--gap--pitch)
+
+```stomp
+pad "SH4" mirrors pad "SH3" across y    # SH3 takes the -x side
+span pad "SH3" to pad "SH4" is 8.0      # outer edge to outer edge
+```
 
 ### Centering, alignment, rows and groups
 
@@ -267,9 +289,9 @@ sides can't be placed: place their members. [SPEC §9.5](../SPEC.md#95-centering
 ## Part mode
 
 Describe the component as its drawing does, and stomp derives the pads, IPC-7351 style,
-and the 3D model; explicit pads still win. The comments use JEDEC letters, which package
-drawings use for dimensions: `e` the pitch, `b` the lead width, `L` the foot length, `A`
-the seated height, `A1` the standoff. [SPEC §11](../SPEC.md#11-parametric-part-description)
+and the 3D model; explicit pads still win. The comments use the JEDEC letters package
+drawings name dimensions with: `e` the pitch, `b` the lead width, `L` the foot length,
+`A` the seated height. [SPEC §11](../SPEC.md#11-parametric-part-description)
 
 ```stomp
 footprint "SOIC-8"
@@ -283,11 +305,14 @@ end
 ### Body
 
 One per footprint: it shapes the automatic silk, assembly outline, courtyard and 3D
-model, and it's an object to measure from. Unless placed, it's centered on the generated
-pins or the land pattern. `body W x L x H` is a box, with H the seated height; without H
-the model is a flat plate. `body cylinder d: D h: H` is a can standing on the board, or
-lying along its pins for end caps (a MELF) and for wires outside its circle (an axial
-part). [SPEC §11.1](../SPEC.md#111-body)
+model, and it's an object to measure from, centered on the pins or land pattern unless
+placed. [SPEC §11.1](../SPEC.md#111-body)
+
+| form | body |
+|---|---|
+| `body W x L x H` | a box; H is the seated height (JEDEC A) |
+| `body W x L` | a box with no height; the 3D model is a flat plate |
+| `body cylinder d: D h: H` | a can standing on the board; it lies along its pins for end caps (a MELF) and for wires outside its circle (an axial part) |
 
 ### Pins
 
@@ -316,14 +341,35 @@ a `pins` or `balls` line in any order: [SPEC §11.2](../SPEC.md#112-pins-count-a
 For irregular parts, `pins` alone on its line lists the sides, one per line, then `end`:
 `SIDE: NAME, NAME, … [pitch: P]`. Positions run counterclockwise: the left side top to
 bottom, the bottom left to right, the right side bottom to top, the top right to left.
-`nc` leaves a position empty (`right: 4, nc, 5`). Each run is centered on its side, a
-side without `pitch:` takes the first one given, and the pins keep the names you list.
+`nc` leaves a position empty. Each run is centered on its side, a side without `pitch:`
+takes the first one given, and the pins keep the names you list.
+
+```stomp
+footprint "SOT-23-5"
+  body 1.6 x 2.9 x 1.1
+  pins
+    left: 1, 2, 3 pitch: 0.95
+    right: 4, nc, 5                     # 4 and 5 at the outer places
+  end
+  lead gullwing 0.4 x 0.45 span: 2.8
+  pin1: dot
+end
+```
 
 ### Omit and only
 
 `omit` removes generated pins and `only` keeps just the listed ones. Both take names,
 name ranges and, on a grid, regions: `rows R1..R2 [cols C1..C2]` or `cols C1..C2`. The
-rest keep their places: `omit A1, H8, rows D..E cols 4..5`.
+rest keep their places.
+
+```stomp
+footprint "BGA-64_8x8_P0.8mm"
+  body 8 x 8 x 1.2
+  balls 8 x 8 pitch: 0.8
+  lead ball 0.4
+  omit H8, rows D..E cols 4..5          # a corner ball and a 2 x 2 hole
+end
+```
 
 ### Leads
 
@@ -372,9 +418,18 @@ end
 A span measures across the package, between opposite rows: `outer` (the default, tip to
 tip as datasheets draw it), `inner` (facing edges) or `centers`. It goes on a `lead` or
 `pins` line, or alone (`span: 5.4 centers`); `gap: G` alone is `span: G inner`. With a
-`lead`, a span measures the leads, otherwise the pads, as in a chip land pattern:
-`pins 2 horizontal`, `default pad rect 0.5 x 0.6`, `gap: 0.5`. A `span:` or `gap:` line
-sets the spacing outright, and in part mode the pads then need `default pad` or `pad:`.
+`lead`, a span measures the leads, otherwise the pads, as in a land pattern typed from a
+drawing. A `span:` or `gap:` line sets the spacing outright, and in part mode the pads
+then need `default pad` or `pad:`.
+
+```stomp
+footprint "R_0402_1005Metric"
+  pins 2 horizontal
+  default pad rect 0.5 x 0.6
+  gap: 0.5                              # facing edges, as the land pattern gives it
+  body 1.0 x 0.5 x 0.35
+end
+```
 
 ### Thermal pads
 
@@ -473,10 +528,15 @@ end
 
 ### Courtyard
 
-A courtyard is always one rectangle: `courtyard: auto [C]`, the automatic one with
-clearance C; `courtyard: rect W x L`, centered on the body; `courtyard: rect (x, y)
-W x L`; or `courtyard: polygon` with four corners and sides along x and y. The last
-`courtyard:` line wins, and two in one footprint get a warning.
+A courtyard is always one rectangle. The last `courtyard:` line wins; two in one
+footprint get a warning.
+
+| form | courtyard |
+|---|---|
+| `courtyard: auto [C]` | the automatic one, the default; C sets the clearance |
+| `courtyard: rect W x L` | W x L, centered on the body |
+| `courtyard: rect (x, y) W x L` | W x L, centered on (x, y) |
+| `courtyard: polygon (x, y) (x, y) (x, y) (x, y)` | four corners, with sides along x and y |
 
 ## Templates, tables and inheritance
 
@@ -603,10 +663,16 @@ Sections are how a feature chooses; stomp has no `if`.
 ### Replacing a library feature
 
 A feature named like one of the standard library's replaces it everywhere in your file,
-even where the library uses it: `feature pin1_dot(d = 0.3)`, its graphics and `end`
-redraw every `pin1: dot`. Yours must take what the library passes; a parameter it never
-fills gets a warning unless it has a default. The [standard library page](../stdlib/README.md)
-lists the features and what each takes. [SPEC §13.5](../SPEC.md#135-the-standard-library)
+even where the library uses it. Yours must take what the library passes; a parameter it
+never fills gets a warning unless it has a default. The
+[standard library page](../stdlib/README.md) lists the features and what each takes.
+[SPEC §13.5](../SPEC.md#135-the-standard-library)
+
+```stomp
+feature pin1_dot(d = 0.3)               # every `pin1: dot` in the file is now a triangle
+  polygon (-d / 2, -d / 2) (d / 2, -d / 2) (0, d / 2) fill
+end
+```
 
 ## The 3D model
 
@@ -700,10 +766,16 @@ x and z. `fillet: R` rounds the corners between points, in 10 degree steps
 The refdes names the part's [family](../stdlib/README.md#families), which sets colors
 and details: chip resistors are white with a black top, chip capacitors tan, inductors
 ferrite; a crystal on a block body gets a metal lid, a round diode on wires is an LED, and
-an axial resistor gets color bands. The longest prefix wins: `R` resistor, `C`
-capacitor, `L` or `FB` inductor, `D` or `LED` diode, `Q` transistor, `U` or `IC` ic,
-`Y` or `XTAL` crystal, `X`, `XO` or `OSC` oscillator, `S` or `SW` switch, `BZ` or `LS`
-buzzer, `J`, `P`, `CON` or `CN` connector, `F` fuse.
+an axial resistor gets color bands. The longest prefix wins:
+
+| refdes | family | refdes | family |
+|---|---|---|---|
+| `R` | resistor | `Y`, `XTAL` | crystal |
+| `C` | capacitor | `X`, `XO`, `OSC` | oscillator |
+| `L`, `FB` | inductor | `S`, `SW` | switch |
+| `D`, `LED` | diode | `BZ`, `LS` | buzzer |
+| `Q` | transistor | `J`, `P`, `CON`, `CN` | connector |
+| `U`, `IC` | ic | `F` | fuse |
 
 ## Diagnostics
 

@@ -1378,7 +1378,16 @@ end
   const docs = S.createDocs($('docs'), {
     onBack: () => closeDocs(true),
     onOpen: (file) => { closeDocs(true); openFile(file, true); },
-    onTry: (snip, page, k) => { closeDocs(true); openFile(`doc:${page.key}:${k}`); },
+    // Try it: an example edited in place, with edits kept as the example's draft
+    playground: {
+      compile: (text) => { const lib = stdlibNow(); return S.compile(text, lib ? { stdlib: lib } : undefined); },
+      model: (r) => modelFor(r),
+      units: () => state.units,
+      dark: () => !!(darkMode && darkMode.matches),
+      draft: (file) => (state.buffers[file] != null ? state.buffers[file] : null),
+      save: (file, text) => { if (text == null) delete state.buffers[file]; else state.buffers[file] = text; persist(); },
+      open: (page, k) => { closeDocs(true); openFile(`doc:${page.key}:${k}`); },
+    },
   });
   let lastDocsPage = 'reference';
   function showDocs(page, anchor) {
@@ -1402,6 +1411,11 @@ end
     $('tutorial-btn').removeAttribute('aria-current');
     $('docs-btn').removeAttribute('aria-current');
     editor.remeasure();
+    // the code from the docs that's open here may have been changed in a playground since
+    if (kindOf(state.file) === 'doc') {
+      const want = state.buffers[state.file] != null ? state.buffers[state.file] : sourceOf(state.file).source;
+      if (want !== editor.getValue()) { openFile(state.file); return; }
+    }
     showActive();
   }
   /** Show a docs page (and a code block on it) and give it its #link. */

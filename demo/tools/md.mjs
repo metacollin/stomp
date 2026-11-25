@@ -2,12 +2,14 @@
 //
 // Blocks: ATX headings, paragraphs, fenced code, bullet and numbered lists (nested,
 // with code and paragraphs inside), tables, block quotes and rules. Inline: code
-// spans, links, **bold**, *italic* and backslash escapes. No raw HTML: it's shown as
-// text. Headings get GitHub's ids, so links written for GitHub work here too.
+// spans, links, images, **bold**, *italic* and backslash escapes. No raw HTML: it's
+// shown as text. Headings get GitHub's ids, so links written for GitHub work here too.
 //
-//   render(md, { prefix, link }) -> { title, html, toc, snippets }
+//   render(md, { prefix, link, image }) -> { title, html, toc, snippets }
 //     prefix: put before every heading id (one page among several)
 //     link(href): { href, external, open } for a link's target
+//     image(src, alt): the HTML for an image (an <img> if not given); an image alone
+//       in its paragraph stands on its own, as a figure
 //     toc: the h2 and h3 headings, { level, id, text }
 //     snippets: the stomp code blocks, { code, heading, id, runnable }
 
@@ -193,6 +195,18 @@ function inline(text, ctx) {
       i += k;
       continue;
     }
+    if (c === '!' && text[i + 1] === '[') {
+      const j = closeBracket(text, i + 1);
+      if (j > 0 && text[j + 1] === '(') {
+        const k = text.indexOf(')', j + 2);
+        if (k > 0) {
+          const alt = plain(text.slice(i + 2, j)), src = text.slice(j + 2, k).trim();
+          out += ctx.image ? ctx.image(src, alt) : `<img src="${esc(src)}" alt="${esc(alt)}">`;
+          i = k + 1;
+          continue;
+        }
+      }
+    }
     if (c === '[') {
       const j = closeBracket(text, i);
       if (j > 0 && text[j + 1] === '(') {
@@ -244,7 +258,7 @@ function closeBracket(text, i) {
 export function render(md, opts) {
   const o = opts || {};
   const prefix = o.prefix || '';
-  const ctx = { link: o.link };
+  const ctx = { link: o.link, image: o.image };
   const blocks = parseBlocks(String(md).replace(/\r\n?/g, '\n').split('\n'));
   const toc = [], snippets = [], seen = new Map();
   let title = null, heading = null, headingId = null;
@@ -264,7 +278,9 @@ export function render(md, opts) {
         const anchor = b.level > 1 ? `<a class="anchor" href="#${esc(id)}" aria-label="Link to this section">#</a>` : '';
         return `<h${b.level} id="${esc(id)}">${inline(b.text, ctx)}${anchor}</h${b.level}>`;
       }
-      case 'p': return bare ? inline(b.text, ctx) : `<p>${inline(b.text, ctx)}</p>`;
+      case 'p':
+        if (/^!\[[^\]]*\]\([^)\s]+\)$/.test(b.text.trim())) return inline(b.text.trim(), ctx);   // a figure
+        return bare ? inline(b.text, ctx) : `<p>${inline(b.text, ctx)}</p>`;
       case 'hr': return '<hr>';
       case 'code': {
         const attrs = b.lang ? ` data-lang="${esc(b.lang)}"` : '';

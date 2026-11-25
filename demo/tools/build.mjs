@@ -2,18 +2,20 @@
 // Build script for the stomp editor in demo/. No dependencies.
 //
 //   node demo/tools/build.mjs                 rebuild demo/js/examples.js from examples/*.stomp,
-//                                             demo/js/stdlib.js from stdlib/*.stomp and
+//                                             demo/js/stdlib.js from stdlib/*.stomp,
+//                                             docs/img/*.svg from tools/figures.mjs and
 //                                             demo/js/docs.js from the docs (DOCS below)
 //   node demo/tools/build.mjs --check         fail if any of them is out of date
 //   node demo/tools/build.mjs --bundle FILE   also write the whole editor as one HTML file
 //         [--fragment]                        leave out <html>, <head> and <body>, for hosts that add
 //                                             their own. Those hosts sandbox the page, so exports
 //                                             go through the host or the clipboard.
-import { readFileSync, writeFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from './md.mjs';
+import { FIGURES, figureSvg } from './figures.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const demo = resolve(here, '..');
@@ -117,6 +119,20 @@ export function docsLink(page) {
   };
 }
 
+/** A figure, by the docs image that shows it (`img/gap.svg` in docs/). */
+function figureImage(page) {
+  const dir = posix.dirname(page.file);
+  return (src, alt) => {
+    const rel = posix.normalize(posix.join(dir, src));
+    const fig = FIGURES.find((f) => `docs/img/${f.id}.svg` === rel);
+    if (!fig) throw new Error(`${page.file}: the image ${src} isn't a figure (demo/tools/figures.mjs)`);
+    return `<figure class="fig" data-fig="${fig.id}">${figureSvg(fig, false).replace(/aria-label="[^"]*"/, `aria-label="${alt.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))}"`)}</figure>`;
+  };
+}
+
+/** The figures' files, for GitHub. */
+export const figureFiles = () => FIGURES.map((f) => [join(repo, 'docs', 'img', `${f.id}.svg`), () => figureSvg(f, true)]);
+
 /** Every docs page, rendered. A code block gets Try it only if it compiles on its own. */
 export function docsPages() {
   const require = createRequire(import.meta.url);
@@ -124,7 +140,7 @@ export function docsPages() {
   for (const k of Object.keys(require.cache)) if (k.startsWith(js)) delete require.cache[k];
   const { compile } = require(join(js, 'compile.js'));
   return DOCS.filter((d) => existsSync(join(repo, d.file))).map((d) => {
-    const r = render(readFileSync(join(repo, d.file), 'utf8'), { prefix: `${d.key}-`, link: docsLink(d) });
+    const r = render(readFileSync(join(repo, d.file), 'utf8'), { prefix: `${d.key}-`, link: docsLink(d), image: figureImage(d) });
     for (const s of r.snippets) {
       if (!s.runnable) continue;
       const out = compile(s.code, { cache: false });
@@ -181,7 +197,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 function main() {
   const args = process.argv.slice(2);
   // docs.js last: its Try it buttons come from compiling with the library just written
-  const outputs = [[join(demo, 'js', 'examples.js'), examplesJs], [join(demo, 'js', 'stdlib.js'), stdlibJs], [join(demo, 'js', 'docs.js'), docsJs]];
+  const outputs = [[join(demo, 'js', 'examples.js'), examplesJs], [join(demo, 'js', 'stdlib.js'), stdlibJs], ...figureFiles(), [join(demo, 'js', 'docs.js'), docsJs]];
   if (args.includes('--check')) {
     let stale = 0;
     for (const [target, make] of outputs) {
@@ -192,6 +208,7 @@ function main() {
     }
     if (stale) process.exit(1);
   } else {
+    mkdirSync(join(repo, 'docs', 'img'), { recursive: true });
     for (const [target, make] of outputs) { writeFileSync(target, make()); console.log(`wrote ${target}`); }
   }
   const bi = args.indexOf('--bundle');

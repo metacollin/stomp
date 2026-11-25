@@ -352,7 +352,8 @@
     }
     for (const ev of ['keyup', 'mouseup', 'focus', 'select']) ta.addEventListener(ev, cursorChanged);
     ta.addEventListener('blur', paintBands);
-    document.addEventListener('selectionchange', () => { if (document.activeElement === ta) cursorChanged(); });
+    const onSelection = () => { if (document.activeElement === ta) cursorChanged(); };
+    document.addEventListener('selectionchange', onSelection);
 
     function keepCaretVisible() {
       const line = caretLine();
@@ -432,6 +433,7 @@
       cursor: () => ta.selectionStart,
       focus: () => ta.focus(),
       remeasure() { measure(); paint(); },
+      destroy() { document.removeEventListener('selectionchange', onSelection); host.innerHTML = ''; host.classList.remove('ed'); },
     };
   }
 

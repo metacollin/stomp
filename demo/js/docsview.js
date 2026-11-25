@@ -3,7 +3,8 @@
  * The pages come from docs.js, made by tools/build.mjs from the Markdown files in the
  * repository, so they read the same here and on GitHub. Each page and each heading
  * has its own #link: `#tutorial`, `#reference-pads-and-holes`. stomp code blocks are
- * highlighted as in the editor, and a block that makes a footprint can open in it.
+ * highlighted as in the editor, and Try it on a block that makes a footprint turns it
+ * into an editor with the footprint drawn beside it (playground.js), right there.
  */
 (function (root) {
   'use strict';
@@ -27,6 +28,38 @@
     const body = host.querySelector('.docs-body');
     let current = null, spy = null;
     const scrolls = new Map();       // page key to where it was left
+    let pg = null;                   // the open playground: { wrap, host, play }
+
+    function closePlayground(refocus) {
+      if (!pg) return;
+      const { wrap, host, play } = pg;
+      pg = null;
+      play.destroy();
+      host.remove();
+      wrap.hidden = false;
+      if (refocus) { const b = wrap.querySelector('[data-try]'); if (b) b.focus(); }
+    }
+    function openPlayground(page, k, wrap) {
+      closePlayground();
+      const P = o.playground;
+      const snip = page.snippets[k];
+      const file = `doc:${page.key}:${k}`;
+      const draft = P.draft(file);
+      const host = document.createElement('div');
+      wrap.after(host);
+      wrap.hidden = true;
+      const play = S.createPlayground(host, {
+        code: draft != null ? draft : snip.code,
+        original: snip.code,
+        compile: P.compile, model: P.model, units: P.units, dark: P.dark,
+        onChange: (text) => P.save(file, text === snip.code ? null : text),
+        onOpen: () => { closePlayground(); P.open(page, k); },
+        onClose: () => closePlayground(true),
+      });
+      pg = { wrap, host, play };
+      host.scrollIntoView({ block: 'nearest' });
+      play.focus();
+    }
 
     // the scrolling box: the article on wide screens, the window on narrow ones
     const scroller = () => (body.scrollHeight > body.clientHeight + 1 && getComputedStyle(body).overflowY !== 'visible' ? body : document.scrollingElement || document.documentElement);
@@ -48,6 +81,7 @@
     }
 
     function renderPage(page) {
+      closePlayground();
       body.innerHTML = `<div class="docs-page" data-page="${esc(page.key)}">${page.html}</div>`;
       body.querySelectorAll('pre.code').forEach((pre) => {
         const code = pre.querySelector('code');
@@ -56,7 +90,7 @@
         const tools = document.createElement('div');
         tools.className = 'code-tools';
         const snip = k != null ? page.snippets[+k] : null;
-        if (snip && snip.runnable) tools.innerHTML += `<button type="button" class="chip try" data-try="${k}" title="Open this code in the editor, with its footprint drawn">Try it</button>`;
+        if (snip && snip.runnable && o.playground) tools.innerHTML += `<button type="button" class="chip try" data-try="${k}" title="Edit this code here, with its footprint drawn beside it">Try it</button>`;
         tools.innerHTML += '<button type="button" class="chip" data-copy title="Copy this code">Copy</button>';
         pre.parentNode.insertBefore(tools, pre);
       });
@@ -91,9 +125,7 @@
       if (t.hasAttribute('data-open')) { e.preventDefault(); if (o.onOpen) o.onOpen(t.dataset.open); return; }
       const page = pages.find((p) => p.key === current);
       if (t.hasAttribute('data-try')) {
-        const k = +t.dataset.try;
-        scrolls.set(current, scroller().scrollTop);
-        if (o.onTry) o.onTry(page.snippets[k], page, k);
+        openPlayground(page, +t.dataset.try, t.closest('.code-wrap'));
         return;
       }
       if (t.hasAttribute('data-copy')) {
@@ -126,6 +158,7 @@
         }
       },
       hide() {
+        closePlayground();
         if (current && !host.hidden) scrolls.set(current, scroller().scrollTop);
         host.hidden = true;
       },

@@ -143,3 +143,31 @@ test('the docs\' Markdown is the subset the converter reads', () => {
     assert.ok(!fence, `${d.file}: a code block isn't closed`);
   }
 });
+
+test('images: an <img>, or what the build makes of one; alone in a paragraph, a figure', async () => {
+  assert.match(render('See ![a pad](img/x.svg) here.').html, /<p>See <img src="img\/x.svg" alt="a pad"> here.<\/p>/);
+  const r = render('![a **bold** pad](img/x.svg)\n\n*a caption*', { image: (src, alt) => `<figure data-src="${src}">${alt}</figure>` });
+  assert.match(r.html, /^<figure data-src="img\/x.svg">a bold pad<\/figure>\n<p><em>a caption<\/em><\/p>$/);
+});
+
+test('figures: drawn from the engine, with the dimensions the code gives', async () => {
+  const { FIGURES, figureSvg } = await import('../tools/figures.mjs');
+  const labels = (svg) => [...svg.matchAll(/<text class="f-txt"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+  const want = {
+    gap: ['gap: 0.5', 'L 0.6', 'W 0.5'],
+    relations: ['4.56 center to center', '1.9 edge to center'],
+    anchors: ['inner to inner: 1.5', 'outer to outer: 3.5', 'center to center: 2.5'],
+    package: ['E1 3.9', 'E 6.0 (span)', 'D 4.9', 'e 1.27', 'b 0.41', 'L 1.04'],
+    side: ['A 1.5', 'A1 0.1: the standoff', 'E 6.0'],
+  };
+  assert.deepEqual(FIGURES.map((f) => f.id), Object.keys(want));
+  for (const f of FIGURES) {
+    const file = figureSvg(f, true), inline = figureSvg(f, false);
+    assert.deepEqual(labels(file), want[f.id], f.id);
+    assert.match(file, /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg"[^>]* viewBox="0 0 \d+ \d+"[^>]*><style>/, `${f.id}: a file has its own colors`);
+    assert.doesNotMatch(inline, /<style>/, `${f.id}: inline, the page's styles apply`);
+    assert.doesNotMatch(inline, / id="/, `${f.id}: no ids to clash with another figure`);
+    // the file in docs/img is the one the build makes
+    assert.equal(readFileSync(join(repo, 'docs', 'img', `${f.id}.svg`), 'utf8'), file, `docs/img/${f.id}.svg is out of date: node demo/tools/build.mjs`);
+  }
+});

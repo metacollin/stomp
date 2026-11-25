@@ -291,7 +291,8 @@ void main() {
       if (st.autoFit && (st.model || st.board)) fit(null);   // keep the part framed on resize until the user moves the camera
       request();
     }
-    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { if (!host.hidden) resize(); }).observe(host);
+    const sizer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (!host.hidden) resize(); }) : null;
+    if (sizer) sizer.observe(host);
 
     // Input
     const ptrs = new Map();
@@ -385,6 +386,15 @@ void main() {
       redraw: request,
       snapshot() { draw(); return canvas.toDataURL('image/png'); },
       get camera() { return { az: st.az, el: st.el, dist: st.dist, target: st.target.slice() }; },
+      /** Let go of the WebGL context (browsers allow only a few) and empty the host. */
+      destroy() {
+        if (sizer) sizer.disconnect();
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        const lose = gl && gl.getExtension('WEBGL_lose_context');
+        if (lose) lose.loseContext();
+        gl = null;
+        host.innerHTML = '';
+      },
     };
   }
 

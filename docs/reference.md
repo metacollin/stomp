@@ -246,6 +246,11 @@ members). [SPEC §9.2](../SPEC.md#92-directional-relations-is--of),
 | `inner` | the edge facing the other object | `pad 2 inner is 0.4 right of pad 1 inner`: a gap |
 | `left`, `right`, `top`, `bottom` | that edge, on the relation's axis | `body bottom is 1.1 above pad 1` |
 
+![Two pads measured three ways: center to center 2.5, inner to inner 1.5, outer to outer 3.5](img/anchors.svg)
+
+*The three ways to measure between two objects. `pitch`, `gap` and `span` measure the
+same ways: center to center, inner to inner and outer to outer.*
+
 ### Mirrors and measured pairs
 
 `A mirrors B across x|y` makes A the mirror image of B about the footprint's x or y axis,
@@ -301,6 +306,12 @@ footprint "SOIC-8"
   pin1: dot
 end
 ```
+
+![A SOIC-8 from above: body E1 3.9 by D 4.9, leads b 0.41 wide with feet L 1.04 long, pitch e 1.27, span E 6.0 tip to tip, over the lands stomp works out](img/package.svg)
+
+*The drawing's letters: `body 3.9 x 4.9` is E1 x D, `pitch: 1.27` is e, and
+`lead gullwing 0.41 x 1.04 span: 6.0` is b x L, with the span E from tip to tip. The
+dashed outlines are the lands stomp works out from them.*
 
 ### Body
 
@@ -430,6 +441,12 @@ footprint "R_0402_1005Metric"
   body 1.0 x 0.5 x 0.35
 end
 ```
+
+![Two pads: gap 0.5 between their facing edges; each pad W 0.5 across the part and L 0.6 along it, outward](img/gap.svg)
+
+*`gap: 0.5` is the space between the pads' facing edges. Generated pads turn to face
+outward, so in `rect 0.5 x 0.6` the 0.5 runs across the part (W) and the 0.6 along it
+(L).*
 
 ### Thermal pads
 
@@ -686,6 +703,12 @@ straight leads, sawn for flat ones, a chip or MELF for end caps, a BGA or CGA, a
 header for pins, a can, LED or axial body for wires, a module for castellations. Leads
 are tin, and through-hole leads reach 3 mm below the board.
 [SPEC §13.1](../SPEC.md#131-the-generated-model)
+
+![A SOIC-8 from the front: the seated height A 1.5 from the board to the top of the body, the standoff A1 0.1 under it, and the span E 6.0](img/side.svg)
+
+*From the front: the body's height, 1.5 in `body 3.9 x 4.9 x 1.5`, is the seated height
+A, from the board to the top of the part. The body sits on its standoff A1, which the
+lead form sets: 0.1 for gull-wings.*
 
 ### The model block
 

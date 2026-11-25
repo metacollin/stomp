@@ -1,9 +1,10 @@
 # Tutorial
 
 This tutorial builds footprints from the simplest two-pad part up to a whole library
-with 3D models. Each step has an example: in the stomp editor, **Try it** opens it,
-and the drawing updates as you change it. Come back with **Back to the tutorial**
-above the code. On GitHub, copy the code into the editor instead.
+with 3D models. Each step has an example. In the stomp editor, **Try it** turns it
+into an editor right on the page, with the footprint drawn beside it: change the code
+and the drawing follows, and the cursor on a line shows what it places. On GitHub,
+copy the code into the editor instead.
 
 You don't need to know anything about stomp to start. Knowing what a land pattern is
 helps: the copper pads a part is soldered to, with the silkscreen, paste and
@@ -17,7 +18,7 @@ resistor, typed in from a recommended land pattern:
 ```stomp
 footprint "R0402"
   pins 2 horizontal            # two pads in a row, pin 1 on the left
-  default pad rect 0.5 x 0.6   # each pad 0.5 wide and 0.6 tall
+  default pad rect 0.5 x 0.6   # each pad 0.5 across, 0.6 long
   gap: 0.5                     # 0.5 between the pads' facing edges
 end
 ```
@@ -28,6 +29,12 @@ Three things to notice:
 - A value with a name takes a colon: `gap: 0.5`. Words that relate things, like the
   `x` in `0.5 x 0.6`, don't.
 - Numbers are millimeters unless you say otherwise.
+
+![Two pads: gap 0.5 between their facing edges; each pad W 0.5 across the part and L 0.6 along it, outward](img/gap.svg)
+
+*`gap: 0.5` is the space between the pads' facing edges. Generated pads turn to face
+outward, so in `rect 0.5 x 0.6` the 0.5 runs across the part (W) and the 0.6 along it
+(L).*
 
 Try changing the gap to `0.8`. The pads move apart as you type, and anything wrong is
 underlined and listed under **Problems**.
@@ -55,6 +62,11 @@ center to center unless you name an edge: `inner` is the edge facing the other o
 `outer` the edge facing away. So `pad 2 inner is 1.9 above pad 1` measures from the
 tab's bottom edge to the center of pad 1, exactly as the drawing does.
 
+![A DPAK: pads 1 and 3 4.56 apart, center to center; the tab's near edge 1.9 above the pin centers](img/relations.svg)
+
+*`pad 3 is 4.56 right of pad 1` measures center to center. `pad 2 inner is 1.9 above
+pad 1` measures from the tab's inner edge, the one facing the pins, to their centers.*
+
 Put the cursor on a placement line: the drawing shows that dimension. Each object needs
 exactly one placement per axis, and stomp tells you, naming both lines, if one is
 placed twice or not at all.
@@ -72,6 +84,12 @@ footprint "SOIC-8"
   pin1: dot
 end
 ```
+
+![A SOIC-8 from above: body E1 3.9 by D 4.9, leads b 0.41 wide with feet L 1.04 long, pitch e 1.27, span E 6.0 tip to tip, over the lands stomp works out](img/package.svg)
+
+*The drawing's letters: `body 3.9 x 4.9` is E1 x D, `pitch: 1.27` is e, and
+`lead gullwing 0.41 x 1.04 span: 6.0` is b x L, with the span E from tip to tip. The
+dashed outlines are the lands stomp works out from them.*
 
 The numbers are the ones in the package drawing. The pads, the silkscreen outline kept
 clear of the copper, the pin-1 dot and the courtyard all follow from them. The details
@@ -202,8 +220,15 @@ And `extends` makes a variant of another footprint.
 ## 9. The 3D model
 
 **3D** above the drawing shows the part on a board. The model comes from what you've
-already written: the body's height, the pins and the lead form. A `model` block adjusts
-it:
+already written: the body's height, the pins and the lead form.
+
+![A SOIC-8 from the front: the seated height A 1.5 from the board to the top of the body, the standoff A1 0.1 under it, and the span E 6.0](img/side.svg)
+
+*From the front: the body's height, 1.5 in `body 3.9 x 4.9 x 1.5`, is the seated height
+A, from the board to the top of the part. The body sits on its standoff A1, which the
+lead form sets: 0.1 for gull-wings.*
+
+A `model` block adjusts the model:
 
 ```stomp
 footprint "CP-RADIAL-6.3x11"

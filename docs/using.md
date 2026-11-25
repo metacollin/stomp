@@ -135,8 +135,15 @@ button copies the footprint on screen instead, to paste into a `.kicad_mod` file
 
 **Tutorial** and **Docs** open these pages in place of the editor; **Back to the
 editor**, or the same button again, returns to it. Every page and heading has its own
-link: copy it from the `#` beside a heading. **Try it** on an example opens it in the
-editor, and **Back to the tutorial** above the code returns you to where you were.
+link: copy it from the `#` beside a heading.
+
+**Try it** on an example turns it into an editor right on the page, with its footprint
+drawn beside it, in 2D or 3D, as the editor proper draws it: every placement's
+dimension shows, the cursor on a line highlights what it places, and problems are
+listed underneath. Your changes are kept for next time; **Reset** puts the example
+back. **Open in the editor** moves it to the editor, where **Back to the tutorial**
+above the code returns you to where you were. The figures in the docs are drawn the
+same way, by stomp, from the footprints they show.
 
 ## Choices this version makes
 

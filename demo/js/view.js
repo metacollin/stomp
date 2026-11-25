@@ -33,8 +33,10 @@
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
+  let viewers = 0;
   function createViewer(host, opts) {
     const o = Object.assign({ onHover() {}, onPick() {}, onCursor() {}, onCamera() {} }, opts);
+    const hatchId = `vw-hatch-${++viewers}`;     // one per viewer: a page can show several
     host.classList.add('vw');
     host.innerHTML = '';
     const svg = document.createElementNS(NS, 'svg');
@@ -43,7 +45,7 @@
     svg.setAttribute('aria-label', 'Footprint preview');
     svg.innerHTML = `
       <defs>
-        <pattern id="vw-hatch" patternUnits="userSpaceOnUse" width="0.16" height="0.16" patternTransform="rotate(45)">
+        <pattern id="${hatchId}" patternUnits="userSpaceOnUse" width="0.16" height="0.16" patternTransform="rotate(45)">
           <line x1="0" y1="0" x2="0" y2="0.16" class="vw-paste-line"></line>
         </pattern>
       </defs>
@@ -61,6 +63,7 @@
       <g class="vw-labels"></g>
       <g class="vw-origin"></g>
       <g class="vw-dims"></g>`;
+    svg.style.setProperty('--vw-hatch', `url(#${hatchId})`);
     host.appendChild(svg);
     const tip = document.createElement('div');
     tip.className = 'vw-tip';
@@ -71,7 +74,7 @@
     empty.hidden = true;
     host.appendChild(empty);
 
-    const hatch = svg.querySelector('#vw-hatch');
+    const hatch = svg.querySelector('pattern');
     const hatchLine = hatch.querySelector('line');
     const g = {};
     for (const k of ['grid', 'courtyard', 'fab', 'copper', 'drills', 'paste', 'mask', 'silk', 'hl', 'labels', 'origin', 'dims']) g[k] = svg.querySelector('.vw-' + k);
@@ -190,11 +193,12 @@
     svg.addEventListener('pointerleave', () => { if (!pointers.size) { setHover(null); o.onCursor(null); } });
     svg.addEventListener('dblclick', (e) => { e.preventDefault(); fit(); });
 
-    new ResizeObserver(() => {
+    const sizer = new ResizeObserver(() => {
       if (!state.cam) return;
       size();
       if (state.autoFit && state.res) fitBox(state.res.bbox); else applyCam();
-    }).observe(host);
+    });
+    sizer.observe(host);
 
     // Hit testing
     function hitTest(clientX, clientY) {
@@ -593,6 +597,7 @@
         drawDims();
       },
       gridStep: () => state.gridStep,
+      destroy() { sizer.disconnect(); host.innerHTML = ''; host.classList.remove('vw'); },
     };
   }
 

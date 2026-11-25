@@ -54,10 +54,12 @@ The engine implements the whole draft, from `grammar.peg` to finished layers:
 | `js/editor.js` | a code editor with no dependencies: a textarea over highlighting from the lexer, which also highlights the code in the docs |
 | `js/store.js` | your files: kept in IndexedDB with a copy in localStorage, merged on load, persistent storage asked for, other tabs told of changes; reading `.zip` files |
 | `js/docsview.js` | the docs view: pages, contents, `#links`, highlighted code with Try it and Copy |
+| `js/playground.js` | Try it: an example edited in place, its footprint drawn beside it in 2D or 3D |
 | `js/app.js` | ties it all together: the file picker and File menu, saving and opening files, the docs, saved settings |
 | `js/examples.js` | **generated** from `examples/*.stomp` by `tools/build.mjs` |
 | `js/stdlib.js` | **generated** from `../stdlib/*.stomp`, the standard library, by `tools/build.mjs` |
 | `js/docs.js` | **generated** from the docs' Markdown by `tools/build.mjs`, with `tools/md.mjs` |
+| `../docs/img/*.svg` | **generated** by `tools/figures.mjs`: footprints the engine builds, with the dimensions their numbers stand for |
 
 Not covered: `step` files aren't loaded. A footprint that names one shows the generated
 model instead, and its KiCad export points to the file rather than embedding a model.
@@ -126,8 +128,9 @@ The tests check:
 - the diagnostics and where they point;
 - that `js/examples.js`, `js/stdlib.js` and `js/docs.js` match their sources;
 - the docs: every example in the tutorial and the reference compiles (or, for a
-  fragment, parses), every link and `#anchor` leads somewhere, and the Markdown
-  converter's output for lists, tables, code and inline markup;
+  fragment, parses), every link and `#anchor` leads somewhere, the Markdown
+  converter's output for lists, tables, code, images and inline markup, and that each
+  figure's labels are the dimensions its footprint really has;
 - your files: names, merging the two copies (newest wins, deletions stick), saving,
   renaming and deleting with either copy failing, other tabs' changes, and reading
   stored and deflated `.zip` files;

@@ -1,6 +1,6 @@
-# stomp live
+# The stomp editor
 
-A browser demo of stomp. Write stomp on the left, and the land pattern on the right
+stomp runs in the browser. Write stomp on the left, and the land pattern on the right
 redraws as you type: copper, paste, mask, drills, silk, courtyard and fab layers, with
 pad numbers. Put the cursor on a placement and its dimension is drawn on the footprint:
 `pad 3 is 4.56 right of pad 1` shows the 4.56 between the two pad centers. Switch to
@@ -15,65 +15,31 @@ step. The page works straight from disk.
 - **From disk:** open `demo/index.html` in a browser.
 - **Served:** `python3 -m http.server -d demo 8000`, then visit <http://localhost:8000>.
   You can also publish the `demo/` folder as it is, for example on GitHub Pages.
-- **Single file:** `node demo/tools/build.mjs --bundle stomp-live.html` puts every
-  script and style into one HTML page you can send around.
+- **Single file:** `node demo/tools/build.mjs --bundle stomp.html` puts every
+  script, style and docs page into one HTML file you can send around.
 
-The example picker loads the files in [`examples/`](../examples/), with the libraries
-(`*_library.stomp`) in a group of their own that opens on the Library view, and the
-standard library's files in [`stdlib/`](../stdlib/) in another. Your edits to each file
-are kept in the browser's local storage, and **Reset** restores the original.
+The file picker has your own files first, saved in the browser, then the files in
+[`examples/`](../examples/), with the libraries (`*_library.stomp`) in a group of their
+own that opens on the Library view, and the standard library's files in
+[`stdlib/`](../stdlib/). Your edits to an example are kept in the browser too, and
+**Reset** restores the original. The **File** menu saves files in the browser, saves
+them to disk and opens them from disk.
+
+**Tutorial** and **Docs** open the documentation in place of the editor: the
+[tutorial](../docs/tutorial.md), the [language reference](../docs/reference.md),
+[Using stomp](../docs/using.md), the [standard library](../stdlib/README.md) and the
+[specification](../SPEC.md), rendered from those Markdown files when the editor is built.
 
 ## Using it
 
-- Type on the left. The preview recompiles about 120 ms after you pause. Errors are
-  underlined, marked in the gutter and listed under **Problems**. Click one to jump to it.
-- The statement under the cursor highlights the objects it creates or moves, and a
-  placement draws its dimension. **Constraints** in the layer bar draws every placement
-  at once.
-- Hover over a pad to see its size, position, mask and paste. The statements behind it
-  light up in the editor. Click a pad, or a row of the pad table, to jump to its
-  definition.
-- Drag to pan, scroll or pinch to zoom, and double-click to fit. The preview follows the
-  footprint the cursor is in. With more than five footprints, the tabs become a dropdown
-  grouped by table.
-- **Library** shows every footprint in the file as thumbnails, grouped by the table that
-  made them. Click one to open it, or move the cursor through a table's rows to step
-  through their footprints.
-- **3D** shows the model that the body, pins and lead form describe (SPEC §13). Drag to
-  orbit, shift-drag or right-drag to pan, scroll or pinch to zoom, and double-click to
-  reset. The bar below it has preset views. Seen from below, the board turns see-through
-  so you can check balls and terminals. The statement under the cursor tints the parts
-  it makes: with the cursor on `lead 1, 3 gullwing ...`, those two leads light up.
-  **VRML** downloads a `.wrl` for KiCad (0.1-inch units) and **STL** a binary STL in
-  millimeters. When the page is embedded in a host that saves files for it (the bundle
-  built with `--fragment`), **Save .zip** saves both in one archive. With no such host,
-  **Copy VRML** copies the text instead.
-- The models are drawn by stomp's **standard library** (SPEC §13.5). Its files are in
-  the example picker, under *Standard library*. Edit one and every model that uses it
-  changes: the preview shows an example that uses the file, and your edits apply to the
-  other examples too, until you press Reset. To change a model in your own file
-  instead, define a feature with the library's name (`feature can_vent(D)`, its solids,
-  then `end`), or give a footprint its own with `body shape: NAME` in its `model` block.
-  `examples/custom_models.stomp` does both. The library also has shapes, silk symbols
-  and named packages to build with, which `examples/tht_parts.stomp` uses; its files
-  open on that example's parts.
-- Problems found while building the 3D model (a feature of your own that fails, say)
-  are listed under Problems with the rest, for the footprint on screen.
-- **Export to KiCad** saves every footprint in the file as a KiCad library: a zipped
-  `.pretty` folder with one `.kicad_mod` per footprint and a README. Each footprint
-  carries its own 3D model, so there's no model folder. Footprints with errors are left
-  out and listed. When embedded, the page saves the zip through its host. Where nothing
-  can be saved, the button copies the current footprint's `.kicad_mod` instead.
-- A syntax error in the footprint you're editing usually means a half-typed line, so the
-  preview keeps the last version that parsed, dimmed, until the line is complete. Other
-  errors, such as an over-constrained pad, still draw live.
-- Editor keys: <kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> indent,
-  <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, and <kbd>Esc</kbd> then
-  <kbd>Tab</kbd> moves focus out of the editor.
+[Using stomp](../docs/using.md) covers the editor: writing, the drawing and its layers,
+3D, your files and how long the browser keeps them, the standard library, KiCad export,
+the keys, and the choices this version makes where the specification leaves a meaning
+open. It's also the editor's **Docs** page.
 
 ## What's implemented
 
-The engine prototypes the whole draft, from `grammar.peg` to finished layers:
+The engine implements the whole draft, from `grammar.peg` to finished layers:
 
 | file | what it does |
 |---|---|
@@ -85,10 +51,13 @@ The engine prototypes the whole draft, from `grammar.peg` to finished layers:
 | `js/geom.js` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
 | `js/view.js` | SVG viewer: layers at true width, pan and zoom, hover details, dimension overlays |
 | `js/view3d.js` | WebGL viewer: one merged buffer, lights that follow the camera, shiny metals, orbit, pan and zoom, preset views, highlights from the cursor |
-| `js/editor.js` | a code editor with no dependencies: a textarea over highlighting from the lexer |
-| `js/app.js` | ties it all together; examples and saved edits |
+| `js/editor.js` | a code editor with no dependencies: a textarea over highlighting from the lexer, which also highlights the code in the docs |
+| `js/store.js` | your files: kept in IndexedDB with a copy in localStorage, merged on load, persistent storage asked for, other tabs told of changes; reading `.zip` files |
+| `js/docsview.js` | the docs view: pages, contents, `#links`, highlighted code with Try it and Copy |
+| `js/app.js` | ties it all together: the file picker and File menu, saving and opening files, the docs, saved settings |
 | `js/examples.js` | **generated** from `examples/*.stomp` by `tools/build.mjs` |
 | `js/stdlib.js` | **generated** from `../stdlib/*.stomp`, the standard library, by `tools/build.mjs` |
+| `js/docs.js` | **generated** from the docs' Markdown by `tools/build.mjs`, with `tools/md.mjs` |
 
 Not covered: `step` files aren't loaded. A footprint that names one shows the generated
 model instead, and its KiCad export points to the file rather than embedding a model.
@@ -138,8 +107,8 @@ on purpose: its checksum ignores a final 12-15 bytes it can't fill out to 16, so
 
 ```sh
 node --test demo/test/*.test.mjs     # syntax, engine, library, 3D and KiCad tests
-node demo/tools/build.mjs            # rebuild js/examples.js and js/stdlib.js after editing
-                                     # examples/ or stdlib/
+node demo/tools/build.mjs            # rebuild js/examples.js, js/stdlib.js and js/docs.js
+                                     # after editing examples/, stdlib/ or the docs
 node demo/tools/snapshot.mjs         # compare every model with the recorded snapshot
 node demo/tools/snapshot.mjs --write # record it again, after a change you meant
 ```
@@ -155,7 +124,13 @@ The tests check:
   names given values with `=`, named values with a colon (and without), named
   arguments, keywords used as names, flat features, footprint graphics and their layers;
 - the diagnostics and where they point;
-- that `js/examples.js` matches `examples/`;
+- that `js/examples.js`, `js/stdlib.js` and `js/docs.js` match their sources;
+- the docs: every example in the tutorial and the reference compiles (or, for a
+  fragment, parses), every link and `#anchor` leads somewhere, and the Markdown
+  converter's output for lists, tables, code and inline markup;
+- your files: names, merging the two copies (newest wins, deletions stick), saving,
+  renaming and deleting with either copy failing, other tabs' changes, and reading
+  stored and deflated `.zip` files;
 - that half-typed and mangled versions of every example don't break the compiler, and
   that random edits never make the build cache change a result;
 - for 3D: each example's model is finite and wound consistently; measured parts
@@ -182,7 +157,7 @@ The tests check:
 The file recompiles every time you pause typing, so big libraries need two things:
 
 - **A build cache.** Each footprint's result is cached under the text it is built from:
-  its template, its arguments and the file's `let`s. Editing or adding one row of a
+  its template, its arguments and the file's names. Editing or adding one row of a
   table rebuilds only that row. A row's position isn't part of its key, so the rows below
   an edit stay cached and their diagnostics move with them.
 - **Lazy layers.** Automatic silk, assembly and courtyard geometry, the slow part, is
@@ -199,8 +174,8 @@ and its VRML still writes the ball once.
 
 ## Semantic decisions
 
-The draft leaves some meanings open. The demo picks these, and the page's
-**How it works** dialog lists them too.
+The draft leaves some meanings open. The editor picks these, and
+[Using stomp](../docs/using.md#choices-this-version-makes) lists the main ones too.
 
 1. **Generated pads are sized across × along.** For `pins ...` generators, `W x L` means
    the width across the row by the length along the lead. Each side's pads turn to face
@@ -305,16 +280,16 @@ The draft leaves some meanings open. The demo picks these, and the page's
   which takes only names, `rows ...` and `cols ...`.
 - §6 says all coordinates are relative to the final origin, but `origin at (x, y)` can't
   be relative to itself. ZOO-GRID's courtyard implies the reading in decision 3.
-- `dshape` needs a default flat side (the demo uses `left`). It also needs a rule for
+- `dshape` needs a default flat side (the editor uses `left`). It also needs a rule for
   when the round end doesn't fit: `dshape 0.6 x 1.5 flat: left` asks for a 0.75 mm radius
-  in a 0.6 mm width. The demo caps the radius.
+  in a 0.6 mm width. The editor caps the radius.
 - In ZOO-DUAL, `pad "TP1" is 60 left of side left outer` uses the left row's edge facing
   away from TP1, which is its right edge, by §8.2. TP1 then just touches pin 9. If the
   intent was "60 left of the row's outer edge", the anchor would be `inner`.
-- ZOO-SHAPES has overlapping pads (5 and 7, 4 and 9). The demo reports them as §15
+- ZOO-SHAPES has overlapping pads (5 and 7, 4 and 9). The editor reports them as §15
   suspicious-geometry warnings.
 - §11.3's `lead tab ... (becomes highest-numbered pin unless named)` reads as an extra
-  pin, but `lead` describes the pins a generator already made. The demo treats a general
+  pin, but `lead` describes the pins a generator already made. The editor treats a general
   `lead tab` like a flat terminal, and a per-pin `lead 2 tab` as a slab under pad 2,
   which is how the DPAK example models its drain tab.
 - The old `model` block had only the `dimple` and `stripe` marks. A DIP's notch and a QFN's laser

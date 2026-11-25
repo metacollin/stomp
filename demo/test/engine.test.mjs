@@ -156,7 +156,7 @@ test('diagnostics: syntax errors stay local', () => {
   assert.ok(out.footprints[0].result.body, 'statements after the broken one still count');
 });
 
-test('demo/js/examples.js matches examples/', () => {
+test('the generated files (examples.js, stdlib.js, docs.js) match their sources', () => {
   execFileSync(process.execPath, [join(repo, 'demo', 'tools', 'build.mjs'), '--check'], { stdio: 'pipe' });
 });
 

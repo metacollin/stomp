@@ -1,4 +1,4 @@
-/* stomp live demo: the code editor.
+/* stomp: the code editor.
  *
  * A plain <textarea> over a highlighted <pre>. The textarea handles input,
  * selection, IME and undo; the <pre> draws the stomp lexer's tokens and the
@@ -97,6 +97,56 @@
     return '';
   }
 
+  /** Lexer tokens to non-overlapping classed spans (strings split around {...}). */
+  function spansOf(toks) {
+    const out = [];
+    for (const t of toks) {
+      if (t.t === 'str' && t.parts) {
+        let pos = t.s;
+        for (const p of t.parts) {
+          if (p.lit != null) continue;
+          if (p.open > pos) out.push({ s: pos, e: p.open, cls: 'tk-str' });
+          out.push({ s: p.open, e: p.open + 1, cls: 'tk-interp' });
+          let q = p.open + 1;
+          for (const c of p.all) {
+            if (c.s < q) continue;
+            if (c.s > q) out.push({ s: q, e: c.s, cls: '' });
+            out.push({ s: c.s, e: c.e, cls: tokenClass(c) });
+            q = c.e;
+          }
+          if (p.close > q) out.push({ s: q, e: p.close, cls: p.fmtS != null ? 'tk-interp' : '' });
+          out.push({ s: p.close, e: p.close + 1, cls: 'tk-interp' });
+          pos = p.close + 1;
+        }
+        if (t.e > pos) out.push({ s: pos, e: t.e, cls: 'tk-str' });
+        continue;
+      }
+      if (t.t === 'num' && t.suffix && t.num) {          // color `mil` apart from `50`
+        const m = t.s + t.num.length;
+        out.push({ s: t.s, e: m, cls: 'tk-num' }, { s: m, e: t.e, cls: 'tk-num tk-unit' });
+        continue;
+      }
+      out.push({ s: t.s, e: t.e, cls: tokenClass(t) });
+    }
+    return out;
+  }
+
+  /** stomp source as highlighted HTML, with the editor's classes: for code shown outside it. */
+  function highlight(text) {
+    const lx = S.lexer.lex(text, null);
+    annotate(lx.tokens);
+    const spans = spansOf(lx.all.filter((t) => t.t !== 'nl'));
+    let html = '', pos = 0;
+    for (const sp of spans) {
+      if (sp.s < pos) continue;
+      if (sp.s > pos) html += esc(text.slice(pos, sp.s));
+      const chunk = esc(text.slice(sp.s, sp.e));
+      html += sp.cls ? `<span class="${sp.cls}">${chunk}</span>` : chunk;
+      pos = sp.e;
+    }
+    return html + esc(text.slice(pos));
+  }
+
   function createEditor(host, opts) {
     const o = Object.assign({ onChange() {}, onCursor() {}, label: 'stomp source' }, opts);
     host.classList.add('ed');
@@ -141,40 +191,6 @@
     }
 
     // Painting
-    /** Lexer tokens to non-overlapping classed spans (strings split around {...}). */
-    function spansOf(toks) {
-      const out = [];
-      for (const t of toks) {
-        if (t.t === 'str' && t.parts) {
-          let pos = t.s;
-          for (const p of t.parts) {
-            if (p.lit != null) continue;
-            if (p.open > pos) out.push({ s: pos, e: p.open, cls: 'tk-str' });
-            out.push({ s: p.open, e: p.open + 1, cls: 'tk-interp' });
-            let q = p.open + 1;
-            for (const c of p.all) {
-              if (c.s < q) continue;
-              if (c.s > q) out.push({ s: q, e: c.s, cls: '' });
-              out.push({ s: c.s, e: c.e, cls: tokenClass(c) });
-              q = c.e;
-            }
-            if (p.close > q) out.push({ s: q, e: p.close, cls: p.fmtS != null ? 'tk-interp' : '' });
-            out.push({ s: p.close, e: p.close + 1, cls: 'tk-interp' });
-            pos = p.close + 1;
-          }
-          if (t.e > pos) out.push({ s: pos, e: t.e, cls: 'tk-str' });
-          continue;
-        }
-        if (t.t === 'num' && t.suffix && t.num) {          // color `mil` apart from `50`
-          const m = t.s + t.num.length;
-          out.push({ s: t.s, e: m, cls: 'tk-num' }, { s: m, e: t.e, cls: 'tk-num tk-unit' });
-          continue;
-        }
-        out.push({ s: t.s, e: t.e, cls: tokenClass(t) });
-      }
-      return out;
-    }
-
     function paint() {
       const text = ta.value;
       const lx = S.lexer.lex(text, null);
@@ -420,4 +436,5 @@
   }
 
   S.createEditor = createEditor;
+  S.highlight = highlight;
 })(typeof self !== 'undefined' ? self : this);

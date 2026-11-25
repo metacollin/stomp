@@ -1,4 +1,4 @@
-/* stomp live demo: the compiler.
+/* stomp: the compiler.
  *
  *   compile(source) returns { diagnostics, footprints: [{ name, s, e, result }], templates, tokens }
  *

@@ -1,9 +1,9 @@
-/* stomp live demo: wires the editor, compiler and viewers together. */
+/* stomp: wires the editor, compiler, viewers, your files and the docs together. */
 (function () {
   'use strict';
   const S = window.Stomp;
   const $ = (id) => document.getElementById(id);
-  const KEY = 'stomp-live:v1';
+  const KEY = 'stomp:v1', OLD_KEY = 'stomp-live:v1';    // the editor's settings and example edits
 
   // Where to put the cursor when an example opens, so its most interesting
   // statement is already highlighted and dimensioned.
@@ -48,8 +48,12 @@
   const TAB_LIMIT = 5;          // more footprints than this: a dropdown instead of tabs
 
   const store = {
-    load() { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } },
-    save(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* storage unavailable: edits live for this visit only */ } },
+    load() {
+      try { return JSON.parse(localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY) || '{}') || {}; } catch (e) { return {}; }
+    },
+    save(v) {
+      try { localStorage.setItem(KEY, JSON.stringify(v)); localStorage.removeItem(OLD_KEY); } catch (e) { /* storage unavailable: edits live for this visit only */ }
+    },
   };
   const saved = store.load();
   const examples = S.examples || [];
@@ -75,7 +79,27 @@
     return { file, fp: fp || null };
   };
   const inLib = () => byLib.has(state.file);
-  const sourceOf = (file) => byFile.get(file) || byLib.get(file);
+
+  // Your files, saved in this browser (store.js), open as `my:ID`
+  const fstore = S.store.createStore();
+  fstore.init();
+  const MY = 'my:';
+  const myId = (file) => (file && file.startsWith(MY) ? file.slice(MY.length) : null);
+  // Code from the docs, opened with Try it, as `doc:PAGE:N`
+  const docPages = (S.docs && S.docs.pages) || [];
+  function docSource(file) {
+    const m = /^doc:([a-z]+):(\d+)$/.exec(file || '');
+    const page = m && docPages.find((p) => p.key === m[1]);
+    const snip = page && page.snippets[+m[2]];
+    return snip ? { file, source: snip.code, title: `${page.nav}: ${snip.heading || page.title}`, page, k: +m[2], snip } : null;
+  }
+  function sourceOf(file) {
+    const id = myId(file);
+    if (id) { const f = fstore.get(id); return f ? { file, source: f.source, title: f.name, my: f } : null; }
+    return byFile.get(file) || byLib.get(file) || docSource(file);
+  }
+  /** 'my' (yours), 'example', 'lib' (the standard library) or 'doc' (code from the docs). */
+  const kindOf = (file) => (myId(file) ? 'my' : byLib.has(file) ? 'lib' : /^doc:/.test(file || '') ? 'doc' : 'example');
   /** The standard library to compile with: null for the embedded one, else the files with their edits. */
   function stdlibNow() {
     let edited = false;
@@ -102,6 +126,8 @@
     dim: saved.dim === '3d' ? '3d' : '2d',      // the drawing, or the 3D model on a board
     board3d: saved.board3d !== false,
     crt3d: saved.crt3d !== false,
+    saving: null,         // your file: 'pending', 'saved' or 'failed'
+    persisted: null,      // whether the browser keeps this site's storage for good (null: can't say)
   };
 
   let saveTimer = 0;
@@ -118,8 +144,11 @@
   const editor = S.createEditor($('editor'), {
     id: 'stomp-source',
     onChange(text) {
-      const ex = sourceOf(state.file);
-      if (ex && text === ex.source) delete state.buffers[state.file]; else state.buffers[state.file] = text;
+      if (myId(state.file)) scheduleSave();
+      else {
+        const ex = sourceOf(state.file);
+        if (ex && text === ex.source) delete state.buffers[state.file]; else state.buffers[state.file] = text;
+      }
       markEdited();
       persist();
       clearTimeout(compileTimer);
@@ -191,60 +220,81 @@
     return m;
   }
 
-  // Examples
+  // The picker: your files, the code from the docs that's open, the examples and the standard library
   const sel = $('example');
-  const pickerGroups = new Map();
-  for (const ex of examples) {
-    const opt = document.createElement('option');
-    opt.value = ex.file;
-    opt.textContent = ex.title;
-    if (ex.blurb) opt.title = ex.blurb;
-    let g = pickerGroups.get(ex.group);
-    if (!g) {
-      g = ex.group ? document.createElement('optgroup') : sel;
-      if (ex.group) { g.label = ex.group; sel.appendChild(g); }
-      pickerGroups.set(ex.group, g);
+  const option = (value, text, title) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    if (title) o.title = title;
+    return o;
+  };
+  function renderPicker() {
+    sel.innerHTML = '';
+    const mine = document.createElement('optgroup');
+    mine.label = 'My files';
+    const list = fstore.list();
+    for (const f of list) mine.appendChild(option(MY + f.id, f.name, 'Your file, saved in this browser'));
+    if (!list.length) { const o = option('', 'None yet: File, then New file or Save as'); o.disabled = true; mine.appendChild(o); }
+    sel.appendChild(mine);
+    const d = docSource(state.file);
+    if (d) {
+      const g = document.createElement('optgroup');
+      g.label = 'From the docs';
+      g.appendChild(option(d.file, d.title));
+      sel.appendChild(g);
     }
-    g.appendChild(opt);
-  }
-  if (libFiles.length) {
-    const g = document.createElement('optgroup');
-    g.label = 'Standard library';
-    for (const f of byLib.values()) {
-      const opt = document.createElement('option');
-      opt.value = f.file;
-      opt.textContent = `stdlib: ${f.title}`;
-      opt.title = `${f.blurb ? f.blurb + '. ' : ''}Edit it to change every model that uses it.`;
-      g.appendChild(opt);
+    const groups = new Map();
+    for (const ex of examples) {
+      let g = groups.get(ex.group);
+      if (!g) {
+        g = document.createElement('optgroup');
+        g.label = ex.group === 'Parts' ? 'Examples' : ex.group === 'Libraries' ? 'Example libraries' : ex.group || 'Examples';
+        sel.appendChild(g);
+        groups.set(ex.group, g);
+      }
+      g.appendChild(option(ex.file, ex.title, ex.blurb));
     }
-    sel.appendChild(g);
+    if (libFiles.length) {
+      const g = document.createElement('optgroup');
+      g.label = 'Standard library';
+      for (const f of byLib.values()) g.appendChild(option(f.file, `stdlib: ${f.title}`, `${f.blurb ? f.blurb + '. ' : ''}Edit it to change every model that uses it.`));
+      sel.appendChild(g);
+    }
+    sel.value = state.file || '';
   }
-  sel.addEventListener('change', () => openExample(sel.value));
+  sel.addEventListener('change', () => { if (sel.value) openFile(sel.value); });
   $('reset').addEventListener('click', () => {
     delete state.buffers[state.file];
     persist();
-    openExample(state.file, true);
+    openFile(state.file, true);
   });
 
-  function openExample(file, fresh) {
-    const ex = sourceOf(file) || examples[0];
+  /** Open a file: yours, an example, a standard library file or code from the docs. */
+  function openFile(file, fresh) {
+    flushSave();
+    const ex = sourceOf(file) || sourceOf(defaultFile());
     if (!ex) return;
     state.file = ex.file;
-    sel.value = ex.file;
-    const edited = state.buffers[ex.file];
+    const kind = kindOf(ex.file);
+    const edited = kind === 'my' ? null : state.buffers[ex.file];
     editor.setValue(edited != null ? edited : ex.source);
     state.active = null;
-    if (inLib()) {
+    state.saving = kind === 'my' ? 'saved' : null;
+    if (kind === 'lib') {
       // a library file: show the example it previews with, in 3D (its silk marks in 2D)
       state.view = 'fp';
       state.dim = LIB_2D.has(ex.name) ? '2d' : '3d';
-    } else {
+    } else if (kind === 'example') {
       state.view = opensInLibrary(ex.file) && edited == null ? 'lib' : 'fp';
       if (OPEN_IN_3D.has(ex.file) && (edited == null || fresh)) state.dim = '3d';
+    } else {
+      state.view = 'fp';
     }
+    renderPicker();
     markEdited();
     compileNow();
-    if (edited == null || fresh) {
+    if (kind === 'example' && (edited == null || fresh)) {
       const needle = SHOWCASE[ex.file];
       const at = needle ? ex.source.indexOf(needle) : -1;
       editor.reveal(at >= 0 ? at : 0, at >= 0 ? at : 0, false);
@@ -253,15 +303,38 @@
     }
     persist();
   }
+  const defaultFile = () => (byFile.has('to252.stomp') ? 'to252.stomp' : (examples[0] && examples[0].file));
 
   function markEdited() {
+    const kind = kindOf(state.file);
     const ex = sourceOf(state.file);
-    const edited = ex && state.buffers[state.file] != null;
-    const lib = inLib();
+    const edited = kind !== 'my' && ex && state.buffers[state.file] != null;
     const pv = previewOf();
-    $('file-name').textContent = `${lib ? state.file : `examples/${state.file}`}${edited ? ' •' : ''}${pv ? ` (shown on ${pv.file})` : ''}`;
-    $('file-name').title = (edited ? 'Edited. Reset restores the original.' : '') + (lib ? ' A standard library file: edit it and every model that uses it follows.' : '');
+    let label, title = '', status = '';
+    if (kind === 'my') {
+      label = `${ex.title}.stomp`;
+      title = 'Your file, saved in this browser as you type. File, then Save to disk, keeps a copy on your computer.';
+      status = state.saving === 'pending' ? 'saving…' : state.saving === 'failed' ? 'not saved' : 'saved in this browser';
+    } else if (kind === 'doc') {
+      label = ex.title;
+      title = 'Code from the docs. File, then Save as, keeps a copy in your files.';
+    } else if (kind === 'lib') {
+      label = state.file;
+      title = 'A standard library file: edit it and every model that uses it follows.';
+    } else {
+      label = `examples/${state.file}`;
+      title = 'An example. Your edits are kept until you press Reset; File, then Save as, keeps a copy in your files.';
+    }
+    $('file-name').textContent = `${label}${edited ? ' •' : ''}${pv ? ` (shown on ${pv.file})` : ''}`;
+    $('file-name').title = (edited ? 'Edited. Reset restores the original. ' : '') + title;
+    $('file-status').textContent = status;
+    $('file-status').classList.toggle('bad', state.saving === 'failed' && kind === 'my');
+    const back = $('back-docs');
+    back.hidden = kind !== 'doc';
+    if (kind === 'doc') back.textContent = `Back to the ${ex.page.nav.toLowerCase()}`;
+    $('reset').hidden = kind === 'my';
     $('reset').disabled = !edited;
+    $('reset').title = kind === 'doc' ? 'Discard your edits to this code' : kind === 'lib' ? 'Discard your edits to this library file' : 'Discard your edits to this example';
   }
 
   // Compile
@@ -798,6 +871,19 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
+  // Where the browser lets a page ask where to save a file (Chromium, in its own tab),
+  // the page asks. True once it's handled, a cancel included.
+  files.pick = async (filename, text) => {
+    if (typeof window.showSaveFilePicker !== 'function' || window.top !== window) return false;
+    try {
+      const h = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: 'stomp file', accept: { 'text/plain': ['.stomp'] } }] });
+      const w = await h.createWritable();
+      await w.write(text);
+      await w.close();
+      toast(`Saved ${h.name}`);
+      return true;
+    } catch (e) { return !!(e && e.name === 'AbortError'); }
+  };
   /* @end-plain-download */
   files.canSave = () => !!(files.plain || files.host);
   files.save = async (filename, data) => {
@@ -859,8 +945,8 @@
       const skip = !f.result || errs.has(f.name) ? 'it has errors' : null;
       return { name: f.name, result: f.result, skip, model: skip ? null : modelFor(f.result).model };
     });
-    const lib = (state.file || 'stomp').replace(/\.stomp$/, '');
-    const L = S.kicad.library(fps, { lib, source: state.file ? `examples/${state.file}` : null });
+    const lib = fileStem();
+    const L = S.kicad.library(fps, { lib, source: sourceLabel() });
     if (!L.count) { toast('Nothing to export: every footprint has errors', true); return; }
     try {
       await files.save(`${L.lib}.pretty.zip`, S.model3d.toZip(L.files));
@@ -936,9 +1022,415 @@
     sync();
     files.onChange(sync);
   })();
-  $('about-btn').addEventListener('click', () => {
-    const d = $('about');
-    if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');
+
+
+  // Your files
+  /** The open file's name, for files saved from it: `soic8`, `My parts`. */
+  function fileStem() {
+    const kind = kindOf(state.file);
+    const ex = sourceOf(state.file);
+    if (kind === 'my') return ex.title;
+    if (kind === 'doc') return ex.page.key;
+    return (kind === 'lib' ? ex.name : state.file || 'stomp').replace(/\.stomp$/, '');
+  }
+  /** Where the open file came from, for comments in exported files. */
+  function sourceLabel() {
+    const kind = kindOf(state.file);
+    if (kind === 'my') return `${sourceOf(state.file).title}.stomp`;
+    if (kind === 'doc') return `the ${sourceOf(state.file).page.nav.toLowerCase()}`;
+    return kind === 'lib' ? state.file : `examples/${state.file}`;
+  }
+
+  // Autosave: your file is written a moment after you stop typing, and before
+  // another file opens or the page goes away.
+  let autosave = 0, edits = 0, warnedSave = false;
+  function scheduleSave() {
+    edits++;
+    state.saving = 'pending';
+    clearTimeout(autosave);
+    autosave = setTimeout(flushSave, 400);
+  }
+  async function flushSave() {
+    clearTimeout(autosave);
+    const id = myId(state.file);
+    if (!id || state.saving !== 'pending') return { ok: true };
+    const at = edits;
+    const r = await fstore.save(id, editor.getValue());
+    if (myId(state.file) === id && edits === at) { state.saving = r.ok ? 'saved' : 'failed'; markEdited(); }
+    if (!r.ok && !warnedSave) {
+      warnedSave = true;
+      toast('This browser isn\'t saving your file. Use File, then Save to disk, to keep it.', true);
+    }
+    return r;
+  }
+  window.addEventListener('pagehide', () => { flushSave(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+
+  // Ask the browser to keep the site's storage for good, after you first save a file
+  let askedToKeep = false;
+  function keepFiles() {
+    if (askedToKeep) return;
+    askedToKeep = true;
+    fstore.persist().then((v) => { if (v != null) state.persisted = v; });
+  }
+  fstore.persisted().then((v) => { state.persisted = v; });
+
+  const STARTER = `# A new file. The Tutorial, at the top right, goes through the language.
+
+footprint "R0805"
+  description: "Chip resistor, 0805"
+  refdes: "R"
+  body 2.0 x 1.25 x 0.5
+  pins 2 horizontal
+  lead endcap 0.4
+end
+`;
+
+  /** A name for a file of yours: the problem with it, or null. */
+  const nameProblem = (except) => (v) => {
+    const c = S.store.cleanName(v);
+    if (!c) return 'Give it a name';
+    const other = fstore.byName(c);
+    if (other && other.id !== except) return `You already have a file named "${c}"`;
+    return null;
+  };
+
+  // A name or a yes, asked in the page: a host that sandboxes it ignores prompt() and confirm()
+  function ask(o) {
+    return new Promise((resolve) => {
+      const d = $('ask'), form = $('ask-form'), input = $('ask-input'), err = $('ask-error'), ok = $('ask-ok'), cancel = $('ask-cancel');
+      const named = o.value != null;
+      $('ask-title').textContent = o.title;
+      $('ask-text').textContent = o.text || '';
+      $('ask-label').hidden = input.hidden = !named;
+      err.textContent = '';
+      ok.textContent = o.ok || 'OK';
+      ok.className = `btn ${o.danger ? 'danger' : 'primary'}`;
+      if (named) input.value = o.value;
+      const finish = (v) => {
+        form.removeEventListener('submit', onSubmit);
+        cancel.removeEventListener('click', onCancel);
+        d.removeEventListener('cancel', onCancel);
+        if (d.open) d.close();
+        resolve(v);
+      };
+      const onSubmit = (e) => {
+        e.preventDefault();
+        if (!named) { finish(true); return; }
+        const problem = o.validate ? o.validate(input.value) : null;
+        if (problem) { err.textContent = problem; input.focus(); return; }
+        finish(input.value);
+      };
+      const onCancel = (e) => { if (e) e.preventDefault(); finish(named ? null : false); };
+      form.addEventListener('submit', onSubmit);
+      cancel.addEventListener('click', onCancel);
+      d.addEventListener('cancel', onCancel);
+      if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');
+      if (named) { input.focus(); input.select(); } else ok.focus();
+    });
+  }
+
+  /** Save text to disk as NAME.stomp: where you choose, as a download, or zipped through the host. */
+  async function saveToDisk(stem, text) {
+    const fname = S.store.diskName(stem);
+    if (files.plain) {
+      if (files.pick && await files.pick(fname, text)) return;
+      files.plain(fname, text);
+      toast(`Downloaded ${fname}`);
+      return;
+    }
+    if (files.host) {
+      // the host saves .zip files but not .stomp ones
+      const zname = S.store.diskName(stem, 'zip');
+      try {
+        await files.save(zname, S.model3d.toZip([{ name: fname, data: new TextEncoder().encode(text) }]));
+        toast(`Saved ${zname}, with ${fname} inside`);
+      } catch (e) { saveFailed(e); }
+      return;
+    }
+    copyText(text, 'This page can\'t save files here, so the text is copied instead');
+  }
+
+  async function saveAllToDisk() {
+    const list = fstore.list();
+    if (!list.length) return;
+    const used = new Set();
+    const entries = list.map((f) => {
+      let name = S.store.diskName(f.name);
+      for (let k = 2; used.has(name.toLowerCase()); k++) name = S.store.diskName(`${f.name} ${k}`);
+      used.add(name.toLowerCase());
+      return { name, data: new TextEncoder().encode(f.source) };
+    });
+    try {
+      await files.save('stomp-files.zip', S.model3d.toZip(entries));
+      toast(`Saved stomp-files.zip: ${list.length} file${list.length === 1 ? '' : 's'}`);
+    } catch (e) { saveFailed(e); }
+  }
+
+  async function copyText(text, done) {
+    try { await navigator.clipboard.writeText(text); toast(done || 'Copied the text'); } catch (e) { toast('Copying to the clipboard failed', true); }
+  }
+
+  // Opening files from disk: .stomp or .txt files, or a .zip of them
+  async function addFile(fileName, text) {
+    if (/\u0000/.test(text)) throw new Error('it isn\'t a text file');
+    const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+    const base = S.store.cleanName(fileName.split(/[\\/]/).pop()) || 'Untitled';
+    const same = fstore.byName(base);
+    if (same && same.source === src) return { file: same, renamed: false, ok: true };
+    const r = await fstore.create(base, src);
+    return { file: r.file, renamed: r.file.name !== base, ok: r.ok };
+  }
+  async function importFiles(list) {
+    const added = [], notes = [];
+    for (const f of list) {
+      try {
+        if (/\.zip$/i.test(f.name)) {
+          const inside = (await S.store.readZip(new Uint8Array(await f.arrayBuffer()))).filter((x) => /\.stomp$/i.test(x.name));
+          if (!inside.length) { notes.push(`${f.name} has no .stomp files`); continue; }
+          for (const x of inside) added.push(await addFile(x.name, new TextDecoder().decode(x.data)));
+        } else if (f.size > 4 * 1024 * 1024) {
+          notes.push(`${f.name} is too big for a stomp file`);
+        } else {
+          added.push(await addFile(f.name, await f.text()));
+        }
+      } catch (e) { notes.push(`${f.name}: ${e.message}`); }
+    }
+    if (added.length) {
+      closeDocs(true);
+      openFile(MY + added[0].file.id);
+      keepFiles();
+    }
+    const first = added[0];
+    let msg = !added.length ? '' : added.length === 1
+      ? `Opened ${first.file.name}, saved in this browser${first.renamed ? ` (renamed: you had a file of that name)` : ''}`
+      : `Opened ${added.length} files, saved in this browser`;
+    if (added.some((a) => !a.ok)) msg += '. This browser isn\'t saving files: save them to disk to keep them';
+    if (notes.length) msg = [msg, `Not opened: ${notes.join('; ')}`].filter(Boolean).join('. ');
+    if (msg) toast(msg, !added.length || added.some((a) => !a.ok));
+  }
+  $('open-file').addEventListener('change', (e) => {
+    const list = [...e.target.files];
+    e.target.value = '';
+    if (list.length) importFiles(list);
+  });
+
+  // Drop files anywhere on the page to open them
+  (function dropFiles() {
+    const zone = $('drop');
+    let depth = 0;
+    const hasFiles = (e) => !!(e.dataTransfer && [...e.dataTransfer.types].includes('Files'));
+    window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; zone.hidden = false; });
+    window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+    window.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; zone.hidden = true; } });
+    window.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      zone.hidden = true;
+      importFiles([...e.dataTransfer.files]);
+    });
+  })();
+
+  // The File menu
+  const menuBtn = $('file-btn'), menu = $('file-menu');
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+  menu.querySelectorAll('kbd[data-mod]').forEach((k) => { k.textContent = (isMac ? '⌘' : 'Ctrl+') + k.textContent; });
+  function syncMenu() {
+    const kind = kindOf(state.file);
+    const mine = fstore.list().length;
+    const item = (act) => menu.querySelector(`[data-act="${act}"]`);
+    item('rename').disabled = kind !== 'my';
+    item('delete').disabled = kind !== 'my';
+    item('download').textContent = files.host && !files.plain ? 'Save to disk (.zip)' : 'Save to disk';
+    item('download').disabled = !files.canSave() && !(navigator.clipboard && navigator.clipboard.writeText);
+    item('download-all').disabled = !mine || !files.canSave();
+    const st = fstore.status();
+    const note = $('store-note');
+    note.classList.toggle('bad', !st.idb && !st.mirror);
+    note.textContent = !st.idb && !st.mirror ? 'This browser isn\'t letting the page save files, so save your work to disk.'
+      : state.persisted === true ? `Your files${mine ? ` (${mine})` : ''} are kept in this browser until you clear its data for this site.`
+        : `Your files${mine ? ` (${mine})` : ''} are kept in this browser${state.persisted === false ? ', which may clear them if it runs short of space' : ''}. Save to disk to keep a copy.`;
+  }
+  function openMenu() {
+    syncMenu();
+    menu.hidden = false;
+    menuBtn.setAttribute('aria-expanded', 'true');
+    const first = menu.querySelector('[role="menuitem"]:not(:disabled)');
+    if (first) first.focus();
+  }
+  function closeMenu(refocus) {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    menuBtn.setAttribute('aria-expanded', 'false');
+    if (refocus) menuBtn.focus();
+  }
+  menuBtn.addEventListener('click', () => (menu.hidden ? openMenu() : closeMenu()));
+  document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && !menuBtn.contains(e.target)) closeMenu(); });
+  menu.addEventListener('keydown', (e) => {
+    const items = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+    else if (e.key === 'Tab') closeMenu();
+  });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    closeMenu();
+    act(b.dataset.act);
+  });
+
+  async function act(what) {
+    const kind = kindOf(state.file);
+    const cur = sourceOf(state.file);
+    switch (what) {
+      case 'new': {
+        const v = await ask({ title: 'New file', text: 'It\'s saved in this browser as you type.', value: S.store.uniqueName('Untitled', fstore.names()), ok: 'Create', validate: nameProblem() });
+        if (v == null) return;
+        const r = await fstore.create(S.store.cleanName(v), STARTER);
+        closeDocs(true);
+        openFile(MY + r.file.id);
+        keepFiles();
+        editor.focus();
+        if (!r.ok) toast('This browser isn\'t saving files. Use File, then Save to disk, to keep your work.', true);
+        return;
+      }
+      case 'open-disk': $('open-file').click(); return;
+      case 'save':
+        if (kind !== 'my') { act('save-as'); return; }
+        if (state.saving !== 'pending') state.saving = 'pending';
+        keepFiles();
+        {
+          const r = await flushSave();
+          toast(r.ok ? `Saved ${cur.title} in this browser` : 'This browser isn\'t saving files. Use File, then Save to disk, to keep your work.', !r.ok);
+        }
+        return;
+      case 'save-as': {
+        const base = kind === 'my' ? cur.title : kind === 'doc' ? (state.active || 'Untitled') : fileStem();
+        const v = await ask({
+          title: 'Save as', text: kind === 'my' ? 'Saves a copy under a new name.' : 'Saves a copy in your files, in this browser.',
+          value: S.store.uniqueName(S.store.cleanName(base) || 'Untitled', fstore.names()), ok: 'Save', validate: nameProblem(),
+        });
+        if (v == null) return;
+        const r = await fstore.create(S.store.cleanName(v), editor.getValue());
+        openFile(MY + r.file.id);
+        keepFiles();
+        toast(r.ok ? `Saved ${r.file.name} in this browser` : 'This browser isn\'t saving files. Use File, then Save to disk, to keep your work.', !r.ok);
+        return;
+      }
+      case 'rename': {
+        if (kind !== 'my') return;
+        const v = await ask({ title: 'Rename', value: cur.title, ok: 'Rename', validate: nameProblem(myId(state.file)) });
+        if (v == null) return;
+        await fstore.rename(myId(state.file), S.store.cleanName(v));
+        renderPicker();
+        markEdited();
+        persist();
+        return;
+      }
+      case 'delete': {
+        if (kind !== 'my') return;
+        const yes = await ask({ title: `Delete ${cur.title}?`, text: 'It\'s removed from this browser for good. Save it to disk first if you want to keep a copy.', ok: 'Delete', danger: true });
+        if (!yes) return;
+        clearTimeout(autosave);
+        state.saving = null;
+        await fstore.remove(myId(state.file));
+        const next = fstore.list()[0];
+        openFile(next ? MY + next.id : defaultFile());
+        toast(`Deleted ${cur.title}`);
+        return;
+      }
+      case 'download': await saveToDisk(fileStem(), editor.getValue()); return;
+      case 'download-all': await saveAllToDisk(); return;
+      case 'copy': await copyText(editor.getValue()); return;
+      default:
+    }
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') { e.preventDefault(); act(e.shiftKey ? 'save-as' : 'save'); }
+    else if (k === 'o' && !e.shiftKey) { e.preventDefault(); act('open-disk'); }
+  });
+
+  // Changes from another tab
+  window.addEventListener('storage', (e) => fstore.handleStorageEvent(e));
+  fstore.onChange((ids) => {
+    renderPicker();
+    const id = myId(state.file);
+    if (id && ids.includes(id) && !fstore.get(id)) {
+      toast('This file was deleted in another tab. File, then Save as, keeps what\'s here.', true);
+    } else if (id && ids.includes(id) && state.saving !== 'pending' && fstore.get(id).source !== editor.getValue()) {
+      const pos = editor.cursor();
+      editor.setValue(fstore.get(id).source);
+      editor.reveal(Math.min(pos, editor.getValue().length), null, false);
+      compileNow();
+    }
+    markEdited();
+  });
+
+  // Docs: the tutorial, the reference and the rest, in place of the editor. Each page
+  // and heading has a #link, so the browser's back button and shared links work.
+  const docs = S.createDocs($('docs'), {
+    onBack: () => closeDocs(true),
+    onOpen: (file) => { closeDocs(true); openFile(file, true); },
+    onTry: (snip, page, k) => { closeDocs(true); openFile(`doc:${page.key}:${k}`); },
+  });
+  let lastDocsPage = 'reference';
+  function showDocs(page, anchor) {
+    flushSave();
+    closeMenu();
+    $('panes').hidden = true;
+    docs.show(page, anchor, !anchor);
+    const tut = page === 'tutorial';
+    if (!tut) lastDocsPage = page;
+    $('tutorial-btn')[tut ? 'setAttribute' : 'removeAttribute']('aria-current', 'page');
+    $('docs-btn')[tut ? 'removeAttribute' : 'setAttribute']('aria-current', 'page');
+    $('docs-btn').href = `#${lastDocsPage}`;
+  }
+  function closeDocs(clearHash) {
+    if (clearHash && docs.parse(location.hash)) {
+      try { history.pushState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; }
+    }
+    if (!docs.shown()) return;
+    docs.hide();
+    $('panes').hidden = false;
+    $('tutorial-btn').removeAttribute('aria-current');
+    $('docs-btn').removeAttribute('aria-current');
+    editor.remeasure();
+    showActive();
+  }
+  /** Show a docs page (and a code block on it) and give it its #link. */
+  function goDocs(page, anchor, snippet) {
+    const h = `#${anchor ? `${page}-${anchor}` : page}`;
+    if (location.hash !== h) {
+      try { history.pushState(null, '', h); } catch (e) { location.hash = h; return; }
+    }
+    showDocs(page, anchor);
+    if (snippet != null) docs.showSnippet(page, snippet);
+  }
+  function route() {
+    const r = docs.parse(location.hash);
+    if (r) showDocs(r.page, r.anchor); else closeDocs(false);
+  }
+  window.addEventListener('hashchange', route);
+  window.addEventListener('popstate', route);
+  // the header's links: open a page, or close it when it's the one shown
+  $('tutorial-btn').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (docs.shown() && docs.current() === 'tutorial') closeDocs(true); else goDocs('tutorial');
+  });
+  $('docs-btn').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (docs.shown() && docs.current() !== 'tutorial') closeDocs(true); else goDocs(lastDocsPage);
+  });
+  $('back-docs').addEventListener('click', () => {
+    const d = docSource(state.file);
+    if (d) goDocs(d.page.key, null, d.k);
   });
 
   // splitter
@@ -967,8 +1459,17 @@
     });
   })();
 
-  // Start
-  const start = saved.file && sourceOf(saved.file) ? saved.file : (byFile.has('to252.stomp') ? 'to252.stomp' : (examples[0] && examples[0].file));
-  if (start) openExample(start);
-  else { editor.setValue('footprint "NEW"\n  \nend\n'); compileNow(); }
+  // Start: the file you had open (or the first example), then the docs if the link asks
+  const start = saved.file && sourceOf(saved.file) ? saved.file : defaultFile();
+  if (start) openFile(start);
+  else { editor.setValue(STARTER); compileNow(); }
+  route();
+  // IndexedDB answers later: it may have files, or newer copies, that the quick copy missed
+  fstore.load().then((changed) => {
+    const id = myId(state.file);
+    if (id && changed.includes(id) && state.saving !== 'pending') openFile(state.file);
+    else if (!id && myId(saved.file) && fstore.get(myId(saved.file)) && state.file === start && state.buffers[start] == null) openFile(saved.file);
+    renderPicker();
+    markEdited();
+  });
 })();

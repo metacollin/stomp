@@ -1,4 +1,4 @@
-/* stomp live demo: 2D geometry.
+/* stomp: 2D geometry.
  *
  * Coordinates are mm, +x right, +y up (SPEC 6). Closed outlines are "contours":
  * lists of edges, each a straight line or a counterclockwise arc, so bounding

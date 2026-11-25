@@ -1249,7 +1249,7 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 - 3D: a per-pin `lead` naming a pin that doesn't exist or was omitted; `leads below:` or `leads above:` on leads that can't use them; a solid or color that can't be built; a model setting given twice in one block; a feature placed in a model block, which belongs in the footprint;
 - features: an unknown flag (with the nearest flag suggested), a flag between values or given twice, two sections that are both on and set one name side by side, a section setting a name the feature doesn't have, a feature placing itself too deep; an unknown function (with the nearest suggested), a wrong number of arguments, a value of the wrong kind (`sqrt` of a length, `asin(2)`, a color in arithmetic); an unknown color (with the nearest suggested);
 - a feature that replaces the standard library's but has a parameter the library never gives a value (a warning);
-- a problem inside the standard library's code is reported at the statement that used it (the `body`, the `lead`, the `pin1:`, a `body shape:`), naming the library features it went through. The 3D model's problems are found when it's built, so the demo lists them for the footprint on screen.
+- a problem inside the standard library's code is reported at the statement that used it (the `body`, the `lead`, the `pin1:`, a `body shape:`), naming the library features it went through. The 3D model's problems are found when it's built, so the editor lists them for the footprint on screen.
 
 ## 16. Formal grammar
 

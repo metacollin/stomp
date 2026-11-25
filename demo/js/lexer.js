@@ -1,4 +1,4 @@
-/* stomp live demo: the lexer (the lexical layer of grammar.peg, SPEC 4).
+/* stomp: the lexer (the lexical layer of grammar.peg, SPEC 4).
  *
  * Produces two streams:
  *   tokens: what the parser reads. Comments are dropped, and so are newlines that

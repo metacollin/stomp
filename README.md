@@ -4,24 +4,36 @@ A small language for describing PCB footprints. One `.stomp` file gives you the
 **2D land pattern** (copper, mask, paste, silk, courtyard, assembly) and, if you want
 it, a **3D model** of the part.
 
-> **Status: design draft.** The syntax and grammar are written down. A JavaScript
-> prototype of the whole pipeline runs the [live demo](demo/); the real implementation
-> doesn't exist yet. See [`SPEC.md`](SPEC.md) for the language and
-> [`grammar.peg`](grammar.peg) for the formal grammar.
+> **Status: early.** The language is written down in [`SPEC.md`](SPEC.md), with the
+> formal grammar in [`grammar.peg`](grammar.peg). stomp itself runs in the browser:
+> the editor in [`demo/`](demo/) parses, checks, draws and exports every part of it.
 
-## Live demo
+## The editor
 
-[`demo/`](demo/) is a stomp editor that runs in the browser. Type on the left and the
+[`demo/`](demo/) is stomp: an editor that runs in the browser. Type on the left and the
 footprint redraws on the right. It draws the copper, paste, mask, silk, courtyard and fab
 layers, and shows the dimension of the placement under your cursor. Switch to **3D** to
 see the part's model on a board. **Export to KiCad** saves the file as a KiCad 9
 footprint library, with each footprint's 3D model embedded.
 
-Open `demo/index.html` in a browser. There's nothing to install, serve or build. The
-libraries in the example picker each build a whole family of footprints from tables:
-chip passives, SOT, SOP, QFP, QFN, DFN, BGA and CGA, diodes, tantalums, polymer caps,
-power inductors, crystals, LEDs, DIPs and pin headers. See [`demo/README.md`](demo/README.md) for
-details, including the choices the prototype made where the draft is open.
+Open `demo/index.html` in a browser. There's nothing to install, serve or build. Your
+files are saved in the browser as you type, and the **File** menu saves them to disk and
+opens them again. The libraries in the file picker each build a whole family of
+footprints from tables: chip passives, SOT, SOP, QFP, QFN, DFN, BGA and CGA, diodes,
+tantalums, polymer caps, power inductors, crystals, LEDs, DIPs and pin headers. See
+[`demo/README.md`](demo/README.md) for how it's built and tested.
+
+## Documentation
+
+The same pages open in the editor, under **Tutorial** and **Docs**:
+
+- [Tutorial](docs/tutorial.md): from a two-pad resistor to a library with 3D models, in
+  twelve steps you can try as you read.
+- [Language reference](docs/reference.md): every statement, with an example.
+- [Using stomp](docs/using.md): the editor, your files, 3D and KiCad export.
+- [Standard library](stdlib/README.md): the shapes, symbols, packages and colors stomp's
+  models are built from.
+- [Specification](SPEC.md): the language in full, with the reasons for its choices.
 
 ## Why
 
@@ -158,9 +170,10 @@ SPEC §12.1 and §13.5, [`examples/tht_parts.stomp`](examples/tht_parts.stomp) a
 |---|---|
 | [`SPEC.md`](SPEC.md) | the language spec: design, meaning, and every statement |
 | [`grammar.peg`](grammar.peg) | the formal PEG grammar, written to map onto PEGTL |
+| [`docs/`](docs/) | the tutorial, the language reference and the guide to the editor |
 | [`examples/`](examples/) | 19 files of single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 15 libraries with over 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
 | [`stdlib/`](stdlib/) | the standard library: the features that draw every 3D model and the automatic silk marks, and shapes, symbols and packages to build with ([reference](stdlib/README.md)) |
-| [`demo/`](demo/) | the browser editor and its JavaScript engine, with tests |
+| [`demo/`](demo/) | stomp itself: the browser editor and its JavaScript engine, with tests |
 
 ## Name
 

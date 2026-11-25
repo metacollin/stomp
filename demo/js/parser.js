@@ -1,4 +1,4 @@
-/* stomp live demo: the parser.
+/* stomp: the parser.
  *
  * Recursive descent over the tokens, following grammar.peg rule by rule (choices
  * are tried in the grammar's order). Every node has its source range { s, e }

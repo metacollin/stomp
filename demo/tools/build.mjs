@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-// Demo build script. No dependencies.
+// Build script for the stomp editor in demo/. No dependencies.
 //
-//   node demo/tools/build.mjs                 rebuild demo/js/examples.js from examples/*.stomp
-//                                             and demo/js/stdlib.js from stdlib/*.stomp
-//   node demo/tools/build.mjs --check         fail if either is out of date
-//   node demo/tools/build.mjs --bundle FILE   also write the whole demo as one HTML file
+//   node demo/tools/build.mjs                 rebuild demo/js/examples.js from examples/*.stomp,
+//                                             demo/js/stdlib.js from stdlib/*.stomp and
+//                                             demo/js/docs.js from the docs (DOCS below)
+//   node demo/tools/build.mjs --check         fail if any of them is out of date
+//   node demo/tools/build.mjs --bundle FILE   also write the whole editor as one HTML file
 //         [--fragment]                        leave out <html>, <head> and <body>, for hosts that add
 //                                             their own. Those hosts sandbox the page, so exports
 //                                             go through the host or the clipboard.
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { readFileSync, writeFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { render } from './md.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const demo = resolve(here, '..');
@@ -23,6 +26,17 @@ const LIB_ORDER = [
   'colors.stomp', 'shapes.stomp', 'symbols.stomp', 'marks.stomp', 'molded.stomp', 'leadless.stomp', 'chips.stomp',
   'arrays.stomp', 'cans.stomp', 'leds.stomp', 'through_hole.stomp', 'packages.stomp', 'modules.stomp', 'silk.stomp',
 ];
+
+// The documentation pages, in the order the docs view lists them. Each is a Markdown
+// file of the repository, so it reads the same on GitHub. Its key starts its #links.
+export const DOCS = [
+  { key: 'tutorial', file: 'docs/tutorial.md', nav: 'Tutorial' },
+  { key: 'reference', file: 'docs/reference.md', nav: 'Language reference' },
+  { key: 'using', file: 'docs/using.md', nav: 'Using stomp' },
+  { key: 'library', file: 'stdlib/README.md', nav: 'Standard library' },
+  { key: 'spec', file: 'SPEC.md', nav: 'Specification' },
+];
+export const GITHUB = 'https://github.com/metacollin/stomp';
 
 // Order in the example picker. Files not listed go last, by name. The picker
 // puts files named *_library.stomp in a group of their own.
@@ -80,6 +94,54 @@ function stdlibJs() {
 `;
 }
 
+/**
+ * Where a link in a docs page goes: another page (`#key`, `#key-heading`), an example
+ * or library file (opened in the editor, with GitHub as the fallback), or GitHub.
+ */
+export function docsLink(page) {
+  const dir = posix.dirname(page.file);
+  return (href) => {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return { href, external: true };
+    const at = href.indexOf('#');
+    const path = at < 0 ? href : href.slice(0, at), anchor = at < 0 ? '' : href.slice(at + 1);
+    if (!path) return { href: anchor ? `#${page.key}-${anchor}` : `#${page.key}` };
+    const rel = posix.normalize(posix.join(dir, path)).replace(/^\.\//, '').replace(/\/$/, '');
+    const target = DOCS.find((d) => d.file === rel);
+    if (target) return { href: anchor ? `#${target.key}-${anchor}` : `#${target.key}` };
+    const abs = join(repo, rel);
+    const isDir = path.endsWith('/') || (existsSync(abs) && statSync(abs).isDirectory());
+    const url = `${GITHUB}/${isDir ? 'tree' : 'blob'}/HEAD/${rel}${anchor ? `#${anchor}` : ''}`;
+    if (/^examples\/[\w.-]+\.stomp$/.test(rel)) return { href: url, external: true, open: rel.slice('examples/'.length) };
+    if (/^stdlib\/[\w.-]+\.stomp$/.test(rel)) return { href: url, external: true, open: rel };
+    return { href: url, external: true };
+  };
+}
+
+/** Every docs page, rendered. A code block gets Try it only if it compiles on its own. */
+export function docsPages() {
+  const require = createRequire(import.meta.url);
+  const js = join(demo, 'js');
+  for (const k of Object.keys(require.cache)) if (k.startsWith(js)) delete require.cache[k];
+  const { compile } = require(join(js, 'compile.js'));
+  return DOCS.filter((d) => existsSync(join(repo, d.file))).map((d) => {
+    const r = render(readFileSync(join(repo, d.file), 'utf8'), { prefix: `${d.key}-`, link: docsLink(d) });
+    for (const s of r.snippets) {
+      if (!s.runnable) continue;
+      const out = compile(s.code, { cache: false });
+      s.runnable = out.footprints.length > 0 && !out.diagnostics.some((x) => x.severity === 'error');
+    }
+    return { key: d.key, nav: d.nav, title: r.title || d.nav, file: d.file, html: r.html, toc: r.toc, snippets: r.snippets };
+  });
+}
+
+function docsJs() {
+  return `/* Generated from the docs (${DOCS.map((d) => d.file).join(', ')}) by demo/tools/build.mjs. Don't edit. */
+(function (root) {
+  (root.Stomp = root.Stomp || {}).docs = ${JSON.stringify({ github: GITHUB, pages: docsPages() })};
+})(typeof self !== 'undefined' ? self : this);
+`;
+}
+
 function examplesJs() {
   const list = exampleList();
   return `/* Generated from examples/*.stomp by demo/tools/build.mjs. Don't edit. */
@@ -101,7 +163,7 @@ function bundle(fragment) {
     // a host that takes a fragment sandboxes it, so exports go through the host
     // and the plain download code is left out
     html = html.replace(/<script>/, '<script>window.STOMP_SANDBOXED = true;</script>\n<script>');
-    html = html.replace(/\/\* @plain-download \*\/[\s\S]*?\/\* @end-plain-download \*\/\n?/, '');
+    html = html.replace(/\/\* @plain-download \*\/[\s\S]*?\/\* @end-plain-download \*\/\n?/g, '');
     html = html
       .replace(/<!doctype html>\s*/i, '')
       .replace(/<html[^>]*>\s*/i, '').replace(/\s*<\/html>\s*$/i, '\n')
@@ -113,22 +175,29 @@ function bundle(fragment) {
   return html;
 }
 
-const args = process.argv.slice(2);
-const outputs = [[join(demo, 'js', 'examples.js'), examplesJs()], [join(demo, 'js', 'stdlib.js'), stdlibJs()]];
-if (args.includes('--check')) {
-  let stale = 0;
-  for (const [target, fresh] of outputs) {
-    const cur = existsSync(target) ? readFileSync(target, 'utf8') : '';
-    const rel = target.slice(repo.length + 1);
-    if (cur !== fresh) { console.error(`${rel} is out of date. Run: node demo/tools/build.mjs`); stale++; } else console.log(`${rel} is up to date`);
+// run only as a script, so tests can import DOCS and docsPages
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+
+function main() {
+  const args = process.argv.slice(2);
+  // docs.js last: its Try it buttons come from compiling with the library just written
+  const outputs = [[join(demo, 'js', 'examples.js'), examplesJs], [join(demo, 'js', 'stdlib.js'), stdlibJs], [join(demo, 'js', 'docs.js'), docsJs]];
+  if (args.includes('--check')) {
+    let stale = 0;
+    for (const [target, make] of outputs) {
+      const fresh = make();
+      const cur = existsSync(target) ? readFileSync(target, 'utf8') : '';
+      const rel = target.slice(repo.length + 1);
+      if (cur !== fresh) { console.error(`${rel} is out of date. Run: node demo/tools/build.mjs`); stale++; } else console.log(`${rel} is up to date`);
+    }
+    if (stale) process.exit(1);
+  } else {
+    for (const [target, make] of outputs) { writeFileSync(target, make()); console.log(`wrote ${target}`); }
   }
-  if (stale) process.exit(1);
-} else {
-  for (const [target, fresh] of outputs) { writeFileSync(target, fresh); console.log(`wrote ${target}`); }
-}
-const bi = args.indexOf('--bundle');
-if (bi >= 0) {
-  const out = resolve(args[bi + 1] || join(demo, 'stomp-live.html'));
-  writeFileSync(out, bundle(args.includes('--fragment')));
-  console.log(`wrote ${out}`);
+  const bi = args.indexOf('--bundle');
+  if (bi >= 0) {
+    const out = resolve(args[bi + 1] || join(demo, 'stomp.html'));
+    writeFileSync(out, bundle(args.includes('--fragment')));
+    console.log(`wrote ${out}`);
+  }
 }

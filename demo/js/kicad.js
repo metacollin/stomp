@@ -1,4 +1,4 @@
-/* stomp live demo: KiCad export.
+/* stomp: KiCad export.
  *
  * footprint(res, opts) writes a KiCad 9 footprint (.kicad_mod) with its 3D model
  * embedded. library(fps, opts) writes a whole .pretty folder as zip entries.
@@ -430,7 +430,7 @@
       if (out.embedded) models++;
     }
     const lines = [
-      `${lib}.pretty: ${done.length} footprint${done.length === 1 ? '' : 's'}${opts.source ? ` from ${opts.source}` : ''}, exported by stomp live.`,
+      `${lib}.pretty: ${done.length} footprint${done.length === 1 ? '' : 's'}${opts.source ? ` from ${opts.source}` : ''}, exported by stomp.`,
       '',
       models ? `${models} of them embed their generated 3D model (VRML), so the library needs no 3D model folder.` : 'None of them has a 3D model.',
       'These are KiCad 9 footprints. They open in KiCad 9 or later.',

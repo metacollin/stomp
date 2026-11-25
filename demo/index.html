@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>stomp live</title>
+<title>stomp</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Write stomp footprint code and watch the land pattern and its 3D model update as you type.">
+<meta name="description" content="stomp, a language for PCB footprints: write the code and watch the land pattern and its 3D model update as you type.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -14,24 +14,47 @@
 <body>
 <div class="app" id="app">
   <header class="top">
-    <a class="brand" href="https://github.com/metacollin/stomp" title="stomp on GitHub">
+    <span class="brand">
       <svg class="mark" viewBox="0 0 28 16" aria-hidden="true"><rect x="1" y="2" width="9" height="12" rx="2"></rect><rect x="18" y="2" width="9" height="12" rx="2"></rect><path d="M12.5 8h3"></path></svg>
-      <span class="word">stomp</span><span class="live">live</span>
-    </a>
+      <span class="word">stomp</span>
+    </span>
     <div class="picker">
-      <label for="example">Example</label>
-      <select id="example"></select>
+      <div class="menu-wrap">
+        <button id="file-btn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu">File</button>
+        <div class="menu" id="file-menu" role="menu" aria-label="File" hidden>
+          <button type="button" role="menuitem" data-act="new">New file…</button>
+          <button type="button" role="menuitem" data-act="open-disk">Open from disk…</button>
+          <div class="menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" data-act="save">Save<kbd class="mk" data-mod>S</kbd></button>
+          <button type="button" role="menuitem" data-act="save-as">Save as…</button>
+          <button type="button" role="menuitem" data-act="rename">Rename…</button>
+          <button type="button" role="menuitem" data-act="delete">Delete…</button>
+          <div class="menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" data-act="download" id="act-download">Save to disk</button>
+          <button type="button" role="menuitem" data-act="download-all" id="act-download-all">Save all my files to disk</button>
+          <button type="button" role="menuitem" data-act="copy">Copy the text</button>
+          <p class="menu-note" id="store-note"></p>
+        </div>
+      </div>
+      <select id="example" aria-label="Open a file or an example"></select>
       <button id="reset" class="btn ghost" type="button" title="Discard your edits to this example">Reset</button>
     </div>
     <div class="spacer"></div>
-    <button id="export-kicad" class="btn" type="button">Export to KiCad</button>
-    <button id="about-btn" class="btn ghost" type="button" aria-haspopup="dialog">How it works</button>
+    <nav class="links" aria-label="Help and export">
+      <a id="tutorial-btn" class="btn ghost" href="#tutorial">Tutorial</a>
+      <a id="docs-btn" class="btn ghost" href="#reference">Docs</a>
+      <button id="export-kicad" class="btn" type="button">Export to KiCad</button>
+      <a class="btn ghost gh" href="https://github.com/metacollin/stomp" target="_blank" rel="noopener" title="stomp on GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg><span>GitHub</span></a>
+    </nav>
+    <input type="file" id="open-file" accept=".stomp,.txt,.zip,text/plain,application/zip" multiple hidden>
   </header>
 
   <main class="panes" id="panes">
     <section class="pane src" aria-label="stomp source">
       <div class="pane-head">
         <span class="file" id="file-name">untitled.stomp</span>
+        <span class="file-status" id="file-status"></span>
+        <button type="button" class="linkish back-docs" id="back-docs" hidden></button>
         <span class="hint">compiles as you type</span>
         <span class="ms" id="compile-ms" title="Compile time"></span>
       </div>
@@ -85,54 +108,28 @@
       <div class="details" id="details"></div>
     </section>
   </main>
+
+  <section class="docs" id="docs" aria-label="Documentation" hidden>
+    <nav class="docs-nav" id="docs-nav" aria-label="Documentation pages"></nav>
+    <article class="docs-body" id="docs-body"></article>
+  </section>
 </div>
 
-<dialog id="about" class="about" aria-labelledby="about-title">
-  <form method="dialog" class="about-close"><button class="btn ghost" type="submit" aria-label="Close">Close</button></form>
-  <h2 id="about-title">How this demo works</h2>
-  <p>Everything runs in your browser. On every keystroke, a JavaScript version of the <a href="https://github.com/metacollin/stomp/blob/main/SPEC.md">stomp draft spec</a>
-    parses the file (following <code>grammar.peg</code>), expands templates and inheritance, generates pads, solves the
-    placements and draws each layer.</p>
-  <h3>Using it</h3>
-  <ul>
-    <li><b>Type</b> on the left. The footprint redraws when you pause. Errors are underlined and listed under the code.</li>
-    <li><b>The syntax:</b> a block is a header line, its statements, then <code>end</code>. A named value takes a colon (<code>pitch: 1.27</code>), and <code>w = 1.2</code> gives a name a value. A keyword counts only where the grammar expects it, so a name can be any word but <code>x</code> and <code>end</code>.</li>
-    <li><b>Put the cursor on a statement</b> to highlight what it creates or moves. Placements draw their dimension on the footprint: <code>pad 3 is 4.56 right of pad 1</code> shows the 4.56 between the two pad centers.</li>
-    <li><b>Hover over a pad</b> to see its size, position, mask and paste. The lines that made it light up. <b>Click</b> it to jump to the statement that defines it.</li>
-    <li><b>Drag</b> to pan, <b>scroll</b> or pinch to zoom, <b>double-click</b> to fit. The preview follows the footprint your cursor is in.</li>
-    <li><b>3D</b> shows the part on a board. The model comes from the body, pins and lead form: <code>lead gullwing ...</code> bends gull-wing leads down to the span, <code>lead ball</code> puts balls under a substrate, <code>lead endcap</code> caps a chip. A <code>model</code> block changes the standoff, height, draft, colors and pin-1 mark, or adds boxes and cylinders. <code>lead 4 gullwing 3.0 x 0.9</code> gives one pin its own lead and land. You can export the model as VRML (for KiCad) or STL.</li>
-    <li><b>Export to KiCad</b> saves every footprint in the file as a KiCad 9 library (a zipped <code>.pretty</code> folder). Each footprint carries its own 3D model, so there's no model folder.</li>
-    <li><b>Libraries:</b> a template can name the footprints it makes (<code>name: "QFN-{n}-..."</code>), and <code>footprints from qfn</code>, a table and <code>end</code> make one per table row. <b>Library</b> shows every footprint in the file. Put the cursor on a row to see that one. The libraries are at the bottom of the example picker.</li>
-    <li><b>Units and sizes:</b> numbers are in mm unless the file or a footprint says <code>units: mil</code>, or a number has its own unit (<code>50mil</code>). Mark a size's sides when a drawing gives the height first: <code>rect 1.6h x 1.1w</code>.</li>
-    <li><b>Custom marks:</b> define <code>feature plus</code> once (its lines, then <code>end</code>), then use it as <code>pin1: plus</code> or place it with <code>feature plus at pad 2</code>.</li>
-    <li><b>The models are stomp too.</b> Every body, lead and mark is drawn by a feature of the standard library, whose files are at the bottom of the example picker. Edit one and every model that uses it follows. In your own file, a feature with a library feature's name replaces it (<code>feature can_vent(D)</code> … <code>end</code>), and <code>body shape: NAME</code> in a footprint's <code>model</code> block gives one footprint its own body. A feature chooses with <b>sections</b>, turned on by flags in the call: <code>feature tick(long) at …</code> includes its <code>section long</code>. The library also has packages to name (<code>body shape: to220</code>), shapes to build bodies from (<code>rounded_box</code>, <code>hex_prism</code>, …) and silk symbols (<code>pin1: triangle</code>). See the <i>Custom models</i> and <i>Through-hole parts</i> examples.</li>
-    <li>In the editor: <kbd>Tab</kbd> indents, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>/</kbd> toggles comments, <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor.</li>
-  </ul>
-  <h3>Choices the draft leaves open</h3>
-  <p>Where the spec doesn't settle a meaning, the demo picks one:</p>
-  <ul>
-    <li><b>Generated pads are sized across × along.</b> For <code>pins ...</code>, <code>W x L</code> is the width across the row by the length along the lead, and each side's pads turn to face outward. That's how <code>default pad rect 0.6 x 2.2</code> reads in the SOIC hand-solder variant.</li>
-    <li><b>The origin rule places floating layouts.</b> A footprint placed only by relations (TO-252) has no fixed starting point, so it's solved from its first object and then centered on the body.</li>
-    <li><b>One coordinate frame.</b> <code>at (x, y)</code> and graphics use the same coordinates. <code>origin</code> then moves the finished footprint's (0, 0).</li>
-    <li><b>IPC-style lands</b> use IPC-7351B fillet goals with nominal part dimensions (no part tolerances), F = 0.05 mm, P = 0.025 mm, rounded corners at 25%. Ball lands are 80% of the ball. Mask expansion defaults to 0.05 mm per side.</li>
-    <li><b>Courtyards are rectangles.</b> The automatic one is the smallest rectangle around the lands and body, plus the IPC clearance. A drawn one is <code>courtyard: rect W x L</code>.</li>
-    <li><b>Interpolation prints numbers in their shortest form.</b> Lengths print in the file's units, and <code>{e:.2}</code> sets two decimals.</li>
-    <li><b>The body's height is the seated height</b> (JEDEC <i>A</i>), from the board to the top of the part. The body sits on its standoff (<i>A1</i>), which defaults by lead form: 0.1 mm for gull-wings, 0.02 mm for leadless parts, three quarters of the ball for a BGA.</li>
-    <li><b>Small grammar extensions.</b> <code>omit</code> and <code>only</code> take name ranges (<code>only 1..5</code>, used in the syntax zoo), and sizes can be written without spaces (<code>0.6x1.5</code>).</li>
-  </ul>
-  <h3>Not in this demo</h3>
-  <p><code>step</code> files aren't loaded. A footprint that names one shows the generated model instead, and its KiCad export points to the file rather than embedding a model. Castellated leads get a temporary land until the spec settles them (open question 17.7), though the model draws their plating. Export is for KiCad 9 and later only.</p>
-  <h3>Layers</h3>
-  <dl class="key">
-    <div><dt><i class="sw cu"></i>Copper</dt><dd>pads, with drills and thermal vias</dd></div>
-    <div><dt><i class="sw paste"></i>Paste</dt><dd>stencil openings, including windowpanes</dd></div>
-    <div><dt><i class="sw mask"></i>Mask</dt><dd>solder-mask openings (off by default)</dd></div>
-    <div><dt><i class="sw silk"></i>Silk</dt><dd>outline kept clear of copper, plus pin-1 and polarity marks</dd></div>
-    <div><dt><i class="sw crt"></i>Courtyard</dt><dd>outline around the lands and body, plus IPC clearance</dd></div>
-    <div><dt><i class="sw fab"></i>Fab</dt><dd>assembly outline and reference</dd></div>
-    <div><dt><i class="sw dim"></i>Constraints</dt><dd>dimensions from placement statements</dd></div>
-  </dl>
+<dialog id="ask" class="ask" aria-labelledby="ask-title">
+  <form method="dialog" id="ask-form">
+    <h2 id="ask-title">Save as</h2>
+    <p id="ask-text" class="ask-text"></p>
+    <label id="ask-label" for="ask-input">Name</label>
+    <input id="ask-input" type="text" autocomplete="off" spellcheck="false" maxlength="80">
+    <p id="ask-error" class="ask-error" role="alert"></p>
+    <div class="ask-buttons">
+      <button type="button" class="btn ghost" id="ask-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="ask-ok">Save</button>
+    </div>
+  </form>
 </dialog>
+
+<div id="drop" class="drop" hidden><p>Drop <code>.stomp</code> files (or a <code>.zip</code> of them) to open them</p></div>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
@@ -147,6 +144,9 @@
 <script src="js/model3d.js"></script>
 <script src="js/view3d.js"></script>
 <script src="js/kicad.js"></script>
+<script src="js/store.js"></script>
+<script src="js/docs.js"></script>
+<script src="js/docsview.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

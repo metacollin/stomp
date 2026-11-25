@@ -1,10 +1,10 @@
 # Language reference
 
 stomp describes a PCB footprint in a text file: the land pattern (copper, drills, mask,
-paste, silkscreen, courtyard, assembly drawing) and, if you want it, a 3D model. You can
-give the pads directly (*land mode*), describe the part and let stomp derive them (*part
+paste, silkscreen, courtyard, assembly drawing) and, if you want it, a 3D model. You give
+the pads directly (*land mode*), describe the part and let stomp derive them (*part
 mode*), or mix the two. This page lists every statement by task, with links to the
-[specification](../SPEC.md) for the fine print. The [tutorial](tutorial.md) teaches the
+[specification](../SPEC.md) for the fine print; the [tutorial](tutorial.md) teaches the
 language step by step, and [using stomp](using.md) covers the editor.
 
 In syntax lines, CAPITALS are values you supply, `[ ]` marks an optional part, `…` means
@@ -30,8 +30,11 @@ complete files.
 
 A file holds footprints, `footprints` tables, templates, features, named values and
 `units:` lines, in any order: a footprint can use a name, template or feature defined
-further down. `#` starts a comment that runs to the end of the line.
-[SPEC §5](../SPEC.md#5-files-footprints-metadata)
+further down. `#` starts a comment that runs to the end of the line. A statement takes a
+line, and `;` separates statements that share one; a newline inside parentheses, or after
+a `,` or an operator, doesn't end one. A block is a header line, its statements and
+`end`. Blocks nest, and stomp goes by `end`, not indentation, so
+`section fine; c = 0.15; end` is a whole block. [SPEC §4](../SPEC.md#4-lexical-structure)
 
 ```stomp
 L = 1.6                                 # a name for the datasheet's L
@@ -44,25 +47,17 @@ footprint "R_0603_1608Metric"           # a block: its header line,
 end                                     # then `end`
 ```
 
-### Statements and blocks
-
-A statement takes one line, and `;` separates statements that share one. A newline
-inside parentheses, or after a `,` or an operator, doesn't end a statement. A block is a
-header line, its statements and `end`. Blocks nest, and stomp goes by `end`, not
-indentation: `section fine; c = 0.15; end` is a whole block.
-[SPEC §4](../SPEC.md#4-lexical-structure)
-
 ### Named values, keywords and names
 
 A word with a colon names the value after it: `pitch: 1.27` (the space is optional).
 Words that relate things (`at`, `is`, `of`, `to`, `with`, `and`, …) and flags (`fill`,
-`tht`, `inner`, …) take no colon. Keywords count only where the grammar expects them, so
+`tht`, `inner`, …) take none. Keywords count only where the grammar expects them, so
 `draft` or `pitch` can name a value; only `x` and `end` are reserved everywhere.
 
-`NAME = value` names a value for the file or inside one footprint: type a datasheet's
-letter dimensions in once. A name gets one value per level, and a footprint's names hide
-the file's. Pads, holes, rows and groups are named by a whole number, an identifier or a
-string (`pad 14`, `hole M1`, `pad "D+"`); one named after a keyword is quoted, `pad "at"`.
+`NAME = value` names a value for the file or one footprint, so a datasheet's letter
+dimensions go in once. A name gets one value per level, and a footprint's hide the file's.
+Pads, holes, rows and groups are named by a whole number, an identifier or a string
+(`pad 14`, `hole M1`, `pad "D+"`); one named after a keyword is quoted: `pad "at"`.
 [SPEC §7](../SPEC.md#7-values-expressions-names)
 
 ### Strings and interpolation
@@ -109,12 +104,12 @@ name touching its `(` is a call. `pi` is 3.14159…, and none of these names is 
 
 ### Colors
 
-A color is `"#rrggbb"`, a built-in name, a [palette](../stdlib/README.md#colorsstomp) name
-from the standard library (`can_blue`, `ferrite`, `led_green`, …), `mix(…)` or
-`metal(…)`. The built-in names are `black`, `gray`, `white`, `red`, `green`, `blue`,
-`yellow`, `orange`, `brown`, `tan`, `ceramic` and the shiny metals `tin`, `silver`,
-`gold`, `copper` and `aluminum`. Your own names come first, then the built-ins, then the
-palette. Colors take no arithmetic. [SPEC §7](../SPEC.md#7-values-expressions-names)
+A color is `"#rrggbb"`, a built-in name, a name from the library's
+[palette](../stdlib/README.md#colorsstomp) (`can_blue`, `ferrite`, …), `mix(…)` or
+`metal(…)`. The built-ins are `black`, `gray`, `white`, `red`, `green`, `blue`, `yellow`,
+`orange`, `brown`, `tan`, `ceramic` and the shiny metals `tin`, `silver`, `gold`,
+`copper` and `aluminum`. Your names come first, then the built-ins, then the palette.
+Colors take no arithmetic. [SPEC §7](../SPEC.md#7-values-expressions-names)
 
 ## Footprints and metadata
 
@@ -240,14 +235,10 @@ members). [SPEC §9.2](../SPEC.md#92-directional-relations-is--of),
 creating A if needed. `span A to B is D`, `gap A to B is D` and `pitch A to B is D`
 measure outer edges, facing edges and centers, along the axis of a mirror or `align`
 between the two, or of `horizontally` or `vertically` added at the end. One measurement
-places a mirrored pair not yet placed: B on the -x side for `across y`, on the +y side
-for `across x`. Otherwise it places whichever is free, B on A's positive side.
+places a mirrored pair not yet placed, B on the -x side for `across y` and the +y side
+for `across x`: `pad "SH4" mirrors pad "SH3" across y` and `span pad "SH3" to pad "SH4"
+is 8.0`. Otherwise it places whichever is free, B on A's positive side.
 [SPEC §9.4](../SPEC.md#94-symmetry-mirrors-and-measured-pairs-span--gap--pitch)
-
-```stomp
-pad "SH4" mirrors pad "SH3" across y    # SH3 takes the -x side
-span pad "SH3" to pad "SH4" is 8.0
-```
 
 ### Centering, alignment, rows and groups
 
@@ -482,15 +473,10 @@ end
 
 ### Courtyard
 
-A courtyard is always one rectangle. The last `courtyard:` line wins; two in one
-footprint get a warning.
-
-| form | courtyard |
-|---|---|
-| `courtyard: auto [C]` | the automatic one, the default; C sets the clearance |
-| `courtyard: rect W x L` | W x L, centered on the body |
-| `courtyard: rect (x, y) W x L` | W x L, centered on (x, y) |
-| `courtyard: polygon (x, y) (x, y) (x, y) (x, y)` | four corners, with sides along x and y |
+A courtyard is always one rectangle: `courtyard: auto [C]`, the automatic one with
+clearance C; `courtyard: rect W x L`, centered on the body; `courtyard: rect (x, y)
+W x L`; or `courtyard: polygon` with four corners and sides along x and y. The last
+`courtyard:` line wins, and two in one footprint get a warning.
 
 ## Templates, tables and inheritance
 
@@ -617,37 +603,30 @@ Sections are how a feature chooses; stomp has no `if`.
 ### Replacing a library feature
 
 A feature named like one of the standard library's replaces it everywhere in your file,
-even where the library uses it. Yours must take what the library passes; a parameter it
-never fills gets a warning unless it has a default. The
-[standard library page](../stdlib/README.md) lists the features and what each takes.
-[SPEC §13.5](../SPEC.md#135-the-standard-library)
-
-```stomp
-feature pin1_dot(d = 0.3)               # every `pin1: dot` in the file is now a triangle
-  polygon (-d / 2, -d / 2) (d / 2, -d / 2) (0, d / 2) fill
-end
-```
+even where the library uses it: `feature pin1_dot(d = 0.3)`, its graphics and `end`
+redraw every `pin1: dot`. Yours must take what the library passes; a parameter it never
+fills gets a warning unless it has a default. The [standard library page](../stdlib/README.md)
+lists the features and what each takes. [SPEC §13.5](../SPEC.md#135-the-standard-library)
 
 ## The 3D model
 
 ### What's generated
 
-A footprint with a `body` has a 3D model without another line, from its body, pins and
-lead form. z is up from the board. H is the seated height (JEDEC A), and the body's
-bottom sits at the standoff (JEDEC A1), which the lead form picks: 0.1 mm under a
-gull-wing body, 0.02 mm under a leadless one, three quarters of the ball under a BGA.
-The form picks the body too: molded for gull-wing, J-lead, L-bend and straight leads, a
-sawn block for flat ones, a chip or MELF for end caps, a BGA or CGA for balls and
-columns, a DIP or header for pins, a can, LED or axial body for wires, a module for
-castellations. Leads are tin; through-hole leads reach 3 mm below the board.
+A footprint with a `body` has a 3D model without another line. z is up from the board,
+H is the seated height (JEDEC A), and the body sits on the standoff (JEDEC A1) that the
+lead form picks: 0.1 mm for gull-wings, 0.02 mm for leadless parts, three quarters of the
+ball for a BGA. The form picks the body too: molded for gull-wing, J-lead, L-bend and
+straight leads, sawn for flat ones, a chip or MELF for end caps, a BGA or CGA, a DIP or
+header for pins, a can, LED or axial body for wires, a module for castellations. Leads
+are tin, and through-hole leads reach 3 mm below the board.
 [SPEC §13.1](../SPEC.md#131-the-generated-model)
 
 ### The model block
 
-`model`, settings and solids, then `end`, in a footprint; a setting given twice gets a
-warning, and the later one wins. `no model` turns the 3D output off. Model blocks merge
-down an `extends` chain: the child's settings replace the parent's and its solids add to
-them; `no model` ends the model until a later `model` block.
+`model`, settings and solids, then `end`; a setting given twice gets a warning, and the
+later wins. `no model` turns the 3D output off. Model blocks merge down an `extends`
+chain: the child's settings replace the parent's and its solids add to them, and
+`no model` ends the model until a later `model` block.
 [SPEC §13.2](../SPEC.md#132-the-model-block)
 
 | setting | sets |
@@ -702,34 +681,29 @@ ends; `from A to B` for part of a cylinder or disc; `down` for a disc or face fa
 In a model block a solid starts centered on the body, on the board, in the body's color:
 `at (x, y)` moves its center, a z sets its bottom's height, and `on body` rests it on the
 body. In a feature, `at` puts the solid's own origin (the middle of a box's, cylinder's
-or sphere's bottom) at a point of the feature, a size of zero or less draws nothing, and
-placing the feature puts its solids in the model.
+or sphere's bottom) at a point of the feature, and a size of zero or less draws nothing.
 
 ```stomp
 model
   box 2.9 x 2.2 x 0.1 on body color: tin              # a lid on the body
-  cylinder d: 0.8 h: 0.2 at (1.0, 0.6) on body
   cylinder d: 2 h: 6 at (0, 0, 1) rotate: (0, 90, 0)  # its bottom 1 above the board
 end
 ```
 
-A path is points and arcs separated by commas:
-`(0, 0), (1, 0), arc (1, 1) r: 1 from -90 to 0 segments: 8, (2, 2)`. A prism's or face's
-path is an outline in x and y; a sweep's or wire's runs in x and z. `fillet: R` rounds
-the corners between points, in 10 degree steps (`fillet: R step: 8` for 8); an arc's own
-points stay as they are.
+A path is points and arcs separated by commas: `(0, 0), (1, 0), arc (1, 1) r: 1 from -90
+to 0 segments: 8, (2, 2)`. A prism's or face's path is in x and y, a sweep's or wire's in
+x and z. `fillet: R` rounds the corners between points, in 10 degree steps
+(`fillet: R step: 8` for 8); an arc's own points stay as they are.
 
 ### Part families
 
-The refdes names the part's family, which the library uses for colors and details: chip
-resistors are white ceramic with a black top, chip capacitors tan, inductors ferrite. A
-crystal or oscillator on a block body is a ceramic package under a metal lid, a diode on
-wires with a round body is an LED, one with J-leads a PLCC LED, and an axial resistor
-gets color bands. The longest prefix wins: `R` resistor, `C` capacitor, `L` or `FB`
-inductor, `D` or `LED` diode, `Q` transistor, `U` or `IC` ic, `Y` or `XTAL` crystal,
-`X`, `XO` or `OSC` oscillator, `S` or `SW` switch, `BZ` or `LS` buzzer, `J`, `P`, `CON`
-or `CN` connector, `F` fuse. The family is a flag for every
-[library feature](../stdlib/README.md#families) too.
+The refdes names the part's [family](../stdlib/README.md#families), which sets colors
+and details: chip resistors are white with a black top, chip capacitors tan, inductors
+ferrite; a crystal on a block body gets a metal lid, a round diode on wires is an LED, and
+an axial resistor gets color bands. The longest prefix wins: `R` resistor, `C`
+capacitor, `L` or `FB` inductor, `D` or `LED` diode, `Q` transistor, `U` or `IC` ic,
+`Y` or `XTAL` crystal, `X`, `XO` or `OSC` oscillator, `S` or `SW` switch, `BZ` or `LS`
+buzzer, `J`, `P`, `CON` or `CN` connector, `F` fuse.
 
 ## Diagnostics
 
@@ -737,21 +711,15 @@ Each problem is reported at the statement that causes it: an error, or a warning
 may be intended. [SPEC §15](../SPEC.md#15-diagnostics)
 
 - **Syntax:** a missing `end` (at its block's header), an `end` with nothing to close,
-  braces, `pitch 1.27` without its colon, `at:` with one, or a value a statement doesn't
-  take.
+  braces, `pitch 1.27` without its colon or `at:` with one.
 - **Names:** an unknown object, name, template, feature, flag, color or function, with
-  the nearest match suggested; a name given two values at one level; a duplicate pad,
-  hole or footprint name.
+  the nearest match suggested; a name given two values; a duplicate pad or footprint.
 - **Placement:** an over- or under-constrained axis, citing the statements; a circular
   placement; an anchor that doesn't fit the axis.
-- **Values:** unit errors (a length times a length, a ratio for a length), a function
-  given the wrong kind of value, a misplaced side mark, a late `units:`.
-- **Part mode and tables:** a pad with no geometry, a count that doesn't fit its
-  arrangement, `omit` of a pin that doesn't exist; a row with the wrong number of cells,
-  an unknown column, a missing `name:`. A template's errors show on the call or row.
+- **Values and part mode:** unit errors (a length times a length), a function given the
+  wrong kind of value, a misplaced side mark; a pad with no geometry, a count that
+  doesn't fit its arrangement, a table row with the wrong number of cells. A template's
+  errors show on the call or row that causes them, and the library's at your statement
+  that used it.
 - **Warnings:** overlapping pads, a drill as large as its pad, a courtyard or model
-  setting given twice, `polarized` on a part that isn't two-terminal, castellated leads,
-  a library replacement with a parameter the library never fills.
-
-A problem in the standard library is reported at your statement that used it (a `body`,
-`lead`, `pin1:` or `body shape:`), naming the library features involved.
+  setting given twice, `polarized` on a part that isn't two-terminal, castellated leads.

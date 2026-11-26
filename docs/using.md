@@ -12,10 +12,13 @@ pads, solves the placements and draws every layer and the 3D model.
 - **Right:** the footprint the cursor is in, as a drawing or in 3D, with a title block
   and a panel of facts and pad sizes underneath.
 - **Top:** the **File** menu, the file picker, **Tutorial**, **Docs**, **Export to
-  KiCad** and a link to the project on GitHub.
+  KiCad**, a link to the project on GitHub, and the theme button.
 
 Drag the bar between the two sides to change their widths. On a narrow screen they
 stack, the drawing first.
+
+stomp is dark unless you choose light: the sun button switches to the light theme and
+the moon switches back. The browser remembers your choice.
 
 ## Writing
 

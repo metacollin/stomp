@@ -193,17 +193,34 @@
 
   function fmt(v) { return S.fmtLen(v, state.units); }
 
+  // The theme: dark unless you choose light. The choice is kept in this browser, and a
+  // script in index.html's head applies it before anything is drawn.
+  const THEME_KEY = 'stomp:theme';
+  const isDark = () => document.documentElement.dataset.stompTheme !== 'light';
+  function setTheme(light) {
+    if (light) document.documentElement.dataset.stompTheme = 'light';
+    else delete document.documentElement.dataset.stompTheme;
+    try { localStorage.setItem(THEME_KEY, light ? 'light' : 'dark'); } catch (e) { /* storage unavailable: for this visit only */ }
+    syncTheme();
+    document.dispatchEvent(new Event('stomp:theme'));   // the 3D views relight
+  }
+  function syncTheme() {
+    const b = $('theme-btn');
+    b.title = isDark() ? 'Use the light theme' : 'Use the dark theme';
+    b.setAttribute('aria-label', b.title);
+  }
+  syncTheme();
+  $('theme-btn').addEventListener('click', () => setTheme(isDark()));
+
   // 3D: the model on a board, built when first shown and cached with its result
-  const darkMode = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   const view3 = S.createViewer3D($('viewer3d'), {
-    dark: () => !!(darkMode && darkMode.matches),
+    dark: isDark,
     onCamera(c) {
       if (state.dim !== '3d') return;
       const a = ((Math.round(c.az) % 360) + 360) % 360, e = Math.round(c.el);
       $('tb-scale').textContent = e >= 89 ? 'from above' : e <= -89 ? 'from below' : `${a}° round, ${Math.abs(e)}° ${e >= 0 ? 'above' : 'below'}`;
     },
   });
-  if (darkMode && darkMode.addEventListener) darkMode.addEventListener('change', () => view3.redraw());
   const models = new WeakMap();
   function modelFor(r) {
     let m = models.get(r);
@@ -1383,7 +1400,7 @@ end
       compile: (text) => { const lib = stdlibNow(); return S.compile(text, lib ? { stdlib: lib } : undefined); },
       model: (r) => modelFor(r),
       units: () => state.units,
-      dark: () => !!(darkMode && darkMode.matches),
+      dark: isDark,
       draft: (file) => (state.buffers[file] != null ? state.buffers[file] : null),
       save: (file, text) => { if (text == null) delete state.buffers[file]; else state.buffers[file] = text; persist(); },
       open: (page, k) => { closeDocs(true); openFile(`doc:${page.key}:${k}`); },

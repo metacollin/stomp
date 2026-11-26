@@ -171,3 +171,16 @@ test('figures: drawn from the engine, with the dimensions the code gives', async
     assert.equal(readFileSync(join(repo, 'docs', 'img', `${f.id}.svg`), 'utf8'), file, `docs/img/${f.id}.svg is out of date: node demo/tools/build.mjs`);
   }
 });
+
+test('the header mark and the favicon are the logo in docs/logo', () => {
+  const html = readFileSync(join(repo, 'demo', 'index.html'), 'utf8');
+  const logo = (name) => readFileSync(join(repo, 'docs', 'logo', name), 'utf8').trim();
+  const icon = html.match(/<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,([^"]*)">/);
+  assert.ok(icon, 'index.html has an SVG favicon');
+  // the favicon is stomp-icon.svg, less its title
+  assert.equal(decodeURIComponent(icon[1]).replace(/'/g, '"'), logo('stomp-icon.svg').replace('<title>stomp</title>', ''));
+  // the header draws stomp-mark.svg in the current color
+  const mark = html.match(/<svg class="mark"[^>]*>(.*?)<\/svg>/);
+  assert.ok(mark, 'the header has the mark');
+  assert.equal(mark[1], logo('stomp-mark.svg').match(/<g .*<\/g>/)[0].replace(/ fill="[^"]*"/g, ''));
+});

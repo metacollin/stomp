@@ -1,6 +1,71 @@
 /* stomp. Source on the left; the drawing and its title block on the right. The docs
    take their place when open. */
 :root {
+  --ground: #08100e;
+  --panel: #0e1916;
+  --panel-2: #14231f;
+  --ink: #dce6e0;
+  --muted: #8ba096;
+  --rule: #20332d;
+  --rule-strong: #30493f;
+  --accent: #e3a457;
+  --accent-soft: #3a2a14;
+  --err: #ff7a6b;
+  --err-bg: #3a1714;
+  --warn: #e6b34d;
+  --warn-bg: #33270e;
+  --ok: #6fd39a;
+  --focus: #6cc5ff;
+
+  /* drawing sheet */
+  --cv-bg: #0b1412;
+  --v3d-top: #1c2824;
+  --v3d-bottom: #090f0d;
+  --cv-grid: #13201c;
+  --cv-grid-major: #1b2c27;
+  --cv-axis: #2c433b;
+  --cu: #d8a24c;
+  --cu-edge: #f2c77d;
+  --pad-ink: #24170a;
+  --paste: #c7d2db;
+  --mask: #43cfb1;
+  --drill: #0b1412;
+  --silk: #eef2ee;
+  --crt: #ff5fa2;
+  --fab: #84abd8;
+  --dim: #6cc5ff;
+  --dim-bg: #0b1412;
+  --dim-ink: #a8dcff;
+  --hl: #6cc5ff;
+  --hover: #ffffff;
+  --hover-fill: rgb(108 197 255 / 0.16);
+
+  /* code */
+  --code-bg: #0b1412;
+  --gutter: #0e1916;
+  --cur-line: rgb(220 230 224 / 0.05);
+  --mark-line: rgb(227 164 87 / 0.18);
+  --sel: rgb(108 197 255 / 0.25);
+  --tk-decl: #d99be9;
+  --tk-rel: #6fd0e6;
+  --tk-obj: #e3a457;
+  --tk-kw: #9fb6f1;
+  --tk-num: #8edca9;
+  --tk-unit: #6aa585;
+  --tk-str: #f0a37f;
+  --tk-com: #5d786d;
+  --tk-id: #dce6e0;
+  --tk-op: #8ba096;
+
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+/* The light theme, when you choose it with the button in the header. It has its own
+   attribute, so neither the system setting nor a host's data-theme changes it. */
+:root[data-stomp-theme="light"] {
   --ground: #e6ebe5;
   --panel: #f8faf6;
   --panel-2: #eef2ec;
@@ -56,121 +121,7 @@
   --tk-com: #7b8982;
   --tk-id: #17201c;
   --tk-op: #5b6a63;
-
-  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --radius: 10px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ground: #08100e;
-    --panel: #0e1916;
-    --panel-2: #14231f;
-    --ink: #dce6e0;
-    --muted: #8ba096;
-    --rule: #20332d;
-    --rule-strong: #30493f;
-    --accent: #e3a457;
-    --accent-soft: #3a2a14;
-    --err: #ff7a6b;
-    --err-bg: #3a1714;
-    --warn: #e6b34d;
-    --warn-bg: #33270e;
-    --ok: #6fd39a;
-    --focus: #6cc5ff;
-    --cv-bg: #0b1412;
-  --v3d-top: #1c2824;
-  --v3d-bottom: #090f0d;
-    --v3d-top: #1c2824;
-    --v3d-bottom: #090f0d;
-    --cv-grid: #13201c;
-    --cv-grid-major: #1b2c27;
-    --cv-axis: #2c433b;
-    --cu: #d8a24c;
-    --cu-edge: #f2c77d;
-    --pad-ink: #24170a;
-    --paste: #c7d2db;
-    --mask: #43cfb1;
-    --drill: #0b1412;
-    --silk: #eef2ee;
-    --crt: #ff5fa2;
-    --fab: #84abd8;
-    --dim: #6cc5ff;
-    --dim-bg: #0b1412;
-    --dim-ink: #a8dcff;
-    --hl: #6cc5ff;
-    --hover: #ffffff;
-    --hover-fill: rgb(108 197 255 / 0.16);
-    --code-bg: #0b1412;
-    --gutter: #0e1916;
-    --cur-line: rgb(220 230 224 / 0.05);
-    --mark-line: rgb(227 164 87 / 0.18);
-    --sel: rgb(108 197 255 / 0.25);
-    --tk-decl: #d99be9;
-    --tk-rel: #6fd0e6;
-    --tk-obj: #e3a457;
-    --tk-kw: #9fb6f1;
-    --tk-num: #8edca9;
-    --tk-unit: #6aa585;
-    --tk-str: #f0a37f;
-    --tk-com: #5d786d;
-    --tk-id: #dce6e0;
-    --tk-op: #8ba096;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --ground: #08100e;
-  --panel: #0e1916;
-  --panel-2: #14231f;
-  --ink: #dce6e0;
-  --muted: #8ba096;
-  --rule: #20332d;
-  --rule-strong: #30493f;
-  --accent: #e3a457;
-  --accent-soft: #3a2a14;
-  --err: #ff7a6b;
-  --err-bg: #3a1714;
-  --warn: #e6b34d;
-  --warn-bg: #33270e;
-  --ok: #6fd39a;
-  --focus: #6cc5ff;
-  --cv-bg: #0b1412;
-  --cv-grid: #13201c;
-  --cv-grid-major: #1b2c27;
-  --cv-axis: #2c433b;
-  --cu: #d8a24c;
-  --cu-edge: #f2c77d;
-  --pad-ink: #24170a;
-  --paste: #c7d2db;
-  --mask: #43cfb1;
-  --drill: #0b1412;
-  --silk: #eef2ee;
-  --crt: #ff5fa2;
-  --fab: #84abd8;
-  --dim: #6cc5ff;
-  --dim-bg: #0b1412;
-  --dim-ink: #a8dcff;
-  --hl: #6cc5ff;
-  --hover: #ffffff;
-  --hover-fill: rgb(108 197 255 / 0.16);
-  --code-bg: #0b1412;
-  --gutter: #0e1916;
-  --cur-line: rgb(220 230 224 / 0.05);
-  --mark-line: rgb(227 164 87 / 0.18);
-  --sel: rgb(108 197 255 / 0.25);
-  --tk-decl: #d99be9;
-  --tk-rel: #6fd0e6;
-  --tk-obj: #e3a457;
-  --tk-kw: #9fb6f1;
-  --tk-num: #8edca9;
-  --tk-unit: #6aa585;
-  --tk-str: #f0a37f;
-  --tk-com: #5d786d;
-  --tk-id: #dce6e0;
-  --tk-op: #8ba096;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -207,9 +158,7 @@ kbd { border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-rad
   padding-block: 10px;
 }
 .brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); }
-.brand .mark { width: 30px; height: 18px; }
-.brand .mark rect { fill: var(--cu); }
-.brand .mark path { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 1 1.4; fill: none; }
+.brand .mark { width: 26px; height: 26px; color: var(--cu); }
 .brand .word { font: 600 19px/1 var(--font-mono); letter-spacing: -0.02em; }
 .picker { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .picker label { font: 600 10.5px/1 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
@@ -236,6 +185,10 @@ a.btn[aria-current="page"] { background: var(--accent-soft); border-color: var(-
 .btn:disabled { opacity: 0.5; cursor: default; }
 .links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gh svg { width: 15px; height: 15px; fill: currentColor; }
+.theme { display: inline-flex; align-items: center; padding-inline: 8px; }
+.theme svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.theme .moon, :root[data-stomp-theme="light"] .theme .sun { display: none; }
+:root[data-stomp-theme="light"] .theme .moon { display: block; }
 
 /* File menu */
 .menu-wrap { position: relative; }

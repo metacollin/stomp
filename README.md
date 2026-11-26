@@ -1,4 +1,9 @@
-# stomp
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/stomp-logo-dark.svg">
+    <img alt="stomp" src="docs/logo/stomp-logo.svg" width="250">
+  </picture>
+</h1>
 
 A small language for describing PCB footprints. One `.stomp` file gives you the
 **2D land pattern** (copper, mask, paste, silk, courtyard, assembly) and, if you want

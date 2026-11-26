@@ -226,6 +226,8 @@ void main() {
     // Drawing
     let raf = 0;
     function request() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); }
+    // a new theme relights the model (see opts.dark); the app sends stomp:theme
+    document.addEventListener('stomp:theme', request);
     function draw() {
       if (!gl || st.lost) return;
       const W = canvas.width, H = canvas.height;
@@ -388,6 +390,7 @@ void main() {
       get camera() { return { az: st.az, el: st.el, dist: st.dist, target: st.target.slice() }; },
       /** Let go of the WebGL context (browsers allow only a few) and empty the host. */
       destroy() {
+        document.removeEventListener('stomp:theme', request);
         if (sizer) sizer.disconnect();
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
         const lose = gl && gl.getExtension('WEBGL_lose_context');

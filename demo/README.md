@@ -129,8 +129,9 @@ The tests check:
 - that `js/examples.js`, `js/stdlib.js` and `js/docs.js` match their sources;
 - the docs: every example in the tutorial and the reference compiles (or, for a
   fragment, parses), every link and `#anchor` leads somewhere, the Markdown
-  converter's output for lists, tables, code, images and inline markup, and that each
-  figure's labels are the dimensions its footprint really has;
+  converter's output for lists, tables, code, images and inline markup, that each
+  figure's labels are the dimensions its footprint really has, and that the header
+  mark and the favicon are the files in `docs/logo`;
 - your files: names, merging the two copies (newest wins, deletions stick), saving,
   renaming and deleting with either copy failing, other tabs' changes, and reading
   stored and deflated `.zip` files;

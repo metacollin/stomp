@@ -168,18 +168,3 @@ end
 with it. [`stdlib/README.md`](stdlib/README.md) lists everything in the library; see also
 SPEC §12.1 and §13.5, [`examples/tht_parts.stomp`](examples/tht_parts.stomp) and
 [`examples/custom_models.stomp`](examples/custom_models.stomp).
-
-## Repository layout
-
-| path | contents |
-|---|---|
-| [`SPEC.md`](SPEC.md) | the language spec: design, meaning, and every statement |
-| [`grammar.peg`](grammar.peg) | the formal PEG grammar, written to map onto PEGTL |
-| [`docs/`](docs/) | the tutorial, the language reference, the guide to the editor, the figures and the logo |
-| [`examples/`](examples/) | 19 files of single parts, from a 3-line 0402 to a USB micro-B with every feature measured from something else, and 15 libraries with over 200 footprints between them. [`syntax_zoo.stomp`](examples/syntax_zoo.stomp) isn't a real part; it covers the syntax the others don't use. |
-| [`stdlib/`](stdlib/) | the standard library: the features that draw every 3D model and the automatic silk marks, and shapes, symbols and packages to build with ([reference](stdlib/README.md)) |
-| [`demo/`](demo/) | stomp itself: the browser editor and its JavaScript engine, with tests |
-
-## Name
-
-A stomp leaves a footprint.

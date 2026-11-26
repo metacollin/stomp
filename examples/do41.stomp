@@ -1,0 +1,11 @@
+# DO-41: axial diode. The body lies along its leads, which bend down through the board.
+
+footprint "D_DO-41_P10.16mm_Horizontal"
+  description: "DO-41 (SOD-81) axial diode, 10.16 mm lead spacing"
+  refdes: "D"
+
+  body cylinder d: 2.7 h: 5.2       # the pins are outside the circle, so it lies down
+  pins 2 horizontal pitch: 10.16
+  lead wire d: 0.86
+  polarized                         # pin 1 is the anode; the band marks the cathode (pin 2)
+end

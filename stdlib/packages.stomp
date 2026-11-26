@@ -1,0 +1,72 @@
+# Packages: bodies for parts the lead form alone doesn't describe.
+#
+# Give a footprint one with `body shape: NAME` in its model block. The 3D model
+# passes it what it would pass the library's own body (W, L, H, z0, body_color,
+# ma, ...: SPEC 13.5), and the leads are drawn as usual: wires (`lead wire`)
+# run up into the body. Each is drawn around the body's center, z up from the
+# board.
+
+units: mm
+
+# TO-92: a molded body, round at the back and flat at the front, standing
+# on its wires. The flat faces `face` degrees (-90: toward -y).
+feature to92(W, L, H, z0 = 1, body_color = epoxy, face = -90)
+  r = W / 2
+  cy = L / 2 - r                              # the center of the round back
+  a0 = asin(max(-1, min(1, (-L / 2 - cy) / r)))
+  prism arc (0, cy) r: r from a0 to 180 - a0 segments: 32 h: H - z0 at (0, 0, z0) rotate: face + 90 color: body_color
+end
+
+# TO-220, standing: a molded body with the metal tab rising behind it (on the
+# +y side, t thick) and the tab's mounting hole near its top
+feature to220(W, L, H, z0 = 0, body_color = epoxy, t = min(1.3, 0.3 * L))
+  hb = 0.58 * (H - z0)                        # the molded body's height
+  hole = min(3.7, 0.37 * W)
+  zh = H - 0.18 * (H - z0)                    # the hole's center
+  box W x L - t x hb at (0, -t / 2, z0) color: body_color
+  box W x t x H - z0 at (0, L / 2 - t / 2, z0) color: tin name: "tab"
+  disc d: hole at (0, L / 2 - t - 0.002, zh) rotate: (90, 0, 0) segments: 32 color: rubber name: "hole"
+  disc d: hole at (0, L / 2 + 0.002, zh) rotate: (90, 0, 0) down segments: 32 color: rubber name: "hole"
+end
+
+# HC-49: a crystal's metal can, a slot W x L with round ends, on a rim
+feature hc49(W, L, H, z0 = 0, body_color = tin, rim = min(0.5, 0.1 * (H - z0)))
+  feature slot_prism(W, L, rim, body_color) at (0, 0, z0)
+  feature slot_prism(W - 0.4, L - 0.4, H - z0 - rim, body_color) at (0, 0, z0 + rim)
+end
+
+# A prism W x L with round ends, h tall
+feature slot_prism(W, L, h, color = solid_color)
+  r = L / 2
+  a = max(0, W / 2 - r)
+  prism arc (a, 0) r: r from -90 to 90 segments: 16, arc (-a, 0) r: r from 90 to 270 segments: 16 h: h color: color
+end
+
+# A tact switch: a plastic base, a metal cover, and a round actuator rising
+# to H. A 6 x 6 mm switch's actuator is 3.5 across.
+feature tact_switch(W, L, H, z0 = 0, body_color = epoxy, cap = 0.58 * min(W, L))
+  base = min(3.6, 0.7 * (H - z0))
+  cover = min(0.3, 0.1 * base)
+  box W x L x base at (0, 0, z0) color: body_color
+  box W - 0.1 x L - 0.1 x cover at (0, 0, z0 + base) color: nickel name: "cover"
+  cylinder d: cap h: H - z0 - base - cover at (0, 0, z0 + base + cover) segments: 40 color: body_color name: "actuator"
+end
+
+# A buzzer: a round can with its sound hole in the middle of the top, and a
+# "+" by the positive pin when the footprint is `polarized`
+feature buzzer(W, L, H, z0 = 0, body_color = epoxy, ma = 0)
+  D = min(W, L)
+  zt = H - 0.02 * D                           # the can's top, under the hole's rim
+  cylinder d: D h: zt - z0 at (0, 0, z0) segments: 48 color: body_color
+  feature torus(0.24 * D, 0.04 * D, color: body_color) at (0, 0, zt)
+  disc d: 0.16 * D at (0, 0, zt + 0.002) segments: 24 color: "#09090a" name: "sound hole"
+  section stripe
+    feature top_plus(0.14 * D) at (0.3 * D * cos(ma + 180), 0.3 * D * sin(ma + 180), zt)
+  end
+end
+
+# A printed "+" s across on a top face
+feature top_plus(s, color = marking)
+  box s x 0.2 * s x 0.004 color: color kind: mark name: "polarity mark"
+  box 0.2 * s x s x 0.004 color: color kind: mark name: "polarity mark"
+end

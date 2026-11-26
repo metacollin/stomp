@@ -1,0 +1,65 @@
+# Marks: pin-1 and polarity marks on a part's top, and which pin a stripe marks.
+#
+# A body draws its marks with `top_marks`. The 3D model turns one on with a
+# flag: dimple, dot, notch or stripe. sx, sy (-1, 0 or 1) point from the
+# top's center toward pin 1's corner; nx, ny toward the end the notch is on;
+# ex, ey toward the end a stripe marks. A mark sits on z = 0, the top face.
+
+units: mm
+
+# The marks on a flat top face tw x tl, centered on the feature's origin
+feature top_marks(tw, tl, sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0, body_color = epoxy)
+  section dimple
+    feature mark_dimple(tw, tl, sx, sy, body_color) at (0, 0)
+  end
+  section dot
+    feature mark_dot(tw, tl, sx, sy) at (0, 0)
+  end
+  section notch
+    feature mark_notch(tw, tl, nx, ny, body_color) at (0, 0)
+  end
+  section stripe
+    feature mark_stripe(abs(ex) * tw + abs(ey) * tl, abs(ey) * tw + abs(ex) * tl) at (0, 0) rotate: atan2(ey, ex)
+  end
+end
+
+# A shallow dimple in pin 1's corner, a shade lighter than the body
+feature mark_dimple(tw, tl, sx, sy, body_color = epoxy)
+  r = max(0.15, min(0.5, 0.08 * min(tw, tl)))
+  inset = r + max(0.12, 0.06 * min(tw, tl))
+  cylinder d: 2 * r h: 0.006 at (sx * max(0, tw / 2 - inset), sy * max(0, tl / 2 - inset), 0.003) segments: 24 color: mix(body_color, "#ffffff", 0.1) kind: mark name: "pin-1 dimple"
+end
+
+# An etched gray dot in pin 1's corner
+feature mark_dot(tw, tl, sx, sy)
+  r = max(0.1, min(0.3, 0.055 * min(tw, tl)))
+  inset = r + max(0.12, 0.06 * min(tw, tl))
+  cylinder d: 2 * r h: 0.006 at (sx * max(0, tw / 2 - inset), sy * max(0, tl / 2 - inset), 0.003) segments: 24 color: etch kind: mark name: "pin-1 dot"
+end
+
+# A half-round notch in the middle of the end at nx, ny, darker than the body
+feature mark_notch(tw, tl, nx, ny, body_color = epoxy)
+  r = max(0.25, min(0.8, 0.16 * min(tw, tl)))
+  a0 = atan2(-ny, -nx) - 90
+  prism arc (nx * tw / 2, ny * tl / 2) r: r from a0 to a0 + 180 segments: 16 h: 0.006 at (0, 0, 0.003) color: mix(body_color, "#000000", 0.55) kind: mark name: "pin-1 notch"
+end
+
+# A band near one end of a top len long (along x) and `across` wide. Placed
+# turned toward the marked end. A chip LED's is green.
+feature mark_stripe(len, across)
+  bw = max(min(0.18 * len, 0.6), 0.06)
+  mark_color = marking
+  section chip
+    section diode; mark_color = led_mark; end
+  end
+  box bw x across - min(0.1, 0.1 * across) x 0.006 at (len / 2 - bw / 2 - min(0.06, 0.05 * len), 0, 0.004) color: mark_color kind: mark name: "polarity stripe"
+end
+
+# Which pin a polarity stripe or bar marks: the cathode (pin 2) of a diode or an
+# electrolytic, but the positive pin 1 of a chip or molded capacitor, a tantalum.
+# The silk and the 3D model both ask this.
+feature polarity(stripe_at = 2)
+  section capacitor
+    section chip, molded, sawn, block; stripe_at = 1; end
+  end
+end

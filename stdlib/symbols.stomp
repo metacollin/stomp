@@ -1,0 +1,62 @@
+# Symbols: small marks for the silk, drawn around their own origin.
+#
+# Use one as a footprint's pin-1 mark, `pin1: triangle`, and it goes where the
+# dot would, clear of the copper. Or place it anywhere, `feature arrow(1.5) at
+# pad 1 rotate: 90`. Your own feature of the same name replaces one, as any
+# library feature.
+
+units: mm
+
+# A filled triangle s along each side, pointing a degrees from +x
+feature triangle(s = 0.6, a = 0)
+  r = s / sqrt(3)
+  polygon (r * cos(a), r * sin(a)) (r * cos(a + 120), r * sin(a + 120)) (r * cos(a + 240), r * sin(a + 240)) fill
+end
+
+# An arrow len long with a filled head, its tip at the origin, pointing +x
+feature arrow(len = 1.2, head = 0.4)
+  polygon (0, 0) (-head, head / 2) (-head, -head / 2) fill
+  line (-head, 0) (-len, 0)
+end
+
+# A "+" s across
+feature plus(s = 0.5)
+  line (-s / 2, 0) (s / 2, 0)
+  line (0, -s / 2) (0, s / 2)
+end
+
+# A "-" s long
+feature minus(s = 0.5)
+  line (-s / 2, 0) (s / 2, 0)
+end
+
+# An "x" s across
+feature cross(s = 0.5)
+  line (-s / 2, -s / 2) (s / 2, s / 2)
+  line (-s / 2, s / 2) (s / 2, -s / 2)
+end
+
+# A ring d across
+feature ring(d = 0.6)
+  circle (0, 0) d: d
+end
+
+# A W x L rectangle around the origin
+feature frame(W, L)
+  rect (0, 0) W x L
+end
+
+# The corners of a W x L rectangle around the origin, each arm len long: an
+# outline that leaves its sides open
+feature corners(W, L, len = 0.6)
+  feature corner_mark(len) at (W / 2, L / 2)
+  feature corner_mark(len) at (-W / 2, L / 2) rotate: 90
+  feature corner_mark(len) at (-W / 2, -L / 2) rotate: 180
+  feature corner_mark(len) at (W / 2, -L / 2) rotate: 270
+end
+
+# One corner of `corners`: arms len long down and left from the origin
+feature corner_mark(len)
+  line (0, -len) (0, 0)
+  line (0, 0) (-len, 0)
+end

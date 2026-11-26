@@ -1,14 +1,14 @@
-# SOT-23-5 — irregular pin placement via an explicit sides block.
+# SOT-23-5: irregular pins, listed side by side under `pins`.
 
-footprint "SOT-23-5" {
-  description "SOT-23-5 (JEDEC MO-178): 3 pins one side, 2 opposite at the outer positions"
-  refdes "U"
+footprint "SOT-23-5"
+  description: "SOT-23-5 (JEDEC MO-178): 3 pins one side, 2 opposite at the outer positions"
+  refdes: "U"
 
   body 1.6 x 2.9 x 1.1
-  pins {
-    left: 1, 2, 3 pitch 0.95   # CCW walk order: the left side runs top to bottom
-    right: 4, nc, 5            # …and the right side bottom to top; `nc` keeps the
-  }                            # middle position empty (pins 4/5 sit on the 1.9 span)
-  lead gullwing 0.4 x 0.6 span 2.8
-  pin1 dot
-}
+  pins
+    left: 1, 2, 3 pitch: 0.95  # the left side runs top to bottom,
+    right: 4, nc, 5            # the right side bottom to top. `nc` leaves the
+  end                          # middle empty, so pins 4 and 5 are 1.9 apart
+  lead gullwing 0.4 x 0.6 span: 2.8
+  pin1: dot
+end

@@ -1,0 +1,77 @@
+# Pin header library: 2.54, 2.0 and 1.27 mm headers in one and two rows.
+#
+# nx rows of ny pins each, as in `pins grid nx x ny`. Pin 1 is the origin and
+# the pins run down from it. Two-row headers number across first (1 and 2 side
+# by side), as box headers do. Each table sets the pitch e, the square pin size
+# pw, the pad diameter pd, the drill dr and the height H to the pin tips.
+
+template header(nx, ny, e, pw, pd, dr, H)
+  name: "PinHeader_{nx}x{ny}_P{e:.2}mm_Vertical"   # P2.54mm, P2.00mm
+  description: "Pin header, {nx} x {ny} pins, {e:.2} mm pitch"
+  refdes: "J"
+
+  body (nx * e) x (ny * e) x H
+  pins grid nx x ny pitch: e numbering: zigzag start: top-left
+  lead pin pw x pw
+  default pad tht circle pd drill: dr
+  pad 1 tht rect pd x pd drill: dr    # square pad marks pin 1
+  pin1: none
+  origin at pad 1
+end
+
+# 2.54 mm, one row
+footprints from header(nx: 1, e: 2.54, pw: 0.64, pd: 1.7, dr: 1.0, H: 8.5)
+  ny
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+  10
+  12
+  16
+  20
+end
+
+# 2.54 mm, two rows
+footprints from header(nx: 2, e: 2.54, pw: 0.64, pd: 1.7, dr: 1.0, H: 8.5)
+  ny
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  10
+  13
+  17
+  20
+  25
+end
+
+# 2.0 mm, one row
+footprints from header(nx: 1, e: 2.0, pw: 0.5, pd: 1.35, dr: 0.8, H: 6.1)
+  ny
+  2
+  3
+  4
+  5
+  6
+  8
+  10
+end
+
+# 1.27 mm, two rows (5 x 2 is the common debug connector)
+footprints from header(nx: 2, e: 1.27, pw: 0.4, pd: 1.0, dr: 0.65, H: 4.3)
+  ny
+  3
+  5
+  7
+  10
+  13
+  20
+end

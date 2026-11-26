@@ -1,59 +1,56 @@
-# USB micro-B receptacle (generic) — the "network of offsets" torture test.
+# USB micro-B receptacle (generic): every feature measured from a different reference.
 #
-# Signal pads, shield legs, locating pegs (NPTH), and through-slots, each
-# dimensioned from something different in the datasheet: the pegs from pin 1,
-# the shield slots from the pegs, the front tabs by outer-to-outer span about
-# the centerline. Every number below is entered exactly as the drawing gives
-# it. (Dimensions are illustrative, not a specific vendor's.)
+# Signal pads, shield legs, locating pegs (NPTH) and slots are each measured
+# from something else: the pegs from pin 1, the shield slots from the pegs, the
+# front tabs by their span about the centerline. Every number is entered as
+# drawn. (Illustrative dimensions, not a specific vendor's.)
 
-units mm
+units: mm
 
-footprint "USB-MICRO-B" {
-  description "USB micro-B receptacle, SMD signals + through-hole shield"
-  refdes "J"
-  tags usb, connector
+footprint "USB-MICRO-B"
+  description: "USB micro-B receptacle, SMD signals + through-hole shield"
+  refdes: "J"
+  tags: usb, connector
 
-  let e  = 0.65        # signal pitch          (drawing callout "e")
-  let C1 = 2.89        # peg to pin-1 center, x        ("C1")
-  let C2 = 0.55        # peg below pin-row centers, y  ("C2")
+  e  = 0.65            # signal pitch ("e" on the drawing)
+  C1 = 2.89            # peg to pin 1 center, x ("C1")
+  C2 = 0.55            # peg below the pin row, y ("C2")
 
-  # --- signal pads ------------------------------------------------------
+  # Signal pads
   default pad rect 0.4 x 1.35
-  row sig pads 1..5 pitch e going right
-  pad 3 at (0, 0)                          # anchor the row: D+ pin on the origin
+  row sig pads 1..5 pitch: e going: right
+  pad 3 at (0, 0)                          # the D+ pin is on the origin
 
-  # --- locating pegs (NPTH) --------------------------------------------
+  # Locating pegs (NPTH)
   hole PEG1 0.85
   hole PEG1 is C1 left of pad 1 and C2 below pad 1
   hole PEG2 mirrors hole PEG1 across y     # symmetric about the centerline
 
-  # --- shield legs: plated through-slots, dimensioned off the pegs ------
-  pad "SH1" tht oval 1.2 x 1.9 drill slot 0.6 x 1.3
+  # Shield legs: plated slots, measured from the pegs
+  pad "SH1" tht oval 1.2 x 1.9 drill: slot 0.6 x 1.3
   pad "SH1" is 1.05 left of hole PEG1 and 0.25 above hole PEG1
   pad "SH2" mirrors pad "SH1" across y
 
-  # --- front shell tabs: L-shaped SMD pads, placed by span + symmetry ---
+  # Front shell tabs: L-shaped SMD pads, placed by span and symmetry
   pad "SH3" polygon (0, 0) (1.05, 0) (1.05, 1.45) (0.6, 1.45) (0.6, 2.2) (0, 2.2)
-  pad "SH4" mirrors pad "SH3" across y     # SH3 (the prototype) takes the −x side
+  pad "SH4" mirrors pad "SH3" across y     # SH3 is on the -x side
   span pad "SH3" to pad "SH4" is 8.0       # outer edge to outer edge
   pad "SH3" is 0.9 above pad "SH1"
 
-  pads "SH1", "SH2", "SH3", "SH4" { mask +0.1 }
+  pads "SH1", "SH2", "SH3", "SH4" mask: +0.1
 
-  # --- body, dimensioned from the shield group --------------------------
+  # Body, measured from the shield pads
   group shield = pad "SH1", pad "SH2", pad "SH3", pad "SH4"
   body 7.6 x 5.0 x 2.45
   body is centered on group shield horizontally
   body top is 0.5 above hole PEG1
 
-  # --- graphics and 3D --------------------------------------------------
-  silk {
-    line (-4.1, -2.6) (-4.1, -1.2) width 0.12    # flag the mating-face corners
-    line (4.1, -2.6) (4.1, -1.2) width 0.12
-  }
-  courtyard auto 0.5
+  # Graphics and 3D
+  line (-4.1, -2.6) (-4.1, -1.2) width: 0.12     # marks the mating-face corners
+  line (4.1, -2.6) (4.1, -1.2) width: 0.12
+  courtyard: auto 0.5
 
-  model {
-    step "models/usb_microb.step" offset (0, 0, 0) rotate (0, 0, -90) scale 1.0
-  }
-}
+  model
+    step: "models/usb_microb.step" offset: (0, 0, 0) rotate: (0, 0, -90) scale: 1.0
+  end
+end

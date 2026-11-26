@@ -1,0 +1,31 @@
+# DFN library: two-row leadless packages with an exposed pad.
+#
+# Each row is n pins at pitch e on a D x E body, with terminals b x L at the
+# body edge and an exposed pad D2 x E2 in the middle. The pins run down the
+# left side and up the right, so D2 is the exposed pad's width across the two
+# rows. Values are typical; check your part's datasheet.
+
+template dfn(n, D, E, e, b, L, D2, E2, A = 0.8)
+  name: "DFN-{n}-1EP_{D}x{E}mm_P{e}mm_EP{D2}x{E2}mm"
+  description: "DFN, {n} pins, {D} x {E} mm body, {e} mm pitch, {D2} x {E2} mm exposed pad"
+  refdes: "U"
+  tags: dfn, leadless
+
+  body D x E x A
+  pins n dual pitch: e
+  lead flat b x L                     # terminals flush with the body edge
+  pin1: dot
+  thermal pad "{n + 1}" D2 x E2 paste: divide 1 x 2 coverage: 60%   # numbered after the last pin
+end
+
+footprints from dfn
+  n    D    E     e     b     L     D2    E2    A
+  6    2    2     0.65  0.3   0.3   1.0   1.6   0.8
+  8    2    2     0.5   0.25  0.3   0.9   1.6   0.8
+  8    3    3     0.65  0.3   0.4   1.65  2.4   0.9
+  10   3    3     0.5   0.25  0.4   1.65  2.4   0.9
+  12   3    3     0.45  0.23  0.4   1.7   2.5   0.9
+  14   3    4.5   0.65  0.3   0.4   1.7   4.0   0.9
+  8    4    4     0.8   0.33  0.5   2.2   3.0   0.9
+  12   4    4     0.5   0.25  0.4   2.6   3.3   0.9
+end

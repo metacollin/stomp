@@ -1,19 +1,19 @@
-# Radial aluminum electrolytic — cylindrical body, polarized through-hole.
+# Radial aluminum electrolytic: cylindrical can, polarized, through-hole.
 
-footprint "CP-RADIAL-8x11.5-P3.5" {
-  description "Radial electrolytic, 8 mm can, 3.5 mm lead spacing"
-  refdes "C"
+footprint "CP-RADIAL-8x11.5-P3.5"
+  description: "Radial electrolytic, 8 mm can, 3.5 mm lead spacing"
+  refdes: "C"
 
-  body cylinder d 8 h 11.5
-  pins 2 horizontal pitch 3.5
-  lead wire d 0.6
-  default pad tht circle 1.6 drill 0.9
-  pad 2 tht rect 1.6 x 1.6 drill 0.9   # square pad marks the negative terminal
-  polarized                            # pin 1 = positive; stripe lands on pin 2's side
-  pin1 none                            # the polarity marking is the stripe, not a dot
+  body cylinder d: 8 h: 11.5
+  pins 2 horizontal pitch: 3.5
+  lead wire d: 0.6
+  default pad tht circle 1.6 drill: 0.9
+  pad 2 tht rect 1.6 x 1.6 drill: 0.9  # square pad for the negative lead
+  polarized                            # pin 1 is positive; the stripe goes on pin 2's side
+  pin1: none                           # the stripe is the polarity mark
 
-  model {
-    body color "#26476f"               # dark blue sleeve
-    leads color tin
-  }
-}
+  model
+    body color: "#26476f"              # dark blue sleeve
+    leads color: tin
+  end
+end

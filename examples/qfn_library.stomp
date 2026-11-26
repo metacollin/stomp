@@ -1,0 +1,59 @@
+# QFN library: one template, two tables, a footprint for every row.
+#
+# A template works like a function: it takes parameters and returns a
+# footprint. This one also builds each footprint's name and description from
+# its parameters, so a table row only holds the numbers that change. Columns
+# use the JEDEC MO-220 letters:
+#
+#   n         pin count             e         pitch
+#   D x E     body                  D2 x E2   exposed (thermal) pad
+#   b x L     terminal width x length (b defaults to half the pitch)
+
+template qfn(n, D, D2, e = 0.5, E = D, E2 = D2, b = e / 2, L = 0.4, A = 0.9)
+  name: "QFN-{n}-1EP_{D}x{E}mm_P{e}mm_EP{D2}x{E2}mm"
+  description: "QFN, {n} pins, {D} x {E} mm body, {e:.2} mm pitch, {D2} x {E2} mm exposed pad"
+  refdes: "U"
+  tags: qfn, leadless
+
+  body D x E x A
+  pins n quad pitch: e
+  lead flat b x L                     # IPC lands; the span is the body edge
+  pin1: chamfer
+  thermal pad "{n + 1}" D2 x E2 paste: divide 2 x 2 coverage: 65%   # numbered after the last pin
+end
+
+# 0.5 mm pitch for every row, so only n, D and D2 change.
+footprints from qfn(e: 0.5)
+  n    D    D2
+  12   3    1.65
+  16   3    1.7
+  20   4    2.6
+  24   4    2.7
+  28   5    3.35
+  32   5    3.45
+  36   6    4.1
+  40   6    4.6
+  44   7    5.15
+  48   7    5.6
+  56   8    6.0
+  64   9    7.15
+end
+
+# Other pitches: any parameter can be a column.
+footprints from qfn
+  n    D    e      D2
+  16   4    0.65   2.1
+  24   5    0.65   3.25
+  48   6    0.4    4.6
+  68   8    0.4    6.4
+end
+
+# A single call. The template names it too. This one has a rectangular pad.
+footprint from qfn(24, 4, 2.45, E2: 2.65)
+
+# Generated footprints are normal footprints: extend one by name.
+footprint "QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm_HandSolder" extends "QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm"
+  description: "QFN-32, 5 x 5 mm, longer terminals for hand soldering"
+  default pad roundrect 0.25 x 1.0 r: 25%
+  courtyard: auto 0.5
+end

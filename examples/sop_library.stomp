@@ -1,0 +1,84 @@
+# SOP library: SOIC, MSOP, TSSOP, SSOP and QSOP from one template.
+#
+# Every two-row gull-wing package has the same shape at different sizes, so
+# one template covers them all. Each table passes a family's fixed values in
+# the call and lists only what changes. Columns use the JEDEC letters:
+#
+#   n         pin count            e     pitch
+#   E1 x D    body                 E     lead span, tip to tip
+#   b x L     lead width x foot length     A     height
+#
+# Values are typical for each JEDEC outline; check your part's datasheet.
+
+template sop(n, e, D, E1, E, b, L, A, fam = "SOIC")
+  name: "{fam}-{n}_{E1}x{D}mm_P{e}mm"
+  description: "{fam}, {n} pins, {E1} x {D} mm body, {e} mm pitch"
+  refdes: "U"
+
+  body E1 x D x A
+  pins n dual pitch: e
+  lead gullwing b x L span: E
+  pin1: dot
+end
+
+# SOIC, 3.9 mm body (JEDEC MS-012)
+footprints from sop(e: 1.27, E1: 3.9, E: 6.0, b: 0.41, L: 0.84, A: 1.75)
+  n    D
+  8    4.9
+  14   8.65
+  16   9.9
+end
+
+# SOIC, 7.5 mm body (JEDEC MS-013)
+footprints from sop(e: 1.27, E1: 7.5, E: 10.3, b: 0.41, L: 0.84, A: 2.65)
+  n    D
+  16   10.3
+  18   11.55
+  20   12.8
+  24   15.4
+  28   17.9
+end
+
+# MSOP, 3 mm body (JEDEC MO-187)
+footprints from sop(fam: "MSOP", D: 3, E1: 3, E: 4.9, L: 0.55, A: 1.1)
+  n    e     b
+  8    0.65  0.3
+  10   0.5   0.23
+end
+
+# TSSOP, 4.4 mm body (JEDEC MO-153)
+footprints from sop(fam: "TSSOP", E1: 4.4, E: 6.4, L: 0.6, A: 1.2)
+  n    e     D     b
+  8    0.65  3.0   0.25
+  14   0.65  5.0   0.25
+  16   0.65  5.0   0.25
+  20   0.65  6.5   0.25
+  24   0.65  7.8   0.25
+  28   0.65  9.7   0.25
+  38   0.5   9.7   0.22
+end
+
+# TSSOP, 6.1 mm body
+footprints from sop(fam: "TSSOP", E1: 6.1, E: 8.1, e: 0.5, b: 0.22, L: 0.6, A: 1.2)
+  n    D
+  48   12.5
+  56   14.0
+end
+
+# SSOP, 5.3 mm body (JEDEC MO-150)
+footprints from sop(fam: "SSOP", E1: 5.3, E: 7.8, e: 0.65, b: 0.3, L: 0.75, A: 2.0)
+  n    D
+  14   6.2
+  16   6.2
+  20   7.2
+  24   8.2
+  28   10.2
+end
+
+# QSOP, 0.635 mm (25 mil) pitch (JEDEC MO-137)
+footprints from sop(fam: "QSOP", E1: 3.9, E: 6.0, e: 0.635, b: 0.25, L: 0.64, A: 1.75)
+  n    D
+  16   4.9
+  20   8.65
+  24   8.65
+end

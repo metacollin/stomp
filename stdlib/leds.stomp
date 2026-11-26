@@ -1,0 +1,25 @@
+# LEDs: radial LEDs, and the lens of a PLCC LED.
+#
+# A round body on wires whose refdes is D or LED is drawn as an LED (style
+# `led`): a lens with a domed top, on a flange whose flat marks the cathode.
+# ma is the direction of the marked lead in degrees, as for a can. A J-lead
+# diode is a PLCC LED: molded.stomp draws its white housing and puts plcc_lens
+# on top.
+
+units: mm
+
+# A radial LED, 3 mm or 5 mm and the like: give it a lens color with `body color:`
+feature body_led(W, L, H, z0 = 0, body_color = led_red, pin1_mark = "none", ma = 0)
+  D = min(W, L)
+  rim = max(0.25, 0.08 * D)                   # how far the flange stands out
+  fh = min(1, 0.2 * (H - z0))                 # and how tall it is
+  phi = acos(D / 2 / (D / 2 + rim))           # the flat cuts the flange back to the lens
+  prism arc (0, 0) r: D / 2 + rim from phi to 360 - phi segments: 48 h: fh at (0, 0, z0) rotate: ma color: body_color
+  cylinder d: D h: H - D / 2 - (z0 + fh) at (0, 0, z0 + fh) open segments: 48 color: body_color
+  feature dome(D, D / 2, color: body_color, segments: 48) at (0, 0, H - D / 2)
+end
+
+# The round window on a PLCC LED's top, yellow phosphor for a white LED
+feature plcc_lens(W, L, color = led_lens)
+  cylinder d: 0.82 * min(W, L) h: 0.02 at (0, 0, -0.01) segments: 40 color: color name: "lens"
+end

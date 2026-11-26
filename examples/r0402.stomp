@@ -1,25 +1,25 @@
-# Chip resistor, 0402 (1005 metric) — the same part described two ways.
+# Chip resistor, 0402 (1005 metric): the same part described two ways.
 
-units mm
+units: mm
 
-# Land mode: transcribe the recommended land pattern directly.
-footprint "R0402" {
-  description "RES 0402, land pattern entered directly"
-  refdes "R"
+# Land mode: enter the recommended land pattern.
+footprint "R0402"
+  description: "RES 0402, land pattern entered directly"
+  refdes: "R"
 
   pins 2 horizontal            # pin 1 left
   default pad rect 0.5 x 0.6
-  gap 0.5                      # inner edge to inner edge, straight off the drawing
-  body 1.0 x 0.5 x 0.35        # optional: enables silk, courtyard, and the 3D box
-}
+  gap: 0.5                     # inner edge to inner edge, as drawn
+  body 1.0 x 0.5 x 0.35        # optional; adds silk, courtyard and a 3D box
+end
 
-# Part mode: describe the component; pads are derived (IPC-7351 style).
-footprint "R0402-IPC" {
-  description "RES 0402, pads derived from part dimensions"
-  refdes "R"
+# Part mode: describe the part and let the pads be derived (IPC-7351 style).
+footprint "R0402-IPC"
+  description: "RES 0402, pads derived from part dimensions"
+  refdes: "R"
 
   body 1.0 x 0.5 x 0.35
   pins 2 horizontal
-  lead endcap 0.25             # termination length; width defaults to body width
-  density nominal
-}
+  lead endcap 0.25             # end cap length; the width defaults to the body width
+  density: nominal
+end

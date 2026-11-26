@@ -1,0 +1,83 @@
+# Diode library: SOD, flat-lead SOD and SMF, SMA/SMB/SMC and MELF packages.
+#
+# Pin 1 is the anode and pin 2 the cathode, and `polarized` puts the cathode
+# band on pin 2's side. Bodies are L x W x H with the pins along L. Four lead
+# forms: gull-wing, straight (flat leads out of the bottom of the body), inward
+# L-bend and end caps. Values are typical; check your part's datasheet.
+
+# Small plastic packages with short leads at each end: S is the span tip to tip,
+# b x f the lead width and foot length.
+template sod(pkg, L, W, H, S, b, f)
+  name: "D_{pkg}"
+  description: "Diode, {pkg}, {L} x {W} mm body"
+  refdes: "D"
+
+  body L x W x H
+  pins 2 horizontal
+  lead gullwing b x f span: S
+  polarized
+end
+
+# Flat leads straight out of the bottom of the body (SOD-123F, SMF)
+template sodf(pkg, L, W, H, S, b, f)
+  name: "D_{pkg}"
+  description: "Diode, {pkg}, {L} x {W} mm body, flat leads"
+  refdes: "D"
+
+  body L x W x H
+  pins 2 horizontal
+  lead straight b x f span: S
+  polarized
+end
+
+# Molded packages whose leads fold under the body (JEDEC DO-214)
+template smx(pkg, jedec, L, W, H, S, b, f)
+  name: "D_{pkg}"
+  description: "Diode, {pkg} ({jedec}), {L} x {W} mm body"
+  refdes: "D"
+
+  body L x W x H
+  pins 2 horizontal
+  lead lbend b x f span: S
+  polarized
+end
+
+# Glass MELF: a cylinder D across and L long, lying on its two end caps
+template melf(pkg, L, D, T)
+  name: "D_{pkg}"
+  description: "Diode, {pkg}, {D} mm x {L} mm glass body"
+  refdes: "D"
+
+  body cylinder d: D h: L
+  pins 2 horizontal
+  lead endcap T
+  polarized
+end
+
+footprints from sod
+  pkg        L     W     H     S     b     f
+  "SOD-123"  2.7   1.6   1.15  3.7   0.55  0.4
+  "SOD-323"  1.7   1.25  0.95  2.5   0.3   0.3
+  "SOD-523"  1.2   0.8   0.6   1.6   0.3   0.2
+end
+
+footprints from sodf
+  pkg         L     W     H     S     b     f
+  "SOD-123F"  2.7   1.7   0.95  3.6   0.85  0.55
+  "SOD-323F"  1.7   1.25  0.7   2.5   0.3   0.35
+  "SMF"       2.8   1.8   0.98  3.7   0.9   0.5
+end
+
+footprints from smx
+  pkg    jedec       L     W     H     S     b     f
+  "SMA"  "DO-214AC"  4.3   2.6   2.1   5.0   1.45  1.1
+  "SMB"  "DO-214AA"  4.3   3.6   2.2   5.4   2.0   1.1
+  "SMC"  "DO-214AB"  6.9   5.9   2.2   7.95  3.0   1.1
+end
+
+footprints from melf
+  pkg          L     D     T
+  "MicroMELF"  2.0   1.27  0.3
+  "MiniMELF"   3.5   1.5   0.4
+  "MELF"       5.0   2.5   0.5
+end

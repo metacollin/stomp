@@ -1,0 +1,142 @@
+# Molded bodies: plastic packages with leads out of their sides (SOIC, QFP, PLCC, SOD, SMA, DIP).
+#
+# A body is drawn with the body's center at the origin and z up from the
+# board. A lead is drawn in its side's frame: x outward from the body's center,
+# y along the side, z up. In it, edge is the body's edge, pad_u the pad's
+# center and toe the lead's tip, all along x. Sizes come in mm. A J-lead diode
+# is a PLCC LED: a white housing with a lens on top.
+
+units: mm
+
+# A block drafted above and below the parting line zp, where the leads come
+# out, with its top marks
+feature molded_block(W, L, H, z0, zp, draft, body_color, sx, sy, nx, ny, ex, ey)
+  band = min(0.05, (H - z0) * 0.08)
+  za = max(z0, zp - band)
+  zb = min(H, zp + band)
+  in_b = min(tan(draft) * (za - z0), 0.3 * min(W, L))
+  in_t = min(tan(draft) * (H - zb), 0.3 * min(W, L))
+  loft W - 2 * in_b x L - 2 * in_b at z0, W x L at za, W x L at zb, W - 2 * in_t x L - 2 * in_t at H color: body_color
+  feature top_marks(W - 2 * in_t, L - 2 * in_t, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+end
+
+# Gull-wing, J-lead, L-bend and straight-lead packages
+feature body_molded(W, L, H, z0 = 0.1, draft = 8, body_color = epoxy, pin1_mark = "dimple", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0)
+  section jlead
+    z0 = 0.5
+    section diode                             # a PLCC LED
+      z0 = 0.15
+      draft = 0
+      body_color = white
+      pin1_mark = "none"
+    end
+  end
+  section lbend; z0 = 0.15; end
+  section straight; z0 = 0.05; end
+  zp = z0 + 0.5 * (H - z0)
+  feature molded_block(W, L, H, z0, zp, draft, body_color, sx, sy, nx, ny, ex, ey) at (0, 0)
+  section jlead
+    section diode
+      feature plcc_lens(W, L) at (0, 0, H)
+    end
+  end
+end
+
+# A DIP: the leads come out lower, at 40% of the height
+feature body_dip(W, L, H, z0 = 0.5, draft = 8, body_color = epoxy, pin1_mark = "dimple", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0)
+  zp = z0 + 0.4 * (H - z0)
+  feature molded_block(W, L, H, z0, zp, draft, body_color, sx, sy, nx, ny, ex, ey) at (0, 0)
+end
+
+# A plain block, for a body with no lead form: drafted if the model block gives
+# a draft. It's marked only if the silk marks pin 1 with a dot or chamfer. A
+# crystal or an oscillator gets a metal lid, as on a sawn body.
+feature body_block(W, L, H, z0 = 0, draft = 0, body_color = epoxy, pin1_mark = "none", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0)
+  section silk_mark; pin1_mark = "dot"; end
+  lid = 0
+  section crystal, oscillator; body_color = ceramic; lid = min(0.1, 0.2 * (H - z0)); end
+  drafted_if = draft
+  section drafted
+    feature molded_block(W, L, H - lid, z0, z0 + 0.5 * (H - lid - z0), draft, body_color, sx, sy, nx, ny, ex, ey) at (0, 0)
+  end
+  section plain
+    box W x L x H - lid - z0 at (0, 0, z0) color: body_color
+    feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+  end
+  section crystal, oscillator
+    feature package_lid(W, L, lid) at (0, 0, H - lid)
+  end
+end
+
+# A radial part with a box body, standing on its wires: drafted if the model
+# block gives a draft
+feature body_radial(W, L, H, z0 = 0.5, draft = 0, body_color = epoxy, pin1_mark = "none", sx = 0, sy = 0, nx = 0, ny = 1, ex = 1, ey = 0)
+  drafted_if = draft
+  section drafted
+    feature molded_block(W, L, H, z0, z0 + 0.5 * (H - z0), draft, body_color, sx, sy, nx, ny, ex, ey) at (0, 0)
+  end
+  section plain
+    box W x L x H - z0 at (0, 0, z0) color: body_color
+    feature top_marks(W, L, sx, sy, nx, ny, ex, ey, body_color) at (0, 0, H)
+  end
+end
+
+# Gull-wing leads: out of the body at zp, down, and out along the board to the
+# toe. Leads too short to bend lie flat. Thinner at fine pitch, thicker at
+# coarse.
+feature lead_gullwing(edge, pad_u, toe = pad_u + T / 2, b = 0.8 * pad_across, T = 0.55 * pad_along, pad_across = 0.5, pad_along = 1, c = 0.2, z0 = 0.1, H = 1, zp = z0 + 0.5 * (H - z0), e, lead_color = tin)
+  fine_if = 1 - 1e-9 - e              # under 1 mm pitch
+  coarse_if = e - (2 - 1e-9)          # 2 mm pitch and up
+  section fine; c = 0.15; end
+  section coarse; c = 0.3; end
+  room = toe - edge
+  foot = min(T, room - max(1.2 * c, 0.25 * room))
+  bent_if = min(room - 2.5 * c, foot - c)
+  sh = max(0.5 * c, 0.35 * (room - foot))
+  inside = min(0.3, 0.4 * edge)
+  zl = max(zp, c * 1.5)
+  section bent
+    sweep b x c fillet: 1.5 * c along (edge - inside, zl), (edge + sh, zl), (toe - foot, c / 2), (toe, c / 2) color: lead_color
+  end
+  section cramped
+    sweep b x c along (max(edge - 0.2, toe - T), c / 2), (toe, c / 2) color: lead_color
+  end
+end
+
+# J-leads: out of the body at zp, down its side and curled under it. A J with
+# no room to curl isn't drawn. Thicker at 1.27 mm pitch and up, and thinner
+# under a PLCC LED (a diode).
+feature lead_jlead(edge, pad_u, toe = pad_u + T / 2, b = 0.8 * pad_across, T = 0.55 * pad_along, pad_across = 0.5, pad_along = 1, c = 0.2, z0 = 0.5, H = 1, zp = z0 + 0.5 * (H - z0), e, lead_color = tin)
+  wide_if = e - (1.27 - 1e-9)
+  section diode; c = 0.12; wide_if = -1; end
+  section wide; c = 0.25; end
+  u_out = toe - c / 2
+  rj = max(0.6 * c, min(max(c, min(0.45, T / 2)), (zp - c / 2) / 2.6))
+  zl = max(zp, rj * 2 + c)
+  inside = min(0.3, 0.4 * edge)
+  cz = rj + c / 2
+  bent_if = u_out - 2 * rj
+  section bent
+    sweep b x c fillet: 1.5 * c along (edge - inside, zl), (u_out, zl), arc (u_out - rj, cz) r: rj from 0 to -180 segments: 14, (u_out - 2 * rj, cz + 0.8 * rj) color: lead_color
+  end
+end
+
+# Straight leads: flat out of the bottom of the body, on the board, to the toe
+feature lead_straight(edge, pad_u, toe = pad_u + T / 2, b = 0.8 * pad_across, T = 0.55 * pad_along, pad_across = 0.5, pad_along = 1, c = 0.12, lead_color = tin)
+  inside = min(0.3, 0.4 * edge)
+  sweep b x c along (edge - inside, c / 2), (toe, c / 2) color: lead_color
+end
+
+# Inward L-bends: out of the end face, down it, and folded flat under the body
+feature lead_lbend(edge, pad_u, toe = edge, b = 0.8 * pad_across, T = 0.55 * pad_along, pad_across = 0.5, pad_along = 1, c = 0.12, z0 = 0.15, H = 1, lead_color = tin)
+  u_out = max(toe - c / 2, edge + c / 2)
+  u_in = min(u_out - 2 * c, toe - T)
+  zl = max(z0 + 0.35 * (H - z0), 2.5 * c)
+  inside = min(0.3, 0.4 * edge)
+  sweep b x c fillet: 1.2 * c along (edge - inside, zl), (u_out, zl), (u_out, c / 2), (u_in, c / 2) color: lead_color
+end
+
+# A tab: a plate on the board under the body, as a DPAK's drain tab is
+feature lead_tab(pad_u, b = max(pad_across - 0.3, 0.5 * pad_across), T = max(pad_along - 0.3, 0.5 * pad_along), pad_across = 1, pad_along = 1, c = min(0.5, 0.25 * H), H = 1, lead_color = tin)
+  box T x b x c at (pad_u, 0, 0) color: lead_color
+end

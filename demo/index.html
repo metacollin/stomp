@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>stomp</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="stomp, a language for PCB footprints: write the code and watch the land pattern and its 3D model update as you type.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <span class="brand">
+      <svg class="mark" viewBox="0 0 28 16" aria-hidden="true"><rect x="1" y="2" width="9" height="12" rx="2"></rect><rect x="18" y="2" width="9" height="12" rx="2"></rect><path d="M12.5 8h3"></path></svg>
+      <span class="word">stomp</span>
+    </span>
+    <div class="picker">
+      <div class="menu-wrap">
+        <button id="file-btn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu">File</button>
+        <div class="menu" id="file-menu" role="menu" aria-label="File" hidden>
+          <button type="button" role="menuitem" data-act="new">New file…</button>
+          <button type="button" role="menuitem" data-act="open-disk">Open from disk…</button>
+          <div class="menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" data-act="save">Save<kbd class="mk" data-mod>S</kbd></button>
+          <button type="button" role="menuitem" data-act="save-as">Save as…</button>
+          <button type="button" role="menuitem" data-act="rename">Rename…</button>
+          <button type="button" role="menuitem" data-act="delete">Delete…</button>
+          <div class="menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" data-act="download" id="act-download">Save to disk</button>
+          <button type="button" role="menuitem" data-act="download-all" id="act-download-all">Save all my files to disk</button>
+          <button type="button" role="menuitem" data-act="copy">Copy the text</button>
+          <p class="menu-note" id="store-note"></p>
+        </div>
+      </div>
+      <select id="example" aria-label="Open a file or an example"></select>
+      <button id="reset" class="btn ghost" type="button" title="Discard your edits to this example">Reset</button>
+    </div>
+    <div class="spacer"></div>
+    <nav class="links" aria-label="Help and export">
+      <a id="tutorial-btn" class="btn ghost" href="#tutorial">Tutorial</a>
+      <a id="docs-btn" class="btn ghost" href="#reference">Docs</a>
+      <button id="export-kicad" class="btn" type="button">Export to KiCad</button>
+      <a class="btn ghost gh" href="https://github.com/metacollin/stomp" target="_blank" rel="noopener" title="stomp on GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg><span>GitHub</span></a>
+    </nav>
+    <input type="file" id="open-file" accept=".stomp,.txt,.zip,text/plain,application/zip" multiple hidden>
+  </header>
+
+  <main class="panes" id="panes">
+    <section class="pane src" aria-label="stomp source">
+      <div class="pane-head">
+        <span class="file" id="file-name">untitled.stomp</span>
+        <span class="file-status" id="file-status"></span>
+        <button type="button" class="linkish back-docs" id="back-docs" hidden></button>
+        <span class="hint">compiles as you type</span>
+        <span class="ms" id="compile-ms" title="Compile time"></span>
+      </div>
+      <div id="editor" class="editor-host"></div>
+      <div class="problems" id="problems">
+        <button class="problems-head" id="problems-toggle" type="button" aria-expanded="true" aria-controls="problems-list">
+          <span class="ttl">Problems</span>
+          <span class="count err" id="n-err" title="errors">0</span>
+          <span class="count warn" id="n-warn" title="warnings">0</span>
+          <span class="ok" id="ok-note">None: every object is placed exactly once</span>
+        </button>
+        <ul class="problems-list" id="problems-list"></ul>
+      </div>
+    </section>
+
+    <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panes" tabindex="0"></div>
+
+    <section class="pane sheet" aria-label="Footprint preview">
+      <div class="pane-head">
+        <div class="seg view-seg" id="view-seg" role="group" aria-label="View" hidden>
+          <button type="button" data-view="fp" aria-pressed="true">Footprint</button>
+          <button type="button" data-view="lib" aria-pressed="false">Library <span class="lib-n" id="lib-n"></span></button>
+        </div>
+        <div class="tabs" id="tabs" role="tablist" aria-label="Footprints in this file"></div>
+        <select id="fp-select" class="fp-select" aria-label="Footprint" hidden></select>
+        <div class="tools">
+          <div class="seg dim-seg" id="dim-seg" role="group" aria-label="Drawing or 3D model">
+            <button type="button" data-dim="2d" aria-pressed="true" title="The land pattern">2D</button>
+            <button type="button" data-dim="3d" aria-pressed="false" title="The 3D model on a board">3D</button>
+          </div>
+          <div class="seg" role="group" aria-label="Display units">
+            <button type="button" data-u="mm" aria-pressed="true">mm</button>
+            <button type="button" data-u="mil" aria-pressed="false">mil</button>
+          </div>
+          <button id="fit" class="btn ghost" type="button" title="Fit to view (or double-click the drawing)">Fit</button>
+        </div>
+      </div>
+      <div class="viewer-wrap">
+        <div id="viewer" class="viewer-host"></div>
+        <div id="viewer3d" class="viewer-host v3d-host" hidden></div>
+        <div id="library" class="library" hidden></div>
+        <div class="legend" id="layerbar" role="group" aria-label="Layers"></div>
+        <div class="legend bar3d" id="bar3d" role="group" aria-label="3D view" hidden></div>
+      </div>
+      <div class="titleblock" id="titleblock">
+        <div><span class="k">Footprint</span><span class="v" id="tb-name">—</span></div>
+        <div><span class="k" id="tb-k2">Cursor</span><span class="v" id="tb-cursor">—</span></div>
+        <div><span class="k" id="tb-k3">Grid</span><span class="v" id="tb-grid">—</span></div>
+        <div><span class="k" id="tb-k4">Scale</span><span class="v" id="tb-scale">—</span></div>
+      </div>
+      <div class="details" id="details"></div>
+    </section>
+  </main>
+
+  <section class="docs" id="docs" aria-label="Documentation" hidden>
+    <nav class="docs-nav" id="docs-nav" aria-label="Documentation pages"></nav>
+    <article class="docs-body" id="docs-body"></article>
+  </section>
+</div>
+
+<dialog id="ask" class="ask" aria-labelledby="ask-title">
+  <form method="dialog" id="ask-form">
+    <h2 id="ask-title">Save as</h2>
+    <p id="ask-text" class="ask-text"></p>
+    <label id="ask-label" for="ask-input">Name</label>
+    <input id="ask-input" type="text" autocomplete="off" spellcheck="false" maxlength="80">
+    <p id="ask-error" class="ask-error" role="alert"></p>
+    <div class="ask-buttons">
+      <button type="button" class="btn ghost" id="ask-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="ask-ok">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="drop" class="drop" hidden><p>Drop <code>.stomp</code> files (or a <code>.zip</code> of them) to open them</p></div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="js/geom.js"></script>
+<script src="js/lexer.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/stdlib.js"></script>
+<script src="js/compile.js"></script>
+<script src="js/examples.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/view.js"></script>
+<script src="js/model3d.js"></script>
+<script src="js/view3d.js"></script>
+<script src="js/kicad.js"></script>
+<script src="js/store.js"></script>
+<script src="js/playground.js"></script>
+<script src="js/docs.js"></script>
+<script src="js/docsview.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

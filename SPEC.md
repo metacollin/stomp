@@ -2,8 +2,7 @@
 
 *A stomp leaves a footprint. Files use the `.stomp` extension.*
 
-**Status: draft 1, syntax and grammar only.** This document pins down the language you
-write. Parsing (probably with PEGTL), constraint solving, IPC pad synthesis and 2D/3D
+**Grammer Revision 1**: Library will likely be C++ using PEGTL, constraint solving, IPC pad synthesis and 2D/3D
 generation are out of scope for this revision. Where the syntax forces a decision about
 meaning, the spec states the default and marks it as a decision. Open items are
 collected in [§17 Open questions](#17-open-questions).
@@ -44,11 +43,11 @@ is the authority on those.
 
 ## 1. Goals
 
-stomp is a small language for describing electronic component footprints. From one
+Stomp is a small language for describing electronic component footprints. From one
 source file, it must be able to generate:
 
 - a **2D land pattern**: copper pads, drills, mask and paste, silkscreen, courtyard and
-  assembly outline;
+  assembly outline
 - optionally, a **3D model** of the part (body and leads) for MCAD export and board
   rendering.
 
@@ -58,12 +57,15 @@ There are two ways to write a footprint, and one footprint can mix them:
   datasheet gives a recommended land pattern, or when you're copying an existing one.
 - **Part mode:** describe the *component* (body size, pins per side, pitch, lead form,
   lead span, thermal pad, ...) and let the tool derive the land pattern (IPC-7351
-  style) and the 3D model. Explicit pads always override derived ones.
+  style) and the 3D model. Explicit pads always override derived ones. This is where stomp's true power is, as the footprint is **automatically generated from the part itself**.
 
-The main feature is **relational dimensioning**: you can place any object by saying it
+You know all those terrible dimensional drawings in datasheets that never have the dimension you need? So start calculating it using 12 vaguely related dimensions, and before you know it, you're in the bathroom with 3 mirrors staring at your butthole and questioning your life's decisions. Then, finally, you figure out where the pad for pin 3 really goes.
+
+Datasheets dimension their drawings as a labyrinth of offsets between whatever features the drafter chose. And the drafter is almost invariably a huge asshole.
+
+The main feature of stomp is **relational dimensioning**. You can place any object by saying it
 is some distance, in some direction, from another object. The distance can be measured
-**center to center, edge to edge, or mixed (center to edge)**. Datasheets dimension
-their drawings as a web of offsets between whatever features the drafter chose. stomp
+**center to center, edge to edge, or mixed (center to edge)**. Stomp
 lets you type those dimensions in *as drawn*, without converting them to a common
 origin by hand.
 
@@ -73,9 +75,9 @@ origin by hand.
    in as written: pitches (center to center), spans (outer to outer), gaps (inner to
    inner), edge offsets, letter dimensions (`e = 0.65`). Variation tables go in the
    same way, one row per variant ([§14.3](#143-tables-footprints-from)). If you have to
-   do arithmetic while typing in a drawing, the language has failed.
-2. **Short for the common case, explicit for the odd one.** A JEDEC-standard package
-   takes 4 to 6 lines. An awkward connector takes more, but is never impossible: you
+   do arithmetic while typing in a drawing, the language has failed and we can delete the git repo forever.
+2. **Short for most things, explicit for weird things.** A JEDEC-standard package
+   takes 4 to 6 lines. A cursed proprietary footprint takes more, but is never impossible: you
    drop from generators to primitives and relations without changing files or
    dialects.
 3. **Declarative, and order mostly doesn't matter.** Statements are facts, not
@@ -83,17 +85,16 @@ origin by hand.
    both statements involved ([§9.7](#97-constraint-semantics)).
 4. **One namespace, real names.** Pads, holes, rows, groups, the body and the origin
    are all named objects, and any of them can be a dimension reference.
-5. **Generated defaults are weak.** A generator (`pins 8 dual pitch: 1.27 …`) makes
+5. **Generated defaults are weak.** A generator (`pins 8 dual pitch: 1.27 ...`) makes
    ordinary objects with *default* positions and geometry. Any explicit statement about
    a generated object overrides the default. So "a standard package, except pad 5 is
-   wider and there's a mounting hole" is a generator plus two lines, not a full
+   wider and there's a mounting hole" is a generator plus two extra lines, not a full
    description by hand.
-6. **Reads like English, but small.** Statements read aloud (`pad 3 is 4.56 right of
-   pad 1`), yet the grammar is a deterministic PEG. Words that relate things read as a
-   sentence, and a value with a name says it, with a colon (`pitch: 1.27`). A block is
+6. **Reads like English** Statements can be read aloud  to understand their meaning (`pad 3 is 4.56 right of pad 1`), yet the grammar is a deterministic parser expression grammar (PEG). Words that relate things read as a
+   sentence, and a value with a name says it with a colon (`pitch: 1.27`). A block is
    its header line, its statements and `end`. There are no optional filler words, and
    there's one way to write each construct.
-7. **The models are stomp too.** Every body, lead and mark the tool draws comes from a
+7. **Stomp is a description language's analog of 'self-hosting'** Every body, lead and mark the tool draws comes from a
    standard library of stomp features. A file can replace any of them, so the way a
    part looks is code you can read and change, not something built into the tool.
 

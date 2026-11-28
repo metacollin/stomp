@@ -9,11 +9,13 @@
 #include "../diag.hpp"
 #include "../json.hpp"
 #include "../lexer.hpp"
+#include "../value.hpp"
 
 namespace stomp::dev {
 
 json::Value token_json(const Token& k);
 json::Value syntax_diag_json(const Diag& d);   // {severity, message, s, e, syntax: true}
+Val diag_val(const Diag& d);
 
 /** A layer's canonical text for one source: "lex", ... (the layers ported so far). */
 std::string dump(std::string_view layer, std::u16string_view src, const json::Value* stdlib);

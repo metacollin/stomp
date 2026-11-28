@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "../parser.hpp"
+
 namespace stomp::dev {
 
 namespace {
@@ -95,6 +97,12 @@ Value token_json(const Token& k) {
   return o;
 }
 
+/** A syntax diagnostic as a record: {severity, message, s, e, syntax: true}. */
+Val diag_val(const Diag& d) {
+  return rec({{K_severity, d.severity == Severity::Error ? u"error" : u"warning"}, {K_message, d.message},
+              {K_s, static_cast<double>(d.s)}, {K_e, static_cast<double>(d.e)}, {K_syntax, true}});
+}
+
 Value syntax_diag_json(const Diag& d) {
   Value o = json::object();
   o.set(u"severity", d.severity == Severity::Error ? u"error" : u"warning");
@@ -119,6 +127,15 @@ std::string dump(std::string_view layer, std::u16string_view src, const json::Va
     o.set(u"eof", token_json(lx.eof));
     o.set(u"diags", std::move(ds));
     return json::canon(o);
+  }
+  if (layer == "parse") {
+    // the parser's view: the lexer's problems aren't part of it (tests/compare/js-engine.cjs)
+    Diags lex_diags, diags;
+    const Lexed lx = lex(src, &lex_diags);
+    const ObjP ast = parse(lx.stream, diags);
+    auto ds = list();
+    for (const auto& d : diags) ds->a.push_back(diag_val(d));
+    return canon(Val(rec({{K_ast, ast}, {K_diags, ds}})));
   }
   throw std::runtime_error("layer " + std::string(layer) + " isn't ported yet");
 }

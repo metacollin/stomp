@@ -22,7 +22,7 @@ struct Hook {
   const char16_t* kind;
   std::vector<U> args;
 };
-const Hook* hook_of(const U& name) {
+const std::vector<std::pair<U, Hook>>& hooks_list() {
   static const std::vector<std::pair<U, Hook>> hooks = [] {
     const std::vector<U> BODY_ARGS{u"W", u"L", u"H", u"z0", u"draft", u"body_color", u"lead_color", u"e", u"above", u"ball_d",
                                    u"cast_d", u"turn", u"T", u"sx", u"sy", u"nx", u"ny", u"ex", u"ey", u"ma"};
@@ -43,7 +43,10 @@ const Hook* hook_of(const U& name) {
     out.push_back({u"polarity_plus", {u"silk", {}}});
     return out;
   }();
-  for (const auto& [n, h] : hooks)
+  return hooks;
+}
+const Hook* hook_of(const U& name) {
+  for (const auto& [n, h] : hooks_list())
     if (n == name) return &h;
   return nullptr;
 }
@@ -128,6 +131,7 @@ std::shared_ptr<Library> load_library(const std::vector<LibFile>& list) {
     Lexed lx = lex(f.source, &lexDiags);
     shift_tokens(lx.stream, static_cast<Offset>(base));
     const ObjP ast = parse(lx.stream, parseDiags);
+    mark_ast(ast);
     const auto where = [&](const CDiag& d, double off) {
       CDiag w = d;
       w.file = f.file;
@@ -178,8 +182,9 @@ std::shared_ptr<Library> load_library(const std::vector<LibFile>& list) {
   return lib;
 }
 
-const std::vector<LibFile>& builtin() {
-  static const std::vector<LibFile> files = [] {
+/** The library a compile uses when it's given none: the built-in one, until set_library. */
+std::vector<LibFile>& default_library() {
+  static std::vector<LibFile> files = [] {
     std::vector<LibFile> out;
     for (const auto& f : builtin_library()) out.push_back({js::u16(f.name), f.source});
     return out;
@@ -198,10 +203,33 @@ struct CacheEntry {
   std::optional<Inst> tmpl;
   double rowS = 0, rowE = 0;
 };
+// The most recently used entries: at most CACHE_MAX (compile.js's limit), taking about
+// CACHE_KB at most (a WebAssembly heap never shrinks).
 constexpr std::size_t CACHE_MAX = 1500;
-OrderedMap<U, std::shared_ptr<CacheEntry>>& cache() {
-  static OrderedMap<U, std::shared_ptr<CacheEntry>> m;
-  return m;
+constexpr double CACHE_KB = 256 * 1024;
+struct Cache {
+  OrderedMap<U, std::shared_ptr<CacheEntry>> m;
+  double kb = 0;
+};
+Cache& cache() {
+  static Cache c;
+  return c;
+}
+double entry_kb(const CacheEntry& e) { return e.result ? e.result->kb() : 1; }
+/** Set an entry, now the most recent. */
+void cache_put(const U& key, std::shared_ptr<CacheEntry> e) {
+  Cache& c = cache();
+  if (auto* old = c.m.get(key)) {
+    c.kb -= entry_kb(**old);
+    c.m.erase(key);
+  }
+  c.kb += entry_kb(*e);
+  c.m.set(key, std::move(e));
+  while (c.m.size() > 1 && (c.m.size() > CACHE_MAX || c.kb > CACHE_KB)) {
+    auto* first = c.m.first();
+    c.kb -= entry_kb(*first->second);
+    c.m.erase(first->first);
+  }
 }
 
 /** A problem a build threw: reported at its node, or at the footprint (compile.js safely). */
@@ -543,16 +571,32 @@ FileP build_file(const ObjP& ast, CDiags& diags, const std::shared_ptr<Library>&
 
 }  // namespace
 
+const std::vector<HookInfo>& hooks_table() {
+  static const std::vector<HookInfo> t = [] {
+    std::vector<HookInfo> out;
+    for (const auto& [n, h] : hooks_list()) out.push_back({n, h.kind, h.args});
+    return out;
+  }();
+  return t;
+}
+
+ObjP Result::with_outlines() const { return builder->withOutlines(rec); }
+
 ObjP Result::full() const {
-  auto o = std::make_shared<Obj>(*rec);
-  if (builder) {
-    const ObjP lazy = builder->lazyFields();
-    for (const auto& f : lazy->f) o->set(f.first, f.second);
-  }
+  ObjP o = with_outlines();
+  const ObjP lazy = builder->lazyFields();
+  for (const auto& f : lazy->f) o->set(f.first, f.second);
   return o;
 }
 
-void clear_cache() { cache().clear(); }
+void set_library(std::vector<LibFile> files) { default_library() = std::move(files); }
+
+void clear_cache() {
+  cache().m.clear();
+  cache().kb = 0;
+}
+
+double Result::kb() const { return 64 + 10 * static_cast<double>(builder->pads.size() + builder->holes.size()); }
 
 Val diag_val(const CDiag& d) {
   ObjP o = rec({{K_severity, d.error ? u"error" : u"warning"}, {K_message, d.message}, {K_s, d.s}, {K_e, d.e}});
@@ -628,10 +672,11 @@ ArrP finish_diags(const CDiags& diags, V source) {
 Compiled compile(V source, const Options& opts) {
   const bool useCache = opts.cache;
   CDiags diags;
-  const auto lib = load_library(opts.stdlib ? *opts.stdlib : builtin());
+  const auto lib = load_library(opts.stdlib ? *opts.stdlib : default_library());
   Diags syntax;
   const Lexed lx = lex(source, &syntax);
   const ObjP ast = parse(lx.stream, syntax);
+  mark_ast(ast);
   for (const Diag& d : syntax) {
     CDiag c = mkdiag(d.severity == Severity::Error, d.message, static_cast<double>(d.s), static_cast<double>(d.e));
     c.syntax = true;
@@ -679,10 +724,9 @@ Compiled compile(V source, const Options& opts) {
     B x{std::make_shared<Builder>(d, file, src), std::nullopt, nullptr};
     if (useCache) x.key = cache_key(d, source, *file, letsSig);
     if (x.key) {
-      if (auto* hit = cache().get(*x.key)) {
+      if (auto* hit = cache().m.get(*x.key)) {
         const auto entry = *hit;
-        cache().erase(*x.key);
-        cache().set(*x.key, entry);   // keep recently used entries
+        cache_put(*x.key, entry);   // keep recently used entries
         x.cached = entry;
         x.b->name = entry->name;
         x.b->tmpl = entry->tmpl;
@@ -745,7 +789,10 @@ Compiled compile(V source, const Options& opts) {
       result = x.cached->result;
       for (auto& dg : replay(*x.cached, d)) diags.push_back(std::move(dg));
     } else {
-      if (auto r = safely(b, [&] { return b.build(); })) result = std::make_shared<Result>(Result{*r, x.b});
+      if (auto r = safely(b, [&] { return b.build(); })) {
+        static std::uint32_t nextId = 0;
+        result = std::make_shared<Result>(Result{*r, x.b, ++nextId});
+      }
       if (x.key) {
         auto entry = std::make_shared<CacheEntry>();
         entry->name = b.name;
@@ -754,8 +801,7 @@ Compiled compile(V source, const Options& opts) {
         entry->tmpl = b.tmpl;
         entry->rowS = d->get(K_s).num();
         entry->rowE = d->get(K_e).num();
-        cache().set(*x.key, entry);
-        if (cache().size() > CACHE_MAX) cache().erase(cache().first()->first);
+        cache_put(*x.key, entry);
       }
       for (const auto& dg : b.diags) diags.push_back(dg);
       b.src.clear();

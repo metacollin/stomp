@@ -56,8 +56,15 @@ struct Model {
   Box3 extent{}, core{};
 };
 
-/** The part's model. strict throws on a problem instead of reporting it. */
-Model build(const compiler::Result& res, bool strict = false);
+/** A feature the engine bound: its name and the values it passed (for the tests). */
+struct HookCall {
+  U name;
+  std::vector<U> values;
+};
+
+/** The part's model. strict throws on a problem instead of reporting it; calls, if given,
+ *  collects the features the engine binds without a written call. */
+Model build(const compiler::Result& res, bool strict = false, std::vector<HookCall>* calls = nullptr);
 /** The board under the part, for the viewer: res is the full result (with its layers). */
 Model board(const ObjP& res, const Model* model);
 /** VRML 2.0 for KiCad: 1 unit is 0.1 inch; repeated parts are written once and placed with USE. */

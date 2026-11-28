@@ -730,8 +730,8 @@ void put(Values& vs, const U& k, EV v) {
 // it, and builds the meshes.
 class Engine {
  public:
-  Engine(const compiler::Result& r, bool strict, Model& out, std::vector<MB>& meshes)
-      : res_(r.rec), b_(*r.builder), strict_(strict), out_(out), meshes_(meshes), md_(F(res_, K_model)), P_(F(md_, K_props)) {}
+  Engine(const compiler::Result& r, bool strict, Model& out, std::vector<MB>& meshes, std::vector<HookCall>* calls)
+      : res_(r.rec), b_(*r.builder), strict_(strict), out_(out), meshes_(meshes), md_(F(res_, K_model)), P_(F(md_, K_props)), calls_(calls) {}
 
   void run();
 
@@ -744,6 +744,16 @@ class Engine {
   Val md_, P_;
   std::unordered_map<U, std::vector<std::shared_ptr<MB>>> memo_;
   Mat solidColor_, bodyColor_;
+  std::vector<HookCall>* calls_;
+
+  HookBindingP hookBind(const U& name, const Values& values, const std::vector<U>& flags, const ObjP& trigger, const Val& written) {
+    if (calls_ && !written.truthy()) {
+      HookCall c{name, {}};
+      for (const auto& [k, v] : values) c.values.push_back(k);
+      calls_->push_back(std::move(c));
+    }
+    return b_.hookBind(name, values, flags, trigger, written);
+  }
 
   HookBindingP bindHook(bool body, const U& name, const Values& values, std::vector<U> flags, const ObjP& trigger, const Val& written);
   std::vector<std::shared_ptr<MB>> meshesOf(const HookBindingP& B, const U& kind, const Mat& mat, const std::function<std::optional<U>(const U&)>& name,
@@ -759,14 +769,14 @@ HookBindingP Engine::bindHook(bool body, const U& name, const Values& values, st
   static const std::vector<std::pair<U, U>> LEAD{{u"fine", U()}, {u"wide", U()}, {u"coarse", U()}, {u"straddle", U()}, {u"flush", U()},
                                                  {u"bent", u"cramped"}, {u"under", u"beyond"}, {u"socket", U()}};
   fl.erase(std::remove(fl.begin(), fl.end(), U()), fl.end());
-  HookBindingP B = b_.hookBind(name, values, fl, trigger, written);
+  HookBindingP B = hookBind(name, values, fl, trigger, written);
   for (const auto& [flag, alt] : body ? BODY : LEAD) {
     if (!B->has(flag + u"_if")) continue;
     const auto v = B->test(flag + u"_if");
     if (v && *v > 0) fl.push_back(flag);
     else if (!alt.empty()) fl.push_back(alt);
     else continue;
-    B = b_.hookBind(name, values, fl, trigger, written);
+    B = hookBind(name, values, fl, trigger, written);
   }
   return B;
 }
@@ -867,7 +877,7 @@ void Engine::run() {
   if (p1.truthy() && (is(F(p1, K_style), u"dot") || is(F(p1, K_style), u"chamfer"))) baseFlags.push_back(u"silk_mark");
 
   // the standoff and height
-  HookBindingP B0 = b_.hookBind(bodyHook, BV, baseFlags, bodyTrigger, shape);
+  HookBindingP B0 = hookBind(bodyHook, BV, baseFlags, bodyTrigger, shape);
   double H = !F(P_, K_height).nullish() ? N(F(P_, K_height)) : N(F(b, K_h));
   const bool hNull = F(P_, K_height).nullish() && F(b, K_h).nullish();
   double z0 = !F(P_, K_standoff).nullish() ? N(F(P_, K_standoff)) : (B0->has(u"z0") ? B0->len(u"z0") : 0);
@@ -884,7 +894,7 @@ void Engine::run() {
   out_.standoff = z0;
   put(BV, u"H", EV::len(H));
   put(BV, u"z0", EV::len(z0));
-  B0 = b_.hookBind(bodyHook, BV, baseFlags, bodyTrigger, shape);
+  B0 = hookBind(bodyHook, BV, baseFlags, bodyTrigger, shape);
 
   // the mark: from the model block, the polarity, or pin 1's silk
   U mark = F(P_, K_pin1).truthy() ? S(F(P_, K_pin1)) : U();
@@ -1051,7 +1061,7 @@ void Engine::run() {
     if (!F(P_, K_thickness).nullish()) put(pv, u"c", EV::len(N(F(P_, K_thickness))));
     if (F(P_, K_leadsColor).truthy()) put(pv, u"lead_color", EV::color(color_of(F(P_, K_leadsColor))));
     const ObjP trigger = !A(F(p, K_src)).empty() && A(F(p, K_src))[0].truthy() ? A(F(p, K_src))[0].obj() : bodyTrigger;
-    const HookBindingP EB = b_.hookBind(u"exposed_pad", pv, {S(style)}, trigger, Val(nullptr));
+    const HookBindingP EB = hookBind(u"exposed_pad", pv, {S(style)}, trigger, Val(nullptr));
     const Mat mat = EB->has(u"lead_color") ? mat_of(EB->color(u"lead_color")) : leadColor;
     const U pn = S(F(p, K_name));
     const auto parts = meshesOf(EB, u"lead", mat, [&](const U&) -> std::optional<U> { return u"exposed pad " + pn; }, nullptr);
@@ -1123,7 +1133,7 @@ std::optional<Pt> Engine::stripeEnd() {
       std::vector<U> fl;
       if (F(res_, K_style).truthy()) fl.push_back(S(F(res_, K_style)));
       if (F(res_, K_family).truthy()) fl.push_back(S(F(res_, K_family)));
-      const HookBindingP PB = b_.hookBind(u"polarity", {}, fl, nullptr, Val(nullptr));
+      const HookBindingP PB = hookBind(u"polarity", {}, fl, nullptr, Val(nullptr));
       if (PB->has(u"stripe_at")) pin = PB->str(u"stripe_at");
     }
     if (pin == u"1" || (pinOne.truthy() && is(F(pinOne, K_pad), pin))) return p1pt();
@@ -1205,7 +1215,7 @@ void finalize(Model& out, std::vector<MB>& meshes) {
 
 }  // namespace
 
-Model build(const compiler::Result& r, bool strict) {
+Model build(const compiler::Result& r, bool strict, std::vector<HookCall>* calls) {
   Model out;
   const Val res = r.rec;
   const Val md = F(res, K_model);
@@ -1216,7 +1226,7 @@ Model build(const compiler::Result& r, bool strict) {
     return out;
   }
   try {
-    Engine(r, strict, out, meshes).run();
+    Engine(r, strict, out, meshes, calls).run();
   } catch (const HookError&) {
     if (strict) throw;
   } catch (const std::exception& err) {

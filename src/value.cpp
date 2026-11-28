@@ -56,6 +56,22 @@ const Val& Obj::get(Key k) const {
   return p ? *p : undef;
 }
 
+void mark_ast(const Val& root) {
+  std::vector<const Val*> todo{&root};
+  while (!todo.empty()) {
+    const Val* v = todo.back();
+    todo.pop_back();
+    if (v->is_obj()) {
+      Obj& o = *v->obj();
+      if (o.ast) continue;
+      o.ast = true;
+      for (const auto& f : o.f) todo.push_back(&f.second);
+    } else if (v->is_arr()) {
+      for (const auto& x : v->arr()->a) todo.push_back(&x);
+    }
+  }
+}
+
 bool Obj::erase(Key k) {
   const auto it = std::find_if(f.begin(), f.end(), [&](const Field& p) { return p.first == k; });
   if (it == f.end()) return false;

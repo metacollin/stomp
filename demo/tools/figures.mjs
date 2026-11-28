@@ -7,6 +7,7 @@
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { engine as loadEngine } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const js = resolve(here, '..', 'js');
@@ -17,14 +18,10 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const num = (v) => { const r = +v.toFixed(2); return Number.isInteger(r) ? r.toFixed(1) : String(r); };
 const px = (v) => +v.toFixed(2);
 
-/** The engine, loaded fresh (the build may have just rewritten the library). */
+/** The engine, with the library as stdlib/ has it (the build may have just rewritten it), and the viewer's paths. */
 function engine() {
-  for (const k of Object.keys(require.cache)) if (k.startsWith(js)) delete require.cache[k];
-  return {
-    compile: require(join(js, 'compile.js')).compile,
-    M: require(join(js, 'model3d.js')),
-    paths: require(join(js, 'view.js')).Stomp.svgPaths,
-  };
+  const E = loadEngine();
+  return { compile: E.compile, M: E.model3d, paths: require(join(js, 'view.js')).Stomp.svgPaths };
 }
 
 /**

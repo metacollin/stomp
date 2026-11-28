@@ -21,12 +21,17 @@ struct Options {
   const std::vector<LibFile>* stdlib = nullptr;   // null: the built-in library
 };
 
-/** A footprint's result record, and the build it came from (for the lazy layers and hooks). */
+/** A footprint's result record, and the build it came from (for the outlines, the lazy layers and hooks). */
 struct Result {
-  ObjP rec;
+  ObjP rec;               // without the pads' and holes' outlines
   BuilderP builder;
-  /** The record with the lazy fields (silk, assembly, courtyard, bbox, ...) added. */
+  std::uint32_t id = 0;   // unique for the process's life: the browser keeps one object per id
+  /** The record with the outlines: what compile.js returned, but for the lazy fields. */
+  ObjP with_outlines() const;
+  /** The record with the outlines and the lazy fields (silk, assembly, courtyard, bbox, ...). */
   ObjP full() const;
+  /** About the memory it takes, in KB (most of it is per pad and hole). */
+  double kb() const;
 };
 using ResultP = std::shared_ptr<Result>;
 
@@ -41,7 +46,17 @@ struct Compiled {
 };
 
 Compiled compile(V source, const Options& opts = {});
+
+/** The features the engine calls (SPEC 13.5): name, kind (body, lead, pad, value, silk), the values it passes. */
+struct HookInfo {
+  U name;
+  U kind;
+  std::vector<U> args;
+};
+const std::vector<HookInfo>& hooks_table();
 void clear_cache();
+/** The library compiles use when they're given none (the built-in one until this is called). */
+void set_library(std::vector<LibFile> files);
 
 /** Line and column for diagnostics with offsets into source (compile.js finishDiags). */
 ArrP finish_diags(const CDiags& diags, V source);

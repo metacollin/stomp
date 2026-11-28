@@ -3,11 +3,7 @@
 // special only where the grammar expects them. Run: node --test demo/test/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const { compile } = require('../js/compile.js');
-const M = require('../js/model3d.js');
+import { compile, model3d as M } from './engine.mjs';
 
 const errors = (out) => out.diagnostics.filter((d) => d.severity === 'error');
 const msgs = (src) => errors(compile(src, { cache: false })).map((d) => `${d.line}: ${d.message}`);

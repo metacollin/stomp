@@ -2,6 +2,8 @@
 // records with the fields the editor, the 3D engine and the KiCad writer read.
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
+#include <unordered_map>
 
 #include "../jsrt.hpp"
 #include "builder.hpp"
@@ -91,35 +93,28 @@ ObjP Builder::output() {
     return n ? Val(rec({{K_s, n->get(K_s)}, {K_e, n->get(K_e)}})) : Val(nullptr);
   };
   ArrP padsOut = list();
+  // pads with one spec share its record, and its shape and drill (as compile.js's did)
+  std::unordered_map<const Spec*, Val> specRecs;
   pads.each([&](const U&, const PadP& p) {
     const Spec& s = *p->spec;
-    const Val shape = shape_val(s.shape);
-    ArrP paste;
-    if (p->paste) {
-      paste = list();
-      for (const auto& c : *p->paste) paste->a.push_back(contour_val(c));
-    }
+    Val& specRec = specRecs[&s];
+    if (specRec.undef()) specRec = spec_val(s);
+    const Val shape = specRec.obj()->get(K_shape);
     ArrP vias = list();
     for (const Via& v : p->viaList) vias->a.push_back(rec({{K_x, v.x}, {K_y, v.y}, {K_d, v.d}}));
     const bool unpl = unplacedObj.count(p.get()) || (p->unit && ((p->unit->pad && unplacedObj.count(p->unit->pad.get())) ||
                                                                  (p->unit->row && unplacedObj.count(p->unit->row.get()))));
-    Val drill = nullptr;
-    if (s.drill) drill = s.drill->d ? Val(rec({{K_d, *s.drill->d}})) : Val(rec({{K_slot, rec({{K_w, s.drill->slotW}, {K_l, s.drill->slotL}})}}));
+    const Val drill = specRec.obj()->get(K_drill);
     padsOut->a.push_back(rec({
         {K_kind, u"pad"},
         {K_name, p->name},
         {K_x, *p->x},
         {K_y, *p->y},
         {K_rot, p->rot},
-        {K_spec, spec_val(s)},
+        {K_spec, specRec},
         {K_shape, shape},
         {K_tht, s.tht},
-        {K_drill, drill},
-        {K_land, contour_val(p->land)},
-        {K_copper, contour_val(p->copper)},
-        {K_mask, p->maskOpen ? contour_val(*p->maskOpen) : Val(nullptr)},
-        {K_paste, paste ? Val(paste) : Val(nullptr)},
-        {K_drillShape, p->drillShape ? contour_val(*p->drillShape) : Val(nullptr)},
+        {K_drill, drill},   // the outlines go here (withOutlines)
         {K_vias, vias},
         {K_bbox, bbox_val(*p->x, *p->y, p->bb)},
         {K_generated, p->generated},
@@ -142,9 +137,7 @@ ObjP Builder::output() {
         {K_x, h->x},
         {K_y, h->y},
         {K_rot, 0},
-        {K_shape, shape_val(h->shape)},
-        {K_land, contour_val(h->land)},
-        {K_mask, contour_val(h->maskOpen)},
+        {K_shape, shape_val(h->shape)},   // the outlines go here (withOutlines)
         {K_bbox, bbox_val(h->x, h->y, h->bb)},
         {K_unplaced, unplacedObj.count(h.get()) > 0},
         {K_src, ranges(with_more(h->src, h->unit))},
@@ -355,6 +348,64 @@ ObjP Builder::output() {
       {K_extends, ext ? decl->get(K_parentName) : Val(nullptr)},
       {K_template, from ? decl->get(K_template).obj()->get(K_name) : Val(nullptr)},
   });
+}
+
+// The pads' and holes' outlines. Results keep them as the builder's contours, which take a
+// fraction of the memory of records, and make records of them when asked.
+
+namespace {
+
+ArrP pad_outlines(const Pad& p) {
+  ArrP paste;
+  if (p.paste) {
+    paste = list();
+    for (const auto& c : *p.paste) paste->a.push_back(contour_val(c));
+  }
+  return list({contour_val(p.land), contour_val(p.copper), p.maskOpen ? contour_val(*p.maskOpen) : Val(nullptr), paste ? Val(paste) : Val(nullptr),
+               p.drillShape ? contour_val(*p.drillShape) : Val(nullptr)});
+}
+ArrP hole_outlines(const Hole& h) { return list({contour_val(h.land), contour_val(h.maskOpen)}); }
+
+/** o with fields put in after `after`. */
+ObjP insert_after(const Obj& o, Key after, const std::vector<Key>& keys, const ArrP& values) {
+  auto out = std::make_shared<Obj>();
+  out->f.reserve(o.f.size() + keys.size());
+  for (const auto& f : o.f) {
+    out->f.push_back(f);
+    if (f.first == after)
+      for (std::size_t k = 0; k < keys.size(); ++k) out->f.emplace_back(keys[k], values->a[k]);
+  }
+  return out;
+}
+
+const std::vector<Key> PAD_OUTLINES{K_land, K_copper, K_mask, K_paste, K_drillShape}, HOLE_OUTLINES{K_land, K_mask};
+
+}  // namespace
+
+ObjP Builder::withOutlines(const ObjP& res) const {
+  auto o = std::make_shared<Obj>(*res);
+  ArrP padsOut = list(), holesOut = list();
+  std::size_t i = 0;
+  const auto& padRecs = res->get(K_pads).arr()->a;
+  const auto& holeRecs = res->get(K_holes).arr()->a;
+  if (padRecs.size() != pads.size() || holeRecs.size() != holes.size()) throw std::logic_error("the pads changed after the footprint was built");
+  pads.each([&](const U&, const PadP& p) {
+    padsOut->a.push_back(insert_after(*padRecs[i++].obj(), K_drill, PAD_OUTLINES, pad_outlines(*p)));
+  });
+  i = 0;
+  holes.each([&](const U&, const HoleP& h) {
+    holesOut->a.push_back(insert_after(*holeRecs[i++].obj(), K_shape, HOLE_OUTLINES, hole_outlines(*h)));
+  });
+  o->set(K_pads, padsOut);
+  o->set(K_holes, holesOut);
+  return o;
+}
+
+ObjP Builder::outlines() const {
+  ArrP padsOut = list(), holesOut = list();
+  pads.each([&](const U&, const PadP& p) { padsOut->a.push_back(pad_outlines(*p)); });
+  holes.each([&](const U&, const HoleP& h) { holesOut->a.push_back(hole_outlines(*h)); });
+  return rec({{K_pads, padsOut}, {K_holes, holesOut}});
 }
 
 /** The merged model blocks, resolved to numbers and colors. */

@@ -7,8 +7,10 @@
 //   node demo/tools/snapshot.mjs --write         record the fixture again
 //   node demo/tools/snapshot.mjs --time          also print build times
 //   node demo/tools/snapshot.mjs --only TEXT     only footprints whose file or name holds TEXT
-//   node demo/tools/snapshot.mjs --against DIR   compare mesh by mesh with the engine in DIR
-//                                                (a copy of demo/js), vertex for vertex
+//   node demo/tools/snapshot.mjs --against DIR   compare mesh by mesh, vertex for vertex, with the
+//                                                JavaScript engine in DIR: demo/js at the js-oracle
+//                                                tag (git archive js-oracle demo/js | tar -x -C T,
+//                                                then DIR is T/demo/js)
 //
 // A record keeps, per mesh: name, kind, color, triangle and vertex counts, and
 // its surface's area, bounding box, centroid and second moments. The moments
@@ -19,6 +21,7 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { engine as wasmEngine } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const demo = resolve(here, '..');
@@ -35,9 +38,13 @@ export function sources() {
   return list;
 }
 
-/** The engine in a directory: { compile, M }. */
+/** The engine, { compile, M }: the C++ one, or with a directory the JavaScript engine in it. */
 export function engine(dir) {
-  const d = resolve(dir || join(demo, 'js'));
+  if (!dir) {
+    const E = wasmEngine();
+    return { compile: E.compile, M: E.model3d };
+  }
+  const d = resolve(dir);
   for (const k of Object.keys(require.cache)) if (k.startsWith(d)) delete require.cache[k];
   return { compile: require(join(d, 'compile.js')).compile, M: require(join(d, 'model3d.js')) };
 }

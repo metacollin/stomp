@@ -4,17 +4,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render, slugify, plain } from '../tools/md.mjs';
 import { DOCS, docsLink, docsPages, GITHUB } from '../tools/build.mjs';
+import { compile, syntax } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-const require = createRequire(import.meta.url);
-const { compile } = require('../js/compile.js');
-const L = require('../js/lexer.js'), P = require('../js/parser.js');
 const pages = docsPages();
 
 test('headings get GitHub\'s ids, made unique, and the contents lists h2 and h3', () => {
@@ -106,7 +103,7 @@ test('every page is built, and every link in them leads somewhere', () => {
 test('every example in the tutorial and the reference works', () => {
   const parses = (src) => {
     const wraps = [src, `footprint "X"\n${src}\nend`, `feature f\n${src}\nend`, `footprint "X"\n  model\n${src}\n  end\nend`];
-    return wraps.some((w) => { const d = []; P.parse(L.lex(w, d).tokens, d); return !d.some((x) => x.severity === 'error'); });
+    return wraps.some((w) => !syntax(w).some((x) => x.severity === 'error'));
   };
   for (const key of ['tutorial', 'reference']) {
     const page = pages.find((p) => p.key === key);

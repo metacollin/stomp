@@ -2,15 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compile, model3d as M } from './engine.mjs';
+import St from '../js/store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-const require = createRequire(import.meta.url);
-const { compile } = require('../js/compile.js');
-const M = require('../js/model3d.js');
 
 const example = (f) => readFileSync(join(repo, 'examples', f), 'utf8');
 const build = (src, name) => {
@@ -249,7 +247,7 @@ test('exports: VRML in 0.1-inch units, binary STL', () => {
   assert.equal(new DataView(stl.buffer).getUint32(80, true), m.triangles);
   // both in an uncompressed zip, for hosts that only save .zip
   const wrlBytes = new TextEncoder().encode(wrl);
-  const zip = M.toZip([{ name: 'SOIC-8.wrl', data: wrlBytes }, { name: 'SOIC-8.stl', data: stl }]);
+  const zip = St.toZip([{ name: 'SOIC-8.wrl', data: wrlBytes }, { name: 'SOIC-8.stl', data: stl }]);
   const dv = new DataView(zip.buffer);
   assert.equal(dv.getUint32(0, true), 0x04034b50, 'starts with a local file header');
   const end = zip.length - 22;

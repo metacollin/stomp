@@ -163,7 +163,7 @@ std::string view_text(const compiler::Compiled& out, bool full) {
   for (std::size_t i = 0; i < out.footprints->a.size(); ++i) {
     auto f = std::make_shared<Obj>(*out.footprints->a[i].obj());
     const auto& r = out.results[i];
-    if (full && r) f->set(K_result, r->full());
+    if (r) f->set(K_result, full ? r->full() : r->with_outlines());
     fps->a.push_back(f);
   }
   const Val view = rec({{K_diagnostics, out.diagnostics},

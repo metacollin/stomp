@@ -5,7 +5,9 @@ target_link_libraries(stomp_wasm PRIVATE stomp stomp_warnings)
 target_include_directories(stomp_wasm PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 set(STOMP_WASM_EXPORTS _malloc _free _stomp_version _stomp_out_ptr _stomp_out_len _stomp_out32_ptr _stomp_out32_len
-    _stomp_library_names _stomp_lex)
+    _stomp_outF_ptr _stomp_outF_len _stomp_library_names _stomp_lex _stomp_compile _stomp_recompile _stomp_last_id
+    _stomp_result _stomp_clear_cache _stomp_set_library _stomp_layers _stomp_contours _stomp_model _stomp_board _stomp_vrml _stomp_stl
+    _stomp_kicad _stomp_locate _stomp_constants _stomp_outline _stomp_syntax _stomp_encode _stomp_memory)
 list(JOIN STOMP_WASM_EXPORTS "," exports)
 target_link_options(stomp_wasm PRIVATE
   -sMODULARIZE=1

@@ -2,16 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compile, compiler, lex, syntax } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-const require = createRequire(import.meta.url);
-const { compile } = require('../js/compile.js');
-const { lex } = require('../js/lexer.js');
 
 const example = (f) => readFileSync(join(repo, 'examples', f), 'utf8');
 const fp = (src, name) => {
@@ -192,7 +189,7 @@ test('never throws on half-typed or mangled input (fuzz smoke test)', () => {
 });
 
 test('the incremental cache never changes the result (random edit sequences)', () => {
-  const { clearCache } = require('../js/compile.js');
+  const { clearCache } = compiler;
   const summary = (out) => JSON.stringify({
     diags: out.diagnostics.map((d) => [d.severity, d.s, d.e, d.message, (d.related || []).map((r) => [r.s, r.e, r.message])]),
     fps: out.footprints.map((f) => [f.name, f.s, f.e, f.result && {
@@ -274,7 +271,7 @@ test('lexer: side marks after a number or its unit', () => {
   const k = lex('1.1w 1.6h 43milw 1.1wx1.6h', []).tokens.filter((t) => t.t !== 'eof');
   assert.deepEqual(k.map((t) => t.t === 'num' ? `${t.v}${t.suffix || ''}${t.axis ? ':' + t.axis : ''}` : t.v),
     ['1.1:w', '1.6:h', '43mil:w', '1.1:w', 'x', '1.6:h']);
-  const hint = (src) => { const d = []; lex(src, d); return d.map((x) => x.message).join(' | '); };
+  const hint = (src) => syntax(src).map((x) => x.message).join(' | ');
   assert.match(hint('1.1wmm'), /put the unit before the side mark: `1.1mmw`/);
   assert.match(hint('3mils'), /write mils as `mil`/);
   assert.match(hint('2inch'), /write inches as `in`/);

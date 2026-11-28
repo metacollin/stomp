@@ -7,13 +7,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compile, compiler as C, model3d as M, outline } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
 const require = createRequire(import.meta.url);
-const C = require('../js/compile.js');
-const { compile } = C;
-const M = require('../js/model3d.js');
 const STDLIB = require('../js/stdlib.js');
 
 const errors = (out) => out.diagnostics.filter((d) => d.severity === 'error');
@@ -39,9 +37,8 @@ test('the standard library parses cleanly, and stdlib.js matches stdlib/', () =>
 });
 
 test('every hook the engine calls is in the library, and needs only what the engine passes', () => {
-  const L = require('../js/lexer.js'), P = require('../js/parser.js');
   const feats = new Map();
-  for (const f of STDLIB) for (const it of P.parse(L.lex(f.source, []).tokens, []).items) if (it.type === 'Feature') feats.set(it.name, it);
+  for (const f of STDLIB) for (const it of outline(f.source)) if (it.type === 'Feature') feats.set(it.name, it);
   for (const [name, h] of Object.entries(C.HOOKS)) {
     const f = feats.get(name);
     assert.ok(f, `the standard library defines ${name}`);
@@ -55,15 +52,12 @@ test('the engine passes each hook only the values the hooks table lists', () => 
   files.push(readFileSync(join(here, 'fixtures', 'corpus.stomp'), 'utf8'));
   for (const src of files) {
     for (const f of fresh(src).footprints) {
-      if (!f.result || !f.result.model || !f.result.model.hooks) continue;
-      const H = f.result.model.hooks;
-      const bind = H.bind;
-      H.bind = (name, values, flags, trigger, written) => {
-        if (!written) for (const k of Object.keys(values || {})) { if (!seen.has(name)) seen.set(name, new Set()); seen.get(name).add(k); }
-        return bind(name, values, flags, trigger, written);
-      };
-      M.build(f.result, { strict: true });
-      H.bind = bind;
+      if (!f.result) continue;
+      // the features the engine bound without a written call, and the values it passed
+      for (const c of M.build(f.result, { strict: true, recordHooks: true }).hookCalls) {
+        if (!seen.has(c.name)) seen.set(c.name, new Set());
+        for (const k of c.values) seen.get(c.name).add(k);
+      }
     }
   }
   assert.ok(seen.size > 20, 'most hooks were called');

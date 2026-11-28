@@ -748,6 +748,9 @@ class Builder : public std::enable_shared_from_this<Builder> {
   // lazy.cpp: the automatic silk, assembly and courtyard, on first use
   void finishLayers();
   ObjP lazyFields();   // { silk, assembly, courtyard, bbox, courtyardBox, courtyardClearance }
+  // output.cpp: the pads' and holes' outlines, which records get only when asked
+  ObjP withOutlines(const ObjP& res) const;   // res with each pad's land, copper, mask, paste, drillShape and each hole's land, mask
+  ObjP outlines() const;                      // { pads: [[land, copper, mask, paste, drillShape]], holes: [[land, mask]] }
 
  private:
   void silkLayer();

@@ -11,21 +11,16 @@
 //                                             their own. Those hosts sandbox the page, so exports
 //                                             go through the host or the clipboard.
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from './md.mjs';
 import { FIGURES, figureSvg } from './figures.mjs';
+import { engine, libraryFiles } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const demo = resolve(here, '..');
 const repo = resolve(demo, '..');
 const exDir = join(repo, 'examples');
-const libDir = join(repo, 'stdlib');
-
-// The standard library, in load order (SPEC 13.5). Files not listed go last, by name.
-// stdlib/ORDER: the order the library's files are read in (the C++ build reads it too)
-const LIB_ORDER = readFileSync(join(repo, 'stdlib', 'ORDER'), 'utf8').split('\n').filter((l) => l && !l.startsWith('#'));
 
 // The documentation pages, in the order the docs view lists them. Each is a Markdown
 // file of the repository, so it reads the same on GitHub. Its key starts its #links.
@@ -71,12 +66,9 @@ function exampleList() {
   });
 }
 
+/** The standard library, in load order (SPEC 13.5; stdlib/ORDER, which the C++ build reads too). */
 function stdlibList() {
-  const files = readdirSync(libDir).filter((f) => f.endsWith('.stomp'));
-  const at = (f) => { const i = LIB_ORDER.indexOf(f); return i < 0 ? LIB_ORDER.length : i; };
-  files.sort((a, b) => at(a) - at(b) || a.localeCompare(b));
-  return files.map((file) => {
-    const source = readFileSync(join(libDir, file), 'utf8');
+  return libraryFiles().map(({ file, source }) => {
     const first = (source.split('\n').find((l) => l.startsWith('# ')) || `# ${file}`).slice(2).trim().replace(/\.$/, '');
     const i = first.indexOf(': ');
     return { file, title: i < 0 ? first : first.slice(0, i), blurb: i < 0 ? '' : first.slice(i + 2), source };
@@ -133,10 +125,7 @@ export const figureFiles = () => FIGURES.map((f) => [join(repo, 'docs', 'img', `
 
 /** Every docs page, rendered. A code block gets Try it only if it compiles on its own. */
 export function docsPages() {
-  const require = createRequire(import.meta.url);
-  const js = join(demo, 'js');
-  for (const k of Object.keys(require.cache)) if (k.startsWith(js)) delete require.cache[k];
-  const { compile } = require(join(js, 'compile.js'));
+  const { compile } = engine();
   return DOCS.filter((d) => existsSync(join(repo, d.file))).map((d) => {
     const r = render(readFileSync(join(repo, d.file), 'utf8'), { prefix: `${d.key}-`, link: docsLink(d), image: figureImage(d) });
     for (const s of r.snippets) {

@@ -967,7 +967,7 @@ window.Stomp.ready.then(function () {
     const L = S.kicad.library(fps, { lib, source: sourceLabel() });
     if (!L.count) { toast('Nothing to export: every footprint has errors', true); return; }
     try {
-      await files.save(`${L.lib}.pretty.zip`, S.model3d.toZip(L.files));
+      await files.save(`${L.lib}.pretty.zip`, S.store.toZip(L.files));
       const parts = [`${L.count} footprint${L.count === 1 ? '' : 's'}`];
       parts.push(L.models === L.count ? (L.count === 1 ? 'with its 3D model' : 'each with its 3D model') : `${L.models} with a 3D model`);
       toast(`Saved ${L.lib}.pretty.zip: ${parts.join(', ')}${L.skipped.length ? `. Skipped ${L.skipped.length} with errors` : ''}`);
@@ -1023,7 +1023,7 @@ window.Stomp.ready.then(function () {
       const m = current();
       if (!m || !m.meshes.length) return;
       const nm = name();
-      const zip = S.model3d.toZip([
+      const zip = S.store.toZip([
         { name: `${nm}.wrl`, data: new TextEncoder().encode(S.model3d.toVRML(m, state.active)) },
         { name: `${nm}.stl`, data: S.model3d.toSTL(m, state.active) },
       ]);
@@ -1161,7 +1161,7 @@ end
       // the host saves .zip files but not .stomp ones
       const zname = S.store.diskName(stem, 'zip');
       try {
-        await files.save(zname, S.model3d.toZip([{ name: fname, data: new TextEncoder().encode(text) }]));
+        await files.save(zname, S.store.toZip([{ name: fname, data: new TextEncoder().encode(text) }]));
         toast(`Saved ${zname}, with ${fname} inside`);
       } catch (e) { saveFailed(e); }
       return;
@@ -1180,7 +1180,7 @@ end
       return { name, data: new TextEncoder().encode(f.source) };
     });
     try {
-      await files.save('stomp-files.zip', S.model3d.toZip(entries));
+      await files.save('stomp-files.zip', S.store.toZip(entries));
       toast(`Saved stomp-files.zip: ${list.length} file${list.length === 1 ? '' : 's'}`);
     } catch (e) { saveFailed(e); }
   }

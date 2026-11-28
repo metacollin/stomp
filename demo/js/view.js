@@ -31,6 +31,52 @@
     for (let i = 1; i < pts.length; i++) d += `L${f(pts[i][0])} ${f(-pts[i][1])}`;
     return closed ? d + 'Z' : d;
   }
+  // Geometry for hit-testing and labels (the engine's own lives in C++)
+  const HALF_PI = Math.PI / 2;
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  /** A contour's bounding box, arcs included. */
+  function contourBBox(edges) {
+    const bb = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    const add = (p) => { bb.x0 = Math.min(bb.x0, p[0]); bb.y0 = Math.min(bb.y0, p[1]); bb.x1 = Math.max(bb.x1, p[0]); bb.y1 = Math.max(bb.y1, p[1]); };
+    for (const ed of edges) {
+      add(ed.a); add(ed.b);
+      if (ed.t === 'L') continue;
+      // axis extremes that fall inside the arc's sweep
+      const k0 = Math.ceil(ed.a0 / HALF_PI - 1e-12), k1 = Math.floor(ed.a1 / HALF_PI + 1e-12);
+      for (let k = k0; k <= k1; k++) {
+        const a = k * HALF_PI;
+        add([ed.c[0] + ed.r * Math.cos(a), ed.c[1] + ed.r * Math.sin(a)]);
+      }
+    }
+    return bb;
+  }
+  /** A contour as a closed polygon (no repeated last point), arcs in steps of at most maxStep radians. */
+  function contourToPoly(edges, maxStep) {
+    const pts = [];
+    for (const ed of edges) {
+      if (ed.t === 'L') { pts.push(ed.a); continue; }
+      const sweep = ed.a1 - ed.a0;
+      const n = Math.max(2, Math.ceil(sweep / maxStep));
+      for (let i = 0; i < n; i++) {
+        const a = ed.a0 + (sweep * i) / n;
+        pts.push([ed.c[0] + ed.r * Math.cos(a), ed.c[1] + ed.r * Math.sin(a)]);
+      }
+    }
+    const out = [];
+    for (const p of pts) if (!out.length || dist(out[out.length - 1], p) > 1e-9) out.push(p);
+    if (out.length > 1 && dist(out[0], out[out.length - 1]) <= 1e-9) out.pop();
+    return out;
+  }
+  function pointInPoly(p, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a[1] > p[1]) !== (b[1] > p[1])
+        && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+    return inside;
+  }
+
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
   let viewers = 0;
@@ -210,8 +256,8 @@
       for (const ob of objs) {
         const b = ob.bbox;
         if (p[0] < b.x0 - tol || p[0] > b.x1 + tol || p[1] < b.y0 - tol || p[1] > b.y1 + tol) continue;
-        const poly = S.geom.contourToPoly(ob.land, 0.2);
-        if (!S.geom.pointInPoly(p, poly) && !nearPoly(p, poly, tol)) continue;
+        const poly = contourToPoly(ob.land, 0.2);
+        if (!pointInPoly(p, poly) && !nearPoly(p, poly, tol)) continue;
         const area = (b.x1 - b.x0) * (b.y1 - b.y0);
         if (area < bestArea) { best = ob; bestArea = area; }
       }
@@ -411,7 +457,7 @@
         if (fs * s < 7) continue;
         let x = p.x, y = p.y, onDrill = false;
         if (p.drillShape) {
-          const db = S.geom.contourBBox(p.drillShape);
+          const db = contourBBox(p.drillShape);
           const room = (b.y1 - db.y1);
           if (room > fs * 0.9) y = (db.y1 + b.y1) / 2;
           else onDrill = true;

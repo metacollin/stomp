@@ -2,17 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
+import { compile, model3d as M, kicad as K } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-const require = createRequire(import.meta.url);
-const { compile } = require('../js/compile.js');
-const M = require('../js/model3d.js');
-const K = require('../js/kicad.js');
 
 const example = (f) => readFileSync(join(repo, 'examples', f), 'utf8');
 const results = (src) => compile(src).footprints.filter((f) => f.result);

@@ -99,6 +99,7 @@ class Val {
 class Obj {
  public:
   std::vector<std::pair<Key, Val>> f;
+  bool ast = false;   // part of a parsed file (mark_ast): the browser gets {type, s, e} of it
 
   const Val* find(Key k) const {
     for (const auto& p : f)
@@ -136,6 +137,9 @@ inline ObjP rec(std::initializer_list<Field> fields) {
   return o;
 }
 inline ArrP list(std::vector<Val> items = {}) { return std::make_shared<Arr>(std::move(items)); }
+
+/** Mark every object reachable from root as part of a parsed file. */
+void mark_ast(const Val& root);
 
 /** Which objects to print as {type, s, e} only (AST nodes inside results); may be null. */
 using Summarize = std::function<bool(const Obj&)>;

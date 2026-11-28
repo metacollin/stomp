@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const St = require('../js/store.js');
-const M = require('../js/model3d.js');
 
 /** localStorage in memory, or one whose writes fail (full, or turned off). */
 function storage(failing) {
@@ -200,7 +199,7 @@ test('asking the browser to keep the files', async () => {
 
 test('reading .zip files: stored and deflated, folders skipped', async () => {
   const enc = new TextEncoder(), dec = new TextDecoder();
-  const ours = M.toZip([{ name: 'a.stomp', data: enc.encode('footprint "A"\nend\n') }, { name: 'b/c.stomp', data: enc.encode('x') }]);
+  const ours = St.toZip([{ name: 'a.stomp', data: enc.encode('footprint "A"\nend\n') }, { name: 'b/c.stomp', data: enc.encode('x') }]);
   assert.deepEqual((await St.readZip(ours)).map((f) => `${f.name}=${dec.decode(f.data)}`), ['a.stomp=footprint "A"\nend\n', 'b/c.stomp=x']);
   const theirs = await St.readZip(readFileSync(join(here, 'fixtures', 'files.zip')));
   assert.deepEqual(theirs.map((f) => f.name), ['parts/alpha.stomp', 'readme.txt']);

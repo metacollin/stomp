@@ -1,11 +1,12 @@
 // Compare two stomp engines, layer by layer, on the same inputs.
 //
-//   node tests/compare/compare.mjs [--a ENGINE] [--b ENGINE] [--layers lex,parse,compile,models]
+//   node tests/compare/compare.mjs [--a ENGINE] [--b ENGINE] [--layers lex,parse,core,compile,models]
 //                                  [--fuzz N] [--seed S] [--only TEXT] [--show K] [--record]
 //
-// ENGINE is js:DIR (a copy of the JavaScript engine), oracle (the js-oracle tag's
-// engine), or cli:PATH (the C++ `stomp` tool; `stomp dev dump` prints the same canonical
-// text). The defaults compare demo/js with the oracle.
+// ENGINE is js:DIR (a copy of the JavaScript engine), oracle (the JavaScript engine as
+// committed, HEAD's demo/js), or cli:PATH (the C++ `stomp` tool; `stomp dev dump` prints
+// the same canonical text). The defaults compare demo/js with the oracle. The core layer
+// is compile without the lazy layers (silk, assembly, courtyard).
 //
 // --record runs the JavaScript test suite once with record.mjs to collect the sources
 // it compiles into build/compare/recorded.jsonl; later runs include them.
@@ -14,7 +15,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'node
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { baseCorpus, fuzzed } from './corpus.mjs';
+import { baseCorpus, edits, fuzzed } from './corpus.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
@@ -53,17 +54,19 @@ function listTests() {
 }
 
 function engineOf(spec) {
+  // the oracle: the JavaScript engine as committed (HEAD's demo/js), so edits in
+  // progress don't move the reference
   if (spec === 'oracle') {
     const dir = join(work, 'oracle');
-    const tag = execFileSync('git', ['rev-parse', 'js-oracle'], { cwd: repo }).toString().trim();
-    const stamp = join(dir, 'TAG');
-    if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== tag) {
+    const tree = execFileSync('git', ['rev-parse', 'HEAD:demo/js'], { cwd: repo }).toString().trim();
+    const stamp = join(dir, 'TREE');
+    if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== tree) {
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });
-      execFileSync('sh', ['-c', `git archive js-oracle demo/js | tar -x -C "${dir}"`], { cwd: repo });
-      writeFileSync(stamp, tag);
+      execFileSync('sh', ['-c', `git archive HEAD demo/js | tar -x -C "${dir}"`], { cwd: repo });
+      writeFileSync(stamp, tree);
     }
-    return jsEngine(join(dir, 'demo/js'), `oracle (${tag.slice(0, 7)})`);
+    return jsEngine(join(dir, 'demo/js'), `oracle (demo/js ${tree.slice(0, 7)})`);
   }
   if (spec.startsWith('js:')) return jsEngine(resolve(repo, spec.slice(3)), spec);
   if (spec.startsWith('cli:')) return cliEngine(resolve(repo, spec.slice(4)), spec);
@@ -77,6 +80,9 @@ function jsEngine(dir, name) {
     name,
     lex: (c) => e.lex(c.src),
     parse: (c) => e.parse(c.src),
+    core: (c) => e.core(c.src, c.stdlib),
+    cache: (c) => e.cache(c.src, c.stdlib),
+    kicad: (c) => e.kicad(c.src, c.stdlib),
     compile: (c) => e.compile(c.src, c.stdlib),
     models: (c) => JSON.stringify(e.models(c.src, c.stdlib)),
   };
@@ -132,9 +138,13 @@ function texts(E, layer, chunk) {
   });
   return out;
 }
+// the cache layer's inputs: each source as a sequence of edits (a JSON array)
+const seedOf = (id) => { let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h || 1; };
+const asSequence = (c) => Object.assign({}, c, { src: JSON.stringify(edits(c.src, 6, seedOf(c.id))) });
 function* pairs(layer) {
   for (let k = 0; k < inputs.length; k += CHUNK) {
-    const chunk = inputs.slice(k, k + CHUNK);
+    let chunk = inputs.slice(k, k + CHUNK);
+    if (layer === 'cache') chunk = chunk.map(asSequence);
     const ta = texts(A, layer, chunk), tb = texts(B, layer, chunk);
     for (const [i, c] of chunk.entries()) yield [c, ta.get(i), tb.get(i)];
   }

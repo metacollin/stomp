@@ -402,14 +402,14 @@
       let result;
       if (b.cached) {
         result = b.cached.result;
-        diags.push(...replay(b.cached, d));
+        for (const x of replay(b.cached, d)) diags.push(x);
       } else {
         result = safely(b, () => b.build()) || null;
         if (b.key) {
           CACHE.set(b.key, { name: b.name, result, diags: b.diags.slice(), tmpl: b.tmpl, rowS: d.s, rowE: d.e });
           if (CACHE.size > CACHE_MAX) CACHE.delete(CACHE.keys().next().value);
         }
-        diags.push(...b.diags);
+        for (const x of b.diags) diags.push(x);   // not push(...): there can be more than V8 takes as arguments
         b.src = null;
       }
       footprints.push({

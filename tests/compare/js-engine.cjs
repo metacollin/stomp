@@ -52,6 +52,51 @@ function engine(dir) {
     return { text: canon(view, isAst), out, isAst };
   }
 
+  // core: the compile view without the lazy layers (silk, assembly, courtyard and the
+  // boxes that come with them), which are getters on each result
+  const plain = (r) => {
+    if (!r) return r;
+    const o = {};
+    for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(r))) if ('value' in d) o[k] = d.value;
+    return o;
+  };
+  function coreText(out) {
+    const view = {
+      diagnostics: out.diagnostics,
+      footprints: out.footprints.map((f) => Object.assign({}, f, { result: plain(f.result) })),
+      templates: out.templates,
+      tables: out.tables,
+      library: { diagnostics: out.library && out.library.diagnostics },
+    };
+    return canon(view, astTest(out.ast));
+  }
+  function core(src, stdlib) {
+    return coreText(C.compile(src, stdlib ? { cache: false, stdlib } : { cache: false }));
+  }
+
+  // cache: a sequence of sources (a JSON array) compiled with the cache on, as the editor
+  // does; for each compile, which footprints reused an earlier result, then its core view
+  function cache(seqText, stdlib) {
+    const seq = JSON.parse(seqText);
+    C.clearCache();
+    const seen = new Set();
+    const parts = [];
+    for (const src of seq) {
+      const out = C.compile(src, stdlib ? { stdlib } : {});
+      const hits = out.footprints.map((f) => (f.result && seen.has(f.result) ? 1 : 0));
+      for (const f of out.footprints) if (f.result) seen.add(f.result);
+      parts.push(JSON.stringify(hits) + coreText(out));
+    }
+    C.clearCache();
+    return parts.join('\n');
+  }
+
+  // kicad: each footprint's KiCad text, without its 3D model (models compares those)
+  function kicad(src, stdlib) {
+    const out = C.compile(src, stdlib ? { cache: false, stdlib } : { cache: false });
+    return out.footprints.map((fp) => (fp.result ? K.footprint(fp.result, { name: fp.name }).text : `(none ${fp.name})\n`)).join('');
+  }
+
   // model: each footprint's model and board; exports: KiCad text, VRML, STL
   function models(src, stdlib) {
     const { out, isAst } = compile(src, stdlib);
@@ -74,7 +119,7 @@ function engine(dir) {
     return rows;
   }
 
-  return { lex, parse, compile: (src, stdlib) => compile(src, stdlib).text, models, raw: { L, P, C, M, K } };
+  return { lex, parse, core, cache, kicad, compile: (src, stdlib) => compile(src, stdlib).text, models, raw: { L, P, C, M, K } };
 }
 
 /**

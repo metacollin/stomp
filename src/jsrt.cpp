@@ -97,11 +97,12 @@ double round(double x) {
   return r - 0.5 <= x ? r : r - 1.0;
 }
 
-double hypot(std::initializer_list<double> v) {
-  if (v.size() == 0) return 0;
+double hypot(const double* v, std::size_t count) {
+  if (count == 0) return 0;
   bool nan = false;
   double max = 0;
-  for (double x : v) {
+  for (std::size_t i = 0; i < count; ++i) {
+    const double x = v[i];
     if (std::isnan(x)) { nan = true; continue; }
     max = std::max(max, std::fabs(x));
   }
@@ -110,8 +111,8 @@ double hypot(std::initializer_list<double> v) {
   if (max == 0) return 0;
   // Kahan summation of the squares, normalized by the largest
   double sum = 0, compensation = 0;
-  for (double x : v) {
-    const double n = std::fabs(x) / max;
+  for (std::size_t i = 0; i < count; ++i) {
+    const double n = std::fabs(v[i]) / max;
     const double summand = n * n - compensation;
     const double preliminary = sum + summand;
     compensation = (preliminary - sum) - summand;

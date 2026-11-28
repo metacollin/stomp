@@ -4,6 +4,7 @@
 #ifndef STOMP_JSRT_HPP
 #define STOMP_JSRT_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <string>
@@ -17,7 +18,8 @@ std::u16string to_u16string(double x);           // the same, as UTF-16
 std::string to_fixed(double x, int digits);      // x.toFixed(digits), ties away from zero
 double parse_float(std::u16string_view s);        // parseFloat(s) for a decimal literal; NaN if none
 double round(double x);                          // Math.round: halves up, -0 kept
-double hypot(std::initializer_list<double> v);   // Math.hypot, V8's algorithm
+double hypot(const double* v, std::size_t n);    // Math.hypot, V8's algorithm
+inline double hypot(std::initializer_list<double> v) { return hypot(v.begin(), v.size()); }
 double min(double a, double b);                  // Math.min(a, b): NaN wins, -0 < 0
 double max(double a, double b);                  // Math.max(a, b)
 double sign(double x);                           // Math.sign

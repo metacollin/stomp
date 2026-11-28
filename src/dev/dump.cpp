@@ -1,7 +1,12 @@
 #include "dump.hpp"
 
+#include <functional>
 #include <stdexcept>
+#include <unordered_set>
 
+#include "../compile/compile.hpp"
+#include "../jsrt.hpp"
+#include "../kicad.hpp"
 #include "../parser.hpp"
 
 namespace stomp::dev {
@@ -113,7 +118,116 @@ Value syntax_diag_json(const Diag& d) {
   return o;
 }
 
-std::string dump(std::string_view layer, std::u16string_view src, const json::Value*) {
+namespace {
+
+/** Everything reachable from the AST: what the harness prints as {type, s, e} inside results. */
+std::unordered_set<const Obj*> ast_objects(const ObjP& ast) {
+  std::unordered_set<const Obj*> set;
+  std::function<void(const Val&)> walk = [&](const Val& v) {
+    if (v.is_obj()) {
+      const Obj* o = v.obj().get();
+      if (!set.insert(o).second) return;
+      for (const auto& f : o->f) walk(f.second);
+    } else if (v.is_arr()) {
+      for (const auto& x : v.arr()->a) walk(x);
+    }
+  };
+  walk(ast);
+  return set;
+}
+
+std::vector<compiler::LibFile> library_of(const json::Value* stdlib) {
+  std::vector<compiler::LibFile> files;
+  if (stdlib && stdlib->is_array()) {
+    for (const auto& f : stdlib->array()) {
+      const json::Value* name = f.get(u"file");
+      const json::Value* source = f.get(u"source");
+      files.push_back({name && name->is_string() ? name->string() : std::u16string(), source && source->is_string() ? source->string() : std::u16string()});
+    }
+  }
+  return files;
+}
+
+std::string view_text(const compiler::Compiled& out, bool full) {
+  const auto set = ast_objects(out.ast);
+  const Summarize isAst = [&](const Obj& o) {
+    if (set.count(&o)) return true;
+    const Val& s = o.get(K_s);
+    return s.is_num() && s.num() >= 1e9;
+  };
+  ArrP fps = list();
+  for (std::size_t i = 0; i < out.footprints->a.size(); ++i) {
+    auto f = std::make_shared<Obj>(*out.footprints->a[i].obj());
+    const auto& r = out.results[i];
+    if (full && r) f->set(K_result, r->full());
+    fps->a.push_back(f);
+  }
+  const Val view = rec({{K_diagnostics, out.diagnostics},
+                        {K_footprints, fps},
+                        {K_templates, out.templates},
+                        {K_tables, out.tables},
+                        {K_library, rec({{K_diagnostics, out.libraryDiagnostics}})}});
+  return canon(view, &isAst);
+}
+
+std::string compile_view(std::u16string_view src, const json::Value* stdlib, bool full) {
+  const auto files = library_of(stdlib);
+  compiler::Options opts;
+  opts.cache = false;
+  if (stdlib && stdlib->is_array()) opts.stdlib = &files;
+  return view_text(compiler::compile(src, opts), full);
+}
+
+/** The cache layer: src is a JSON array of sources, compiled in turn with the cache on. Each
+ *  line: which footprints reused an earlier result, then the compile's core view. */
+std::string cache_view(std::u16string_view src, const json::Value* stdlib) {
+  const json::Value seq = json::parse(std::string_view(js::narrow(src)));
+  const auto files = library_of(stdlib);
+  compiler::Options opts;
+  if (stdlib && stdlib->is_array()) opts.stdlib = &files;
+  compiler::clear_cache();
+  std::unordered_set<const compiler::Result*> seen;
+  std::string text;
+  bool first = true;
+  for (const auto& s : seq.array()) {
+    const compiler::Compiled out = compiler::compile(s.string(), opts);
+    std::string hits = "[";
+    for (std::size_t i = 0; i < out.results.size(); ++i) {
+      if (i) hits += ',';
+      hits += out.results[i] && seen.count(out.results[i].get()) ? '1' : '0';
+    }
+    hits += ']';
+    for (const auto& r : out.results)
+      if (r) seen.insert(r.get());
+    if (!first) text += '\n';
+    first = false;
+    text += hits + view_text(out, false);
+  }
+  compiler::clear_cache();
+  return text;
+}
+
+}  // namespace
+
+std::string dump(std::string_view layer, std::u16string_view src, const json::Value* stdlib) {
+  if (layer == "core") return compile_view(src, stdlib, false);
+  if (layer == "cache") return cache_view(src, stdlib);
+  if (layer == "kicad") {
+    // each footprint's KiCad text, without its 3D model (as UTF-8)
+    const auto files = library_of(stdlib);
+    compiler::Options opts;
+    opts.cache = false;
+    if (stdlib && stdlib->is_array()) opts.stdlib = &files;
+    const compiler::Compiled out = compiler::compile(src, opts);
+    std::u16string text;
+    for (std::size_t i = 0; i < out.results.size(); ++i) {
+      const std::u16string& name = out.footprints->a[i].obj()->get(K_name).str();
+      if (out.results[i]) text += kicad::footprint(out.results[i]->full(), name, nullptr).text;
+      else text += u"(none " + name + u")\n";
+    }
+    return js::narrow(text);
+  }
+  if (layer == "compile") return compile_view(src, stdlib, true);
   if (layer == "lex") {
     Diags diags;
     const Lexed lx = lex(src, &diags);

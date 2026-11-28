@@ -66,3 +66,35 @@ export function fuzzed(corpus, n, seed = 1) {
   }
   return out;
 }
+
+/**
+ * A sequence of sources, each a small edit of the one before (a digit changed, a fragment
+ * typed in, a few characters deleted, a line repeated), the same for the same seed. For
+ * the cache layer: an editor's compiles, one keystroke-sized change apart.
+ */
+export function edits(src, steps, seed = 1) {
+  let s = seed >>> 0 || 1;
+  const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const out = [src];
+  let t = src;
+  for (let k = 0; k < steps; k++) {
+    const r = rnd();
+    const digits = [...t.matchAll(/[0-9]/g)];
+    if (r < 0.4 && digits.length) {
+      const m = pick(digits);
+      t = t.slice(0, m.index) + String(Math.floor(rnd() * 10)) + t.slice(m.index + 1);
+    } else {
+      const at = Math.floor(rnd() * (t.length + 1));
+      if (r < 0.6) t = t.slice(0, at) + pick(FRAGMENTS) + t.slice(at);
+      else if (r < 0.8) t = t.slice(0, at) + t.slice(at + 1 + Math.floor(rnd() * 4));
+      else {
+        const ls = t.split('\n'), j = Math.floor(rnd() * ls.length);
+        ls.splice(j, 0, ls[j]);
+        t = ls.join('\n');
+      }
+    }
+    out.push(t);
+  }
+  return out;
+}

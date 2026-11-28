@@ -39,9 +39,11 @@ function canon(value, isAst) {
     }
     if (stack.has(v)) { out.push('"<cycle>"'); return; }
     if (isAst && isAst(v)) {
-      const o = {};
-      for (const k of ['type', 's', 'e']) if (v[k] !== undefined) o[k] = v[k];
-      put(o);
+      // printed as is: the summary is never summarized again
+      const keys = ['e', 's', 'type'].filter((k) => v[k] !== undefined);
+      out.push('{');
+      keys.forEach((k, i) => { if (i) out.push(','); out.push(JSON.stringify(k), ':'); put(v[k]); });
+      out.push('}');
       return;
     }
     stack.add(v);

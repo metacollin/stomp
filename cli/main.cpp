@@ -7,10 +7,12 @@
 //   stomp --version
 #include <stomp/stomp.hpp>
 
+#include "compile/compile.hpp"
 #include "dev/dump.hpp"
 #include "json.hpp"
 #include "jsrt.hpp"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -24,7 +26,7 @@ int usage(int status) {
       "usage: stomp check FILE...\n"
       "       stomp build FILE... -o DIR\n"
       "       stomp model FILE --footprint NAME (--vrml | --stl) OUT\n"
-      "       stomp dev (library | math | dump --layer LAYER [--batch])\n"
+      "       stomp dev (library | math | dump --layer LAYER [--batch] | bench FILE...)\n"
       "       stomp --version\n",
       status ? stderr : stdout);
   return status;
@@ -40,6 +42,32 @@ std::string read_all(std::FILE* f) {
 
 int dev(const std::vector<std::string_view>& args) {
   if (args.empty()) return usage(2);
+  if (args[0] == "bench") {
+    // compile each file (no cache), best of five runs: the footprints and the time
+    std::vector<std::u16string> sources;
+    for (std::size_t k = 1; k < args.size(); ++k) {
+      std::FILE* f = std::fopen(std::string(args[k]).c_str(), "rb");
+      if (!f) {
+        std::fprintf(stderr, "stomp: can't read %s\n", std::string(args[k]).c_str());
+        return 1;
+      }
+      sources.push_back(stomp::from_utf8(read_all(f)));
+      std::fclose(f);
+    }
+    stomp::compiler::Options opts;
+    opts.cache = false;
+    double best = 1e300;
+    std::size_t count = 0;
+    for (int run = 0; run < 5; ++run) {
+      const auto t0 = std::chrono::steady_clock::now();
+      count = 0;
+      for (const auto& src : sources) count += stomp::compiler::compile(src, opts).footprints->a.size();
+      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+      if (ms < best) best = ms;
+    }
+    std::printf("%zu footprints in %.1f ms\n", count, best);
+    return 0;
+  }
   if (args[0] == "library") {
     for (const auto& f : stomp::builtin_library()) std::printf("%s %zu\n", f.name.c_str(), f.source.size());
     return 0;

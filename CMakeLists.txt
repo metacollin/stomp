@@ -53,6 +53,10 @@ if(MSVC)
   target_compile_options(stomp_warnings INTERFACE /W4)
 else()
   target_compile_options(stomp_warnings INTERFACE -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wimplicit-fallthrough)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC 13 reports std::variant copies as maybe-uninitialized at -O2 (a known false positive)
+    target_compile_options(stomp_warnings INTERFACE -Wno-maybe-uninitialized)
+  endif()
 endif()
 
 # Third party: PEGTL (header-only) and V8's trigonometry

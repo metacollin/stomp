@@ -1,36 +1,92 @@
 {
   "version": 3,
-  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "native-debug",
       "displayName": "Native, debug, with AddressSanitizer and UndefinedBehaviorSanitizer",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/native-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "STOMP_SANITIZE": "ON" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "STOMP_SANITIZE": "ON"
+      }
     },
     {
       "name": "native-release",
       "displayName": "Native, release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/native-release",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     },
     {
       "name": "wasm-release",
       "displayName": "WebAssembly for the editor (run as: emcmake cmake --preset wasm-release)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/wasm-release",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "STOMP_DEPLOY_WASM": "ON" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "STOMP_DEPLOY_WASM": "ON",
+        "STOMP_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "wasm-test",
+      "displayName": "The C++ tests as WebAssembly, run in Node (emcmake cmake --preset wasm-test)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm-test",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "STOMP_DEPLOY_WASM": "OFF",
+        "STOMP_BUILD_TESTS": "ON"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "native-debug", "configurePreset": "native-debug" },
-    { "name": "native-release", "configurePreset": "native-release" },
-    { "name": "wasm-release", "configurePreset": "wasm-release" }
+    {
+      "name": "native-debug",
+      "configurePreset": "native-debug"
+    },
+    {
+      "name": "native-release",
+      "configurePreset": "native-release"
+    },
+    {
+      "name": "wasm-release",
+      "configurePreset": "wasm-release"
+    },
+    {
+      "name": "wasm-test",
+      "configurePreset": "wasm-test"
+    }
   ],
   "testPresets": [
-    { "name": "native-debug", "configurePreset": "native-debug", "output": { "outputOnFailure": true } },
-    { "name": "native-release", "configurePreset": "native-release", "output": { "outputOnFailure": true } }
+    {
+      "name": "native-debug",
+      "configurePreset": "native-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "native-release",
+      "configurePreset": "native-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "wasm-test",
+      "configurePreset": "wasm-test",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
   ]
 }

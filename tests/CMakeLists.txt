@@ -2,6 +2,11 @@ file(GLOB STOMP_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/unit/
 add_executable(stomp_tests ${STOMP_TEST_SOURCES})
 target_link_libraries(stomp_tests PRIVATE stomp stomp_warnings stomp_pegtl)
 target_include_directories(stomp_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/third_party/v8-ieee754)
+target_compile_definitions(stomp_tests PRIVATE STOMP_TEST_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/unit/vectors/js.json")
+if(EMSCRIPTEN)
+  # in Node, reading the vectors from the real file system
+  target_link_options(stomp_tests PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sEXIT_RUNTIME=1)
+endif()
 add_test(NAME unit COMMAND stomp_tests)
 
 if(STOMP_BUILD_CLI)

@@ -100,13 +100,13 @@ if(STOMP_BUILD_CLI)
   target_include_directories(stomp_cli PRIVATE ${PROJECT_SOURCE_DIR}/src)
 endif()
 
-if(EMSCRIPTEN)
+if(EMSCRIPTEN AND STOMP_DEPLOY_WASM)
   add_subdirectory(wasm)
 endif()
 
-if(STOMP_BUILD_TESTS AND NOT EMSCRIPTEN)
+if(STOMP_BUILD_TESTS)
   enable_testing()
-  add_subdirectory(tests)
+  add_subdirectory(tests)   # under Emscripten they run in Node (the wasm-test preset)
 endif()
 
 include(GNUInstallDirs)

@@ -7,6 +7,8 @@
 //   stomp --version
 #include <stomp/stomp.hpp>
 
+#include "jsrt.hpp"
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -20,7 +22,7 @@ int usage(int status) {
       "usage: stomp check FILE...\n"
       "       stomp build FILE... -o DIR\n"
       "       stomp model FILE --footprint NAME (--vrml | --stl) OUT\n"
-      "       stomp dev (library | dump --layer LAYER)\n"
+      "       stomp dev (library | math | dump --layer LAYER)\n"
       "       stomp --version\n",
       status ? stderr : stdout);
   return status;
@@ -30,6 +32,30 @@ int dev(const std::vector<std::string_view>& args) {
   if (args.empty()) return usage(2);
   if (args[0] == "library") {
     for (const auto& f : stomp::builtin_library()) std::printf("%s %zu\n", f.name.c_str(), f.source.size());
+    return 0;
+  }
+  if (args[0] == "math") {
+    // records of three doubles (function, a, b) on stdin; one double each on stdout
+    // (tests/compare/math.mjs compares them with Node's Math)
+    double rec[3];
+    std::vector<double> out;
+    while (std::fread(rec, sizeof(double), 3, stdin) == 3) {
+      const double a = rec[1], b = rec[2];
+      double r = 0;
+      switch (static_cast<int>(rec[0])) {
+        case 0: r = stomp::js::sin(a); break;
+        case 1: r = stomp::js::cos(a); break;
+        case 2: r = stomp::js::tan(a); break;
+        case 3: r = stomp::js::asin(a); break;
+        case 4: r = stomp::js::acos(a); break;
+        case 5: r = stomp::js::atan2(a, b); break;
+        case 6: r = stomp::js::hypot({a, b}); break;
+        case 7: r = stomp::js::round(a); break;
+        default: break;
+      }
+      out.push_back(r);
+    }
+    std::fwrite(out.data(), sizeof(double), out.size(), stdout);
     return 0;
   }
   if (args[0] == "dump") {

@@ -82,15 +82,26 @@ function jsEngine(dir, name) {
   };
 }
 
-// The C++ tool: `stomp dev dump --layer L` reads one input as JSON {src, stdlib?} on
-// stdin and prints the canonical text. (A batch mode comes with the tool.)
+// The C++ tool: `stomp dev dump --layer L --batch` reads JSON lines {id, src, stdlib?}
+// and writes {id, text} (or {id, error}) for each, in one process per layer.
 function cliEngine(path, name) {
-  const run = (layer) => (c) => {
-    const r = spawnSync(path, ['dev', 'dump', '--layer', layer], { input: JSON.stringify({ src: c.src, stdlib: c.stdlib || null }), maxBuffer: 1 << 30 });
-    if (r.status !== 0) return `<exit ${r.status}: ${String(r.stderr).trim().slice(0, 400)}>`;
-    return String(r.stdout);
+  const batch = (layer, inputs) => {
+    const lines = inputs.map((c, i) => JSON.stringify({ id: i, src: c.src, stdlib: c.stdlib || null })).join('\n') + '\n';
+    const r = spawnSync(path, ['dev', 'dump', '--layer', layer, '--batch'], { input: lines, maxBuffer: 2 ** 30 });
+    const out = new Map();
+    if (r.status !== 0) {
+      const why = `<exit ${r.status} ${r.signal || ''}: ${String(r.stderr).trim().slice(0, 400)}>`;
+      inputs.forEach((c, i) => out.set(i, why));
+      return out;
+    }
+    for (const line of String(r.stdout).split('\n')) {
+      if (!line) continue;
+      const o = JSON.parse(line);
+      out.set(o.id, o.error != null ? `<error: ${o.error}>` : o.text);
+    }
+    return out;
   };
-  return { name, lex: run('lex'), parse: run('parse'), compile: run('compile'), models: run('models') };
+  return { name, batch };
 }
 
 // Where two texts first differ, with some context
@@ -110,13 +121,29 @@ console.log(`${A.name} against ${B.name}: ${inputs.length} inputs, layers ${LAYE
 
 let failed = 0;
 const t0 = Date.now();
+// each engine's text for a chunk of inputs (a batch where the engine has one); chunks
+// keep the texts in memory few at a time
+const CHUNK = 300;
+function texts(E, layer, chunk) {
+  if (E.batch) return E.batch(layer, chunk);
+  const out = new Map();
+  chunk.forEach((c, i) => {
+    try { out.set(i, E[layer](c)); } catch (e) { out.set(i, `<threw: ${e && e.message}>`); }
+  });
+  return out;
+}
+function* pairs(layer) {
+  for (let k = 0; k < inputs.length; k += CHUNK) {
+    const chunk = inputs.slice(k, k + CHUNK);
+    const ta = texts(A, layer, chunk), tb = texts(B, layer, chunk);
+    for (const [i, c] of chunk.entries()) yield [c, ta.get(i), tb.get(i)];
+  }
+}
+
 for (const layer of LAYERS) {
   let same = 0, diff = 0;
   const shown = [];
-  for (const c of inputs) {
-    let a, b;
-    try { a = A[layer](c); } catch (e) { a = `<threw: ${e && e.message}>`; }
-    try { b = B[layer](c); } catch (e) { b = `<threw: ${e && e.message}>`; }
+  for (const [c, a, b] of pairs(layer)) {
     if (a === b) { same++; continue; }
     diff++;
     if (shown.length < SHOW) shown.push(`  ${c.id} ${firstDiff(a, b)}`);

@@ -133,7 +133,7 @@
 
   /** stomp source as highlighted HTML, with the editor's classes: for code shown outside it. */
   function highlight(text) {
-    const lx = S.lexer.lex(text, null);
+    const lx = S.engine.lex(text);
     annotate(lx.tokens);
     const spans = spansOf(lx.all.filter((t) => t.t !== 'nl'));
     let html = '', pos = 0;
@@ -193,7 +193,7 @@
     // Painting
     function paint() {
       const text = ta.value;
-      const lx = S.lexer.lex(text, null);
+      const lx = S.engine.lex(text);
       annotate(lx.tokens);
       const spans = spansOf(lx.all.filter((t) => t.t !== 'nl'));
       // boundaries from spans and diagnostics

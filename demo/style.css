@@ -125,6 +125,7 @@
 }
 
 * { box-sizing: border-box; }
+.fatal { margin: 16px; padding: 12px 14px; border: 1px solid var(--err); border-radius: var(--radius); background: var(--err-bg); color: var(--ink); }
 html, body { height: 100%; }
 body {
   margin: 0;

@@ -43,6 +43,8 @@ The engine implements the whole draft, from `grammar.peg` to finished layers:
 
 | file | what it does |
 |---|---|
+| `js/stomp-core.js` | **generated**: the C++ engine (`../src`) as WebAssembly, built by `cmake --preset wasm-release` (`../wasm`). It is replacing the JavaScript engine below one layer at a time; so far it lexes the editor's highlighting |
+| `js/engine.js` | the C++ engine as the editor sees it: `Stomp.ready` resolves once the module has loaded, and `Stomp.engine.lex` gives the JavaScript lexer's tokens |
 | `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4); a brace is reported, and a `}` still closes its block |
 | `js/parser.js` | recursive descent in `grammar.peg`'s choice order, with keywords that count only where expected; recovers from errors one statement at a time, and reports a missing `end` at the block that lacks it |
 | `js/compile.js` | units (per file, footprint or template), names (`NAME = value`) and `{...}` interpolation; functions and colors; custom features with sections and flags, and the standard library they're looked up in; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-list generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks (from library features); `model` blocks merged down `extends`, and their solids as descriptors for the 3D model; diagnostics (§15); a build cache |

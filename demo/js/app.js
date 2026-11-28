@@ -1,5 +1,6 @@
 /* stomp: wires the editor, compiler, viewers, your files and the docs together. */
-(function () {
+// The engine is WebAssembly (engine.js): everything starts once it has loaded
+window.Stomp.ready.then(function () {
   'use strict';
   const S = window.Stomp;
   const $ = (id) => document.getElementById(id);
@@ -1503,4 +1504,7 @@ end
     renderPicker();
     markEdited();
   });
-})();
+}, (err) => {
+  console.error(err);
+  document.body.insertAdjacentHTML('afterbegin', '<p class="fatal">stomp couldn\'t start: this browser didn\'t load its engine (WebAssembly).</p>');
+});

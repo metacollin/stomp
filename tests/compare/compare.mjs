@@ -1,12 +1,13 @@
 // Compare two stomp engines, layer by layer, on the same inputs.
 //
-//   node tests/compare/compare.mjs [--a ENGINE] [--b ENGINE] [--layers lex,parse,core,compile,models]
+//   node tests/compare/compare.mjs [--a ENGINE] [--b ENGINE] [--layers lex,parse,core,cache,compile,kicad,models]
 //                                  [--fuzz N] [--seed S] [--only TEXT] [--show K] [--record]
 //
 // ENGINE is js:DIR (a copy of the JavaScript engine), oracle (the JavaScript engine as
 // committed, HEAD's demo/js), or cli:PATH (the C++ `stomp` tool; `stomp dev dump` prints
 // the same canonical text). The defaults compare demo/js with the oracle. The core layer
-// is compile without the lazy layers (silk, assembly, courtyard).
+// is compile without the lazy layers (silk, assembly, courtyard); models gives digests of
+// each footprint's model, board and exports, and models-full the texts themselves.
 //
 // --record runs the JavaScript test suite once with record.mjs to collect the sources
 // it compiles into build/compare/recorded.jsonl; later runs include them.
@@ -84,7 +85,8 @@ function jsEngine(dir, name) {
     cache: (c) => e.cache(c.src, c.stdlib),
     kicad: (c) => e.kicad(c.src, c.stdlib),
     compile: (c) => e.compile(c.src, c.stdlib),
-    models: (c) => JSON.stringify(e.models(c.src, c.stdlib)),
+    models: (c) => e.models(c.src, c.stdlib, false),
+    'models-full': (c) => e.models(c.src, c.stdlib, true),
   };
 }
 

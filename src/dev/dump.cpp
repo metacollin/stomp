@@ -1,5 +1,7 @@
 #include "dump.hpp"
 
+#include <stomp/stomp.hpp>
+
 #include <functional>
 #include <stdexcept>
 #include <unordered_set>
@@ -7,6 +9,8 @@
 #include "../compile/compile.hpp"
 #include "../jsrt.hpp"
 #include "../kicad.hpp"
+#include "../model3d.hpp"
+#include "sha256.hpp"
 #include "../parser.hpp"
 
 namespace stomp::dev {
@@ -212,6 +216,51 @@ std::string cache_view(std::u16string_view src, const json::Value* stdlib) {
 std::string dump(std::string_view layer, std::u16string_view src, const json::Value* stdlib) {
   if (layer == "core") return compile_view(src, stdlib, false);
   if (layer == "cache") return cache_view(src, stdlib);
+  if (layer == "models" || layer == "models-full") {
+    // each footprint's model and board, and its exports, as digests (or in full)
+    const bool full = layer == "models-full";
+    const auto files = library_of(stdlib);
+    compiler::Options opts;
+    opts.cache = false;
+    if (stdlib && stdlib->is_array()) opts.stdlib = &files;
+    const compiler::Compiled out = compiler::compile(src, opts);
+    const auto bytes = [](const std::string& t) { return std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(t.data()), t.size()); };
+    const auto sha = [&](const std::string& t) { return sha256_hex(bytes(t)).substr(0, 16); };
+    const auto h = [&](const std::string& t) { return full ? t : sha(t); };
+    Value rows = json::array();
+    for (std::size_t i = 0; i < out.results.size(); ++i) {
+      const std::u16string& name = out.footprints->a[i].obj()->get(K_name).str();
+      Value row = json::object();
+      row.set(u"name", name);
+      const auto& r = out.results[i];
+      if (!r) {
+        row.set(u"none", true);
+        rows.push(std::move(row));
+        continue;
+      }
+      try {
+        const model3d::Model model = model3d::build(*r);
+        const ObjP res = r->full();
+        const model3d::Model board = model3d::board(res, &model);
+        std::string vrmlNamed;
+        const bool embed = !model.none && !model.meshes.empty();
+        if (embed) vrmlNamed = model3d::to_vrml(model, kicad::safe_name(name));
+        const kicad::Footprint ki = kicad::footprint(res, name, embed ? &vrmlNamed : nullptr);
+        row.set(u"model", from_utf8(h(json::canon(model3d::to_json(model)))));
+        row.set(u"board", from_utf8(h(json::canon(model3d::to_json(board)))));
+        row.set(u"kicad", from_utf8(h(js::narrow(ki.text))));
+        row.set(u"vrml", from_utf8(h(model.none ? std::string() : model3d::to_vrml(model, u""))));
+        const auto stl = model3d::to_stl(model, u"");
+        row.set(u"stl", model.none ? std::u16string() : from_utf8(sha256_hex(stl).substr(0, 16)));
+      } catch (const std::exception& e) {
+        row = json::object();
+        row.set(u"name", name);
+        row.set(u"error", from_utf8(e.what()));
+      }
+      rows.push(std::move(row));
+    }
+    return json::write(rows);
+  }
   if (layer == "kicad") {
     // each footprint's KiCad text, without its 3D model (as UTF-8)
     const auto files = library_of(stdlib);

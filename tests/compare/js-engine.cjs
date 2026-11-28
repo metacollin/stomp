@@ -97,9 +97,12 @@ function engine(dir) {
     return out.footprints.map((fp) => (fp.result ? K.footprint(fp.result, { name: fp.name }).text : `(none ${fp.name})\n`)).join('');
   }
 
-  // model: each footprint's model and board; exports: KiCad text, VRML, STL
-  function models(src, stdlib) {
-    const { out, isAst } = compile(src, stdlib);
+  // models: each footprint's model and board, and its exports (KiCad text with the model
+  // embedded, VRML, STL), as digests; models-full prints the texts themselves
+  function models(src, stdlib, full) {
+    const out = C.compile(src, stdlib ? { cache: false, stdlib } : { cache: false });
+    const isAst = astTest(out.ast);
+    const h = full ? (t) => t : (t) => sha(t);
     const rows = [];
     for (const fp of out.footprints) {
       if (!fp.result) { rows.push({ name: fp.name, none: true }); continue; }
@@ -109,14 +112,14 @@ function engine(dir) {
       const ki = K.footprint(fp.result, { name: fp.name, model });
       rows.push({
         name: fp.name,
-        model: canon(Object.assign({}, model, { hooks: undefined }), isAst),
-        board: canon(board, isAst),
-        kicad: ki.text,
-        vrml: model.none ? '' : M.toVRML(model),
+        model: h(canon(Object.assign({}, model, { hooks: undefined }), isAst)),
+        board: h(canon(board, isAst)),
+        kicad: h(ki.text),
+        vrml: h(model.none ? '' : M.toVRML(model)),
         stl: model.none ? '' : sha(Buffer.from(M.toSTL(model))),
       });
     }
-    return rows;
+    return JSON.stringify(rows);
   }
 
   return { lex, parse, core, cache, kicad, compile: (src, stdlib) => compile(src, stdlib).text, models, raw: { L, P, C, M, K } };

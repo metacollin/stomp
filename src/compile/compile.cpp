@@ -564,6 +564,7 @@ Val diag_val(const CDiag& d) {
     for (const RelD& r : *d.related) rel->a.push_back(rec({{K_message, r.message}, {K_s, r.s}, {K_e, r.e}}));
     o->set(K_related, rel);
   }
+  if (d.inst) o->set(K_inst, rec({{K_s, d.inst->s}, {K_e, d.inst->e}, {K_tmpl, d.inst->tmpl}}));
   return o;
 }
 

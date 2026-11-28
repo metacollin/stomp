@@ -518,9 +518,56 @@ struct Library {
   std::vector<LibSource> sources;
 };
 
+/** Thrown once a hook's problem is reported (compile.js: an error with `hook` set): the 3D
+ *  engine stops drawing that part. */
+struct HookError : std::exception {
+  U message;
+  explicit HookError(U m) : message(std::move(m)) {}
+  const char* what() const noexcept override { return "hook"; }
+};
+
+class Builder;
+/** A feature bound for the 3D engine, read on behalf of a statement (compile.js binding). */
+class HookBinding {
+ public:
+  HookBinding(Builder* b, BoundP bound, ObjP trigger);
+  const U& name() const;
+  bool lib() const { return bound_->lib; }
+  const Flags& flags() const { return bound_->flags; }
+  bool has(const U& n) const { return bound_->scope->defs.has(n); }
+  EV get(const U& n);
+  double len(const U& n);
+  double num(const U& n);
+  U str(const U& n);
+  Color color(const U& n);
+  /** A `NAME_if` test: its value in mm, or null when it needs a value nobody gave. */
+  std::optional<double> test(const U& n);
+  std::vector<ObjP> solids(const std::optional<geom::Frame>& M);
+
+ private:
+  Builder* b_;
+  BoundP bound_;
+  ObjP trigger_;
+  double unitScale_;
+};
+using HookBindingP = std::shared_ptr<HookBinding>;
+
 class Builder : public std::enable_shared_from_this<Builder> {
+  friend class HookBinding;
+
  public:
   Builder(ObjP decl, FileP file, U source);
+
+  // What the 3D engine calls to have features drawn (hooks.cpp; compile.js hooksApi). Problems
+  // found while drawing are collected, at the statement each part comes from, until take().
+  bool hookHas(const U& n) const { return lookupFeature(n) != nullptr; }
+  bool hookIsLib(const U& n) const;
+  std::vector<U> hookParams(const U& n) const;
+  Flags hookFlags(const U& n);
+  Color hookLibColor(const U& n);
+  HookBindingP hookBind(const U& n, const std::vector<std::pair<U, EV>>& values, const std::vector<U>& flags, const ObjP& trig,
+                        const Val& written);
+  CDiags hookTake();
 
   ObjP decl;
   FileP file;
@@ -669,6 +716,10 @@ class Builder : public std::enable_shared_from_this<Builder> {
   std::optional<geom::Box> landBox() const;
   void checks();
 
+  // hooks.cpp
+  template <typename F>
+  auto hookRun(const BoundP& bound, const ObjP& trig, F&& fn) -> decltype(fn());
+
   // features.cpp
   ObjP lookupFeature(const U& name) const;
   std::vector<U> featureNames() const;
@@ -757,6 +808,8 @@ class Builder : public std::enable_shared_from_this<Builder> {
   Marks marks2d;
   std::optional<Pin1> pin1;
   U pin1Style;
+
+  CDiags hookSink;
 
   bool finished = false;
   std::vector<Poly> keepouts;

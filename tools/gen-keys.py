@@ -6,7 +6,7 @@ root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 vh = open(os.path.join(root, 'src/value.hpp')).read()
 existing = set(re.findall(r'X\((\w+)\)', re.search(r'#define STOMP_KEYS\(X\)(.*?)\n\n', vh, re.S).group(1)))
 used = set()
-for f in glob.glob(os.path.join(root, 'src/compile/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/dev/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/kicad*.[ch]pp')):
+for f in glob.glob(os.path.join(root, 'src/compile/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/dev/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/kicad*.[ch]pp')) + glob.glob(os.path.join(root, 'src/model3d*.[ch]pp')):
     used |= set(re.findall(r'\bK_(\w+)\b', open(f).read()))
 new = sorted(used - existing)
 lines, cur = [], '  '

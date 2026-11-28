@@ -1,0 +1,6 @@
+# A file with a problem, for the stomp tool's tests (tests/CMakeLists.txt)
+width = 1
+footprint "A"
+  pad 1 rect widtth x 1
+  pad 1 at (0, 0)
+end

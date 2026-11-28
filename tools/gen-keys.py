@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Write src/compile/keys.hpp: every K_ name used in src/compile, src/dev, src/kicad, src/model3d and wasm that value.hpp doesn't define."""
+"""Write src/compile/keys.hpp: every K_ name used in src/compile, src/dev, src/api, src/kicad, src/model3d and wasm that value.hpp doesn't define."""
 import glob, os, re
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 vh = open(os.path.join(root, 'src/value.hpp')).read()
 existing = set(re.findall(r'X\((\w+)\)', re.search(r'#define STOMP_KEYS\(X\)(.*?)\n\n', vh, re.S).group(1)))
 used = set()
-for f in glob.glob(os.path.join(root, 'src/compile/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/dev/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/kicad*.[ch]pp')) + glob.glob(os.path.join(root, 'src/model3d*.[ch]pp')) + glob.glob(os.path.join(root, 'wasm/*.cpp')):
+for f in glob.glob(os.path.join(root, 'src/compile/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/dev/*.[ch]pp')) + glob.glob(os.path.join(root, 'src/api.cpp')) + glob.glob(os.path.join(root, 'src/kicad*.[ch]pp')) + glob.glob(os.path.join(root, 'src/model3d*.[ch]pp')) + glob.glob(os.path.join(root, 'wasm/*.cpp')):
     used |= set(re.findall(r'\bK_(\w+)\b', open(f).read()))
 new = sorted(used - existing)
 lines, cur = [], '  '
@@ -19,7 +19,7 @@ for k in new:
 lines.append(cur.rstrip())
 body = '\n'.join(lines)
 open(os.path.join(root, 'src/compile/keys.hpp'), 'w').write(f'''// Field names of the compiler's records beyond the AST's (value.hpp STOMP_KEYS). Generated
-// from the K_ names used in src/compile, src/dev, src/kicad, src/model3d and wasm by tools/gen-keys.py; run it after adding one.
+// from the K_ names used in src/compile, src/dev, src/api, src/kicad, src/model3d and wasm by tools/gen-keys.py; run it after adding one.
 #ifndef STOMP_COMPILE_KEYS_HPP
 #define STOMP_COMPILE_KEYS_HPP
 

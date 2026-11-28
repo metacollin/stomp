@@ -11,17 +11,17 @@
 #include "model3d.hpp"
 
 using namespace stomp;
-using namespace stomp::compiler;
+namespace C = stomp::compiler;
 
 namespace {
-Compiled build(std::u16string_view src) {
-  Options o;
+C::Compiled build(std::u16string_view src) {
+  C::Options o;
   o.cache = false;
-  return compile(src, o);
+  return C::compile(src, o);
 }
-const Obj& result(const Compiled& c, std::size_t i) { return *c.footprints->a.at(i).obj()->get(K_result).obj(); }
-const Arr& pads_of(const Compiled& c, std::size_t i) { return *result(c, i).get(K_pads).arr(); }
-std::u16string message(const Compiled& c, std::size_t i) { return c.diagnostics->a.at(i).obj()->get(K_message).str(); }
+const Obj& result(const C::Compiled& c, std::size_t i) { return *c.footprints->a.at(i).obj()->get(K_result).obj(); }
+const Arr& pads_of(const C::Compiled& c, std::size_t i) { return *result(c, i).get(K_pads).arr(); }
+std::u16string message(const C::Compiled& c, std::size_t i) { return c.diagnostics->a.at(i).obj()->get(K_message).str(); }
 }  // namespace
 
 TEST(geometry_bounds_and_turns_are_exact) {
@@ -41,7 +41,7 @@ TEST(geometry_bounds_and_turns_are_exact) {
 }
 
 TEST(a_chip_gets_ipc_lands_from_its_lead) {
-  const Compiled c = build(u"footprint \"R0603\"\n  body 1.6 x 0.8\n  pins 2\n  lead endcap 0.3\nend\n");
+  const C::Compiled c = build(u"footprint \"R0603\"\n  body 1.6 x 0.8\n  pins 2\n  lead endcap 0.3\nend\n");
   CHECK(c.diagnostics->a.empty());
   const Arr& pads = pads_of(c, 0);
   CHECK_EQ(pads.a.size(), std::size_t(2));
@@ -53,7 +53,7 @@ TEST(a_chip_gets_ipc_lands_from_its_lead) {
 }
 
 TEST(values_take_units_and_names) {
-  const Compiled c = build(u"units: mil\nw = 40\nfootprint \"A\"\n  pad 1 rect w x 2 * w\n  pad 1 at (0, 0)\nend\n");
+  const C::Compiled c = build(u"units: mil\nw = 40\nfootprint \"A\"\n  pad 1 rect w x 2 * w\n  pad 1 at (0, 0)\nend\n");
   CHECK(c.diagnostics->a.empty());
   const Obj& sh = *pads_of(c, 0).a[0].obj()->get(K_shape).obj();
   CHECK(std::fabs(sh.get(K_w).num() - 1.016) < 1e-12);
@@ -61,35 +61,35 @@ TEST(values_take_units_and_names) {
 }
 
 TEST(an_unplaced_pad_is_reported) {
-  const Compiled c = build(u"footprint \"A\"\n  pad 1 rect 1 x 1\n  pad 2 rect 1 x 1\n  pad 1 at (0, 0)\nend\n");
+  const C::Compiled c = build(u"footprint \"A\"\n  pad 1 rect 1 x 1\n  pad 2 rect 1 x 1\n  pad 1 at (0, 0)\nend\n");
   CHECK_EQ(c.diagnostics->a.size(), std::size_t(1));
   CHECK(message(c, 0).find(u"pad 2 has no x and y position") == 0);
 }
 
 TEST(an_unknown_name_has_a_hint) {
-  const Compiled c = build(u"width = 1\nfootprint \"A\"\n  pad 1 rect widtth x 1\n  pad 1 at (0, 0)\nend\n");
+  const C::Compiled c = build(u"width = 1\nfootprint \"A\"\n  pad 1 rect widtth x 1\n  pad 1 at (0, 0)\nend\n");
   CHECK(!c.diagnostics->a.empty());
   CHECK(message(c, 0) == u"unknown name `widtth` — did you mean `width`?");
 }
 
 TEST(duplicate_names_are_renamed_and_reported) {
-  const Compiled c = build(u"footprint \"A\"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\nend\nfootprint \"A\"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\nend\n");
+  const C::Compiled c = build(u"footprint \"A\"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\nend\nfootprint \"A\"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\nend\n");
   CHECK_EQ(c.footprints->a.size(), std::size_t(2));
   CHECK(c.footprints->a[1].obj()->get(K_name).str() == u"A #2");
   CHECK(message(c, 0).find(u"footprint name \"A\" is already used") == 0);
 }
 
 TEST(the_cache_reuses_an_unchanged_footprint) {
-  clear_cache();
+  C::clear_cache();
   const std::u16string src = u"footprint \"A\"\n  pad 1 rect 1 x 1\n  pad 1 at (0, 0)\nend\n";
-  const Compiled a = compile(src), b = compile(src);
+  const C::Compiled a = C::compile(src), b = C::compile(src);
   CHECK(result(a, 0).get(K_name).str() == u"A");
   CHECK(a.results[0] == b.results[0]);   // the same result, not a rebuild
-  clear_cache();
+  C::clear_cache();
 }
 
 TEST(a_chip_gets_a_body_and_two_caps_in_3d) {
-  const Compiled c = build(u"footprint \"R0603\"\n  refdes: \"R\"\n  body 1.6 x 0.8 x 0.45\n  pins 2\n  lead endcap 0.3\nend\n");
+  const C::Compiled c = build(u"footprint \"R0603\"\n  refdes: \"R\"\n  body 1.6 x 0.8 x 0.45\n  pins 2\n  lead endcap 0.3\nend\n");
   const auto& r = c.results.at(0);
   CHECK(r != nullptr);
   const model3d::Model m = model3d::build(*r);
@@ -104,7 +104,7 @@ TEST(a_chip_gets_a_body_and_two_caps_in_3d) {
 }
 
 TEST(kicad_text_embeds_the_model) {
-  const Compiled c = build(u"footprint \"R0603\"\n  body 1.6 x 0.8 x 0.45\n  pins 2\n  lead endcap 0.3\nend\n");
+  const C::Compiled c = build(u"footprint \"R0603\"\n  body 1.6 x 0.8 x 0.45\n  pins 2\n  lead endcap 0.3\nend\n");
   const auto& r = c.results.at(0);
   const model3d::Model m = model3d::build(*r);
   const std::string vrml = model3d::to_vrml(m, u"R0603");

@@ -21,7 +21,8 @@
 # or group) is the exception: it can't be a bare keyword.
 #
 # The order of the choices matters: it keeps the grammar unambiguous without
-# a separate pass, and maps straight onto PEGTL.
+# a separate pass, and maps straight onto PEGTL. src/parser/ is this grammar on
+# PEGTL, rule by rule, over the lexer's tokens.
 
 # 1. File structure (SPEC 5)
 

@@ -1,7 +1,7 @@
 /* stomp: the C++ engine (stomp-core.js, WebAssembly) as the rest of the editor sees it.
  *
  * Stomp.ready resolves once the module has loaded; after that every call is synchronous.
- * The API is what the JavaScript engine had:
+ * The API is the one the editor used with the JavaScript engine this replaced:
  *   Stomp.compile(source, { stdlib, cache })   Stomp.compiler.{ locate, clearCache, D, HOOKS, UNIT_MM }
  *   Stomp.lexer.lex(text)                      Stomp.model3d.{ build, board, toVRML, toSTL }
  *   Stomp.kicad.{ footprint, library, checksum, murmur3x64, zstdFrame, base64 }
@@ -179,6 +179,13 @@
   });
   const hidden = (o, k, v) => Object.defineProperty(o, k, { value: v, writable: true, configurable: true });
   const getter = (o, k, get) => Object.defineProperty(o, k, { get, enumerable: true, configurable: true });
+  // A pad's and a hole's outlines come with nulls in their places; these getters, shared by
+  // every pad and hole, load them: AT holds the result's loader and the item's index.
+  const AT = Symbol('stomp outlines');
+  const outlineGetters = (list, keys) => Object.fromEntries(keys.map((k, j) => [k, {
+    get() { const [load, i] = this[AT]; return load()[list][i][j]; }, enumerable: true, configurable: true,
+  }]));
+  const PAD_GETTERS = outlineGetters('pads', PAD_OUTLINES), HOLE_GETTERS = outlineGetters('holes', HOLE_OUTLINES);
 
   /** Run fn(resultId, modelId) until the engine has what it needs; it returns 0 when done. */
   function run(fn, res, model) {
@@ -232,17 +239,8 @@
     const lay = () => layers || (layers = parsed((rid) => M._stomp_layers(rid), r));
     const out = () => outlines || (outlines = parsed((rid) => M._stomp_contours(rid), r));
     for (const k of LAZY) getter(r, k, () => lay()[k]);
-    // the outlines in their places: a pad's after its drill, a hole's after its shape
-    const placed = (o, after, keys, get) => {
-      const n = {};
-      for (const k of Object.keys(o)) {
-        n[k] = o[k];
-        if (k === after) keys.forEach((key, j) => getter(n, key, () => get(j)));
-      }
-      return n;
-    };
-    r.pads = r.pads.map((p, i) => placed(p, 'drill', PAD_OUTLINES, (j) => out().pads[i][j]));
-    r.holes = r.holes.map((h, i) => placed(h, 'shape', HOLE_OUTLINES, (j) => out().holes[i][j]));
+    r.pads.forEach((p, i) => { Object.defineProperty(p, AT, { value: [out, i] }); Object.defineProperties(p, PAD_GETTERS); });
+    r.holes.forEach((h, i) => { Object.defineProperty(h, AT, { value: [out, i] }); Object.defineProperties(h, HOLE_GETTERS); });
     live.set(id, new WeakRef(r));
     forget.register(r, id);
     return r;
@@ -251,7 +249,7 @@
   const libraryJson = (files) => enc.encode(JSON.stringify(files.map((f) => ({ file: f.file, source: f.source }))));
   let defaultLib = null;   // what setLibrary sent, so a result compiled again gets the library it had
 
-  /** The JavaScript engine's compile: { diagnostics, footprints, templates, tables, library }. */
+  /** Compile a file (opts: { stdlib, cache }): { diagnostics, footprints, templates, tables, library }. */
   function compile(source, opts) {
     need();
     source = String(source);

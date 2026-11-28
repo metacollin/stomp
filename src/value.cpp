@@ -15,6 +15,7 @@ namespace {
 struct Interned {
   std::vector<std::u16string> names;
   std::unordered_map<std::u16string, std::uint32_t> ids;
+  std::vector<std::string> quoted;   // each name as JSON ("name"), made when first written
 };
 Interned& interned() {
   static Interned t;
@@ -34,6 +35,17 @@ Key key(std::u16string_view name) {
 }
 
 const std::u16string& key_name(Key k) { return interned().names.at(k.id); }
+
+namespace {
+/** A field name as JSON, quoted: the writer puts one in for every field it writes. */
+const std::string& quoted_key(Key k) {
+  auto& t = interned();
+  if (t.quoted.size() <= k.id) t.quoted.resize(t.names.size());
+  std::string& q = t.quoted[k.id];
+  if (q.empty()) json::quote(t.names.at(k.id), q);
+  return q;
+}
+}  // namespace
 
 #define STOMP_KEY_DEF(n) const Key K_##n = key(u"" #n);
 STOMP_KEYS(STOMP_KEY_DEF)
@@ -185,7 +197,7 @@ struct Json {
           if (sum && k != K_type && k != K_s && k != K_e) continue;
           if (!first) out.push_back(',');
           first = false;
-          json::quote(key_name(k), out);
+          out += quoted_key(k);
           out.push_back(':');
           put(val);
         }

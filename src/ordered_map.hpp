@@ -37,6 +37,18 @@ class OrderedMap {
     return entries_.back()->second;
   }
 
+  /** Move an entry to the end, as deleting and setting it again would (without copying it). */
+  bool touch(const K& k) {
+    const auto it = index_.find(k);
+    if (it == index_.end()) return false;
+    if (it->second + 1 == entries_.size()) return true;
+    entries_.emplace_back(std::move(entries_[it->second]));
+    entries_[it->second].reset();
+    it->second = entries_.size() - 1;
+    if (++holes_ > 32 && holes_ * 2 > entries_.size()) compact();
+    return true;
+  }
+
   bool erase(const K& k) {
     const auto it = index_.find(k);
     if (it == index_.end()) return false;

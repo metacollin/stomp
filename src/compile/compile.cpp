@@ -5,7 +5,9 @@
 #include <stomp/stomp.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <set>
 
 #include "../jsrt.hpp"
 #include "../lexer.hpp"
@@ -203,12 +205,24 @@ struct CacheEntry {
   std::optional<Inst> tmpl;
   double rowS = 0, rowE = 0;
 };
+/** A cache key: the text a footprint is built from, hashed once and shared by its copies
+ *  (keys run to kilobytes). */
+struct CacheKey {
+  std::shared_ptr<const U> text;
+  std::size_t hash;
+  explicit CacheKey(U t) : text(std::make_shared<const U>(std::move(t))), hash(std::hash<U>()(*text)) {}
+  bool operator==(const CacheKey& o) const { return hash == o.hash && (text == o.text || *text == *o.text); }
+};
+struct CacheKeyHash {
+  std::size_t operator()(const CacheKey& k) const { return k.hash; }
+};
+
 // The most recently used entries: at most CACHE_MAX (compile.js's limit), taking about
 // CACHE_KB at most (a WebAssembly heap never shrinks).
 constexpr std::size_t CACHE_MAX = 1500;
 constexpr double CACHE_KB = 256 * 1024;
 struct Cache {
-  OrderedMap<U, std::shared_ptr<CacheEntry>> m;
+  OrderedMap<CacheKey, std::shared_ptr<CacheEntry>, CacheKeyHash> m;
   double kb = 0;
 };
 Cache& cache() {
@@ -217,7 +231,7 @@ Cache& cache() {
 }
 double entry_kb(const CacheEntry& e) { return e.result ? e.result->kb() : 1; }
 /** Set an entry, now the most recent. */
-void cache_put(const U& key, std::shared_ptr<CacheEntry> e) {
+void cache_put(const CacheKey& key, std::shared_ptr<CacheEntry> e) {
   Cache& c = cache();
   if (auto* old = c.m.get(key)) {
     c.kb -= entry_kb(**old);
@@ -368,23 +382,46 @@ std::vector<ObjP> row_decls(const ObjP& table) {
  * it. Otherwise it's reported on the calls that cause it: the table row or `from` call with
  * the bad values.
  */
+/**
+ * A diagnostic as compile.js's string keys `${severity}|${s}|${e}|${message}` told them
+ * apart: positions equal as String() writes them (-0 as 0, every NaN alike), undefined
+ * apart from both. Comparing the values instead of building the strings is much faster.
+ */
+std::uint64_t key_bits(double x) {
+  if (std::isnan(x)) return 0x7ff8000000000000ULL;
+  return std::bit_cast<std::uint64_t>(x == 0 ? 0.0 : x);
+}
+std::uint64_t key_bits(const Val& v) { return v.is_num() ? key_bits(v.num()) : 0x7ff8000000000001ULL; }
+struct DiagKey {
+  bool error;
+  std::uint64_t s, e;
+  const U* message;
+  bool operator==(const DiagKey& o) const { return error == o.error && s == o.s && e == o.e && *message == *o.message; }
+};
+struct DiagKeyHash {
+  std::size_t operator()(const DiagKey& k) const {
+    std::size_t h = std::hash<U>()(*k.message);
+    for (std::uint64_t x : {k.s, k.e, std::uint64_t(k.error)}) h = (h ^ std::hash<std::uint64_t>()(x)) * 0x100000001b3ULL;
+    return h;
+  }
+};
+
 CDiags rehome(const CDiags& diags, const OrderedMap<U, double>& instCount) {
   CDiags out;
-  OrderedMap<U, std::vector<const CDiag*>> groups;
-  const auto text = [](const Val& v) { return v.is_num() ? js::to_u16string(v.num()) : U(u"undefined"); };
+  OrderedMap<DiagKey, std::vector<const CDiag*>, DiagKeyHash> groups;
   for (const CDiag& d : diags) {
     if (!d.inst) {
       out.push_back(d);
       continue;
     }
-    const U k = U(d.error ? u"error" : u"warning") + u"|" + text(d.s) + u"|" + text(d.e) + u"|" + d.message;
+    const DiagKey k{d.error, key_bits(d.s), key_bits(d.e), &d.message};
     if (!groups.has(k)) groups.set(k, {});
     groups.get(k)->push_back(&d);
   }
-  groups.each([&](const U&, std::vector<const CDiag*>& list) {
+  groups.each([&](const DiagKey&, std::vector<const CDiag*>& list) {
     const U t = list[0]->inst->tmpl;
-    std::unordered_set<U> calls;
-    for (const CDiag* d : list) calls.insert(js::to_u16string(d->inst->s) + u":" + js::to_u16string(d->inst->e));
+    std::set<std::pair<std::uint64_t, std::uint64_t>> calls;
+    for (const CDiag* d : list) calls.insert({key_bits(d->inst->s), key_bits(d->inst->e)});
     const double* count = instCount.get(t);
     if (static_cast<double>(calls.size()) >= (count && js::truthy(*count) ? *count : 1)) {
       CDiag d = *list[0];
@@ -628,7 +665,7 @@ ArrP finish_diags(const CDiags& diags, V source) {
     return {static_cast<double>(lo + 1), off - starts[lo] + 1};
   };
   const double n = static_cast<double>(source.size());
-  std::unordered_set<U> seen;
+  std::unordered_set<DiagKey, DiagKeyHash> seen;
   struct Done {
     ObjP o;
     double s;
@@ -638,7 +675,7 @@ ArrP finish_diags(const CDiags& diags, V source) {
   for (const CDiag& d : diags) {
     const double s = js::max(0, js::min(d.s.nullish() ? 0 : d.s.num(), n));
     const double e = js::max(s, js::min(d.e.nullish() ? s : d.e.num(), n));
-    const U key = U(d.error ? u"error" : u"warning") + u"|" + js::to_u16string(s) + u"|" + js::to_u16string(e) + u"|" + d.message;
+    const DiagKey key{d.error, key_bits(s), key_bits(e), &d.message};
     if (seen.count(key)) continue;
     seen.insert(key);
     const auto p = pos(s), q = pos(e);
@@ -716,17 +753,18 @@ Compiled compile(V source, const Options& opts) {
   }
   struct B {
     BuilderP b;
-    std::optional<U> key;
+    std::optional<CacheKey> key;
     std::shared_ptr<CacheEntry> cached;
   };
   std::vector<B> builders;
   for (const ObjP& d : decls) {
     B x{std::make_shared<Builder>(d, file, src), std::nullopt, nullptr};
-    if (useCache) x.key = cache_key(d, source, *file, letsSig);
+    if (useCache)
+      if (auto k = cache_key(d, source, *file, letsSig)) x.key.emplace(std::move(*k));
     if (x.key) {
       if (auto* hit = cache().m.get(*x.key)) {
         const auto entry = *hit;
-        cache_put(*x.key, entry);   // keep recently used entries
+        cache().m.touch(*x.key);   // keep recently used entries
         x.cached = entry;
         x.b->name = entry->name;
         x.b->tmpl = entry->tmpl;

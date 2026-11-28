@@ -23,27 +23,52 @@ std::string to_string(double x) {
   if (std::isnan(x)) return "NaN";
   if (x == 0) return "0";
   if (std::isinf(x)) return x < 0 ? "-Infinity" : "Infinity";
-  std::string out = x < 0 ? "-" : "";
+  char out[40];   // a sign, at most 21 digits and a point, or 17 digits and an exponent
+  char* o = out;
+  if (x < 0) *o++ = '-';
+  const double a = std::fabs(x);
+  if (a < 9007199254740992.0 && a == std::trunc(a)) {
+    // an integer below 2^53 is written in full, as JavaScript does
+    o = std::to_chars(o, out + sizeof out, static_cast<std::int64_t>(a)).ptr;
+    return std::string(out, o);
+  }
   // the shortest digits that round-trip, and where the point goes (ECMA-262 Number::toString)
-  char buf[64];
-  const auto r = std::to_chars(buf, buf + sizeof buf, std::fabs(x), std::chars_format::scientific);
-  const std::string_view sci(buf, static_cast<std::size_t>(r.ptr - buf));   // d.ddde+XX
-  const auto e = sci.find('e');
-  std::string digits(1, sci[0]);
-  if (e > 1) digits.append(sci.substr(2, e - 2));
+  char sci[32];
+  const char* end = std::to_chars(sci, sci + sizeof sci, a, std::chars_format::scientific).ptr;   // d.ddde+XX
+  const char* e = std::find(static_cast<const char*>(sci), end, 'e');
+  char digits[24];
+  int k = 0;
+  digits[k++] = sci[0];
+  for (const char* p = sci + 2; p < e; ++p) digits[k++] = *p;
   int exp10 = 0;
-  std::from_chars(sci.data() + e + (sci[e + 1] == '+' ? 2 : 1), sci.data() + sci.size(), exp10);
-  const int k = static_cast<int>(digits.size());
+  std::from_chars(e + (e[1] == '+' ? 2 : 1), end, exp10);
   const int n = exp10 + 1;
-  if (k <= n && n <= 21) return out + digits + std::string(static_cast<std::size_t>(n - k), '0');
-  if (0 < n && n <= 21) return out + digits.substr(0, static_cast<std::size_t>(n)) + "." + digits.substr(static_cast<std::size_t>(n));
-  if (-6 < n && n <= 0) return out + "0." + std::string(static_cast<std::size_t>(-n), '0') + digits;
-  const int ex = n - 1;
-  out += digits.substr(0, 1);
-  if (k > 1) out += "." + digits.substr(1);
-  out += ex >= 0 ? "e+" : "e-";
-  out += std::to_string(ex >= 0 ? ex : -ex);
-  return out;
+  const auto put = [&](const char* from, int count) { o = std::copy(from, from + count, o); };
+  const auto zeros = [&](int count) { o = std::fill_n(o, count, '0'); };
+  if (k <= n && n <= 21) {
+    put(digits, k);
+    zeros(n - k);
+  } else if (0 < n && n <= 21) {
+    put(digits, n);
+    *o++ = '.';
+    put(digits + n, k - n);
+  } else if (-6 < n && n <= 0) {
+    *o++ = '0';
+    *o++ = '.';
+    zeros(-n);
+    put(digits, k);
+  } else {
+    const int ex = n - 1;
+    *o++ = digits[0];
+    if (k > 1) {
+      *o++ = '.';
+      put(digits + 1, k - 1);
+    }
+    *o++ = 'e';
+    *o++ = ex >= 0 ? '+' : '-';
+    o = std::to_chars(o, out + sizeof out, ex >= 0 ? ex : -ex).ptr;
+  }
+  return std::string(out, o);
 }
 
 std::u16string to_u16string(double x) { return u16(to_string(x)); }

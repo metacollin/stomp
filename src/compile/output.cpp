@@ -382,19 +382,20 @@ const std::vector<Key> PAD_OUTLINES{K_land, K_copper, K_mask, K_paste, K_drillSh
 
 }  // namespace
 
-ObjP Builder::withOutlines(const ObjP& res) const {
+ObjP Builder::withOutlines(const ObjP& res, bool placeholders) const {
   auto o = std::make_shared<Obj>(*res);
   ArrP padsOut = list(), holesOut = list();
   std::size_t i = 0;
   const auto& padRecs = res->get(K_pads).arr()->a;
   const auto& holeRecs = res->get(K_holes).arr()->a;
   if (padRecs.size() != pads.size() || holeRecs.size() != holes.size()) throw std::logic_error("the pads changed after the footprint was built");
+  const ArrP padNulls = list({nullptr, nullptr, nullptr, nullptr, nullptr}), holeNulls = list({nullptr, nullptr});
   pads.each([&](const U&, const PadP& p) {
-    padsOut->a.push_back(insert_after(*padRecs[i++].obj(), K_drill, PAD_OUTLINES, pad_outlines(*p)));
+    padsOut->a.push_back(insert_after(*padRecs[i++].obj(), K_drill, PAD_OUTLINES, placeholders ? padNulls : pad_outlines(*p)));
   });
   i = 0;
   holes.each([&](const U&, const HoleP& h) {
-    holesOut->a.push_back(insert_after(*holeRecs[i++].obj(), K_shape, HOLE_OUTLINES, hole_outlines(*h)));
+    holesOut->a.push_back(insert_after(*holeRecs[i++].obj(), K_shape, HOLE_OUTLINES, placeholders ? holeNulls : hole_outlines(*h)));
   });
   o->set(K_pads, padsOut);
   o->set(K_holes, holesOut);

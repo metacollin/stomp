@@ -10,8 +10,9 @@ A small language for describing PCB footprints. One `.stomp` file gives you the
 it, a **3D model** of the part.
 
 > **Status: early.** The language is written down in [`SPEC.md`](SPEC.md), with the
-> formal grammar in [`grammar.peg`](grammar.peg). stomp itself runs in the browser:
-> the editor in [`demo/`](demo/) parses, checks, draws and exports every part of it.
+> formal grammar in [`grammar.peg`](grammar.peg). The engine that implements it is a
+> C++20 library with a command-line tool, and the editor in [`demo/`](demo/) runs the
+> same engine in the browser as WebAssembly.
 
 ## The editor
 
@@ -27,6 +28,56 @@ opens them again. The libraries in the file picker each build a whole family of
 footprints from tables: chip passives, SOT, SOP, QFP, QFN, DFN, BGA and CGA, diodes,
 tantalums, polymer caps, power inductors, crystals, LEDs, DIPs and pin headers. See
 [`demo/README.md`](demo/README.md) for how it's built and tested.
+
+## The command-line tool and the C++ library
+
+The engine is a C++20 library in [`src/`](src/), built with CMake, and `stomp` is its
+command-line tool. It's built and tested with GCC 13, Clang 18 and Emscripten 7, and
+needs CMake 3.21 or later and Ninja:
+
+```sh
+cmake --preset native-release
+cmake --build --preset native-release        # build/native-release/stomp
+ctest --preset native-release
+```
+
+The tool checks files, writes KiCad libraries and exports 3D models:
+
+```sh
+stomp check parts.stomp                      # problems, as FILE:LINE:COLUMN: error: MESSAGE
+stomp build parts.stomp -o Parts.pretty      # a KiCad 9 library, each 3D model embedded
+stomp model parts.stomp --footprint SOIC-8 --vrml soic8.wrl --stl soic8.stl
+```
+
+`check` exits with status 1 when a file has errors, so it can run in a build or in CI.
+`build` writes each footprint without errors as a `.kicad_mod` file: the same files the
+editor's **Export to KiCad** makes. From C++, add stomp with `add_subdirectory` and link
+`stomp::stomp`:
+
+```cpp
+#include <stomp/stomp.hpp>
+
+const stomp::Compiled out = stomp::compile(text);    // UTF-8 or UTF-16
+for (const stomp::Diagnostic& d : out.diagnostics)
+  std::printf("%zu:%zu: %s\n", d.line, d.column, d.message.c_str());
+for (const stomp::Footprint& fp : out.footprints)
+  if (fp.ok()) save(fp.kicad());                     // also fp.vrml() and fp.stl()
+```
+
+The editor's engine, [`demo/js/stomp-core.js`](demo/js/stomp-core.js), is the same C++
+compiled to WebAssembly. It's committed, so the editor needs no build. To rebuild it,
+get the Emscripten release the project pins (or install it with emsdk):
+
+```sh
+tools/get-emscripten.sh                      # then put its emscripten folder on PATH
+emcmake cmake --preset wasm-release
+cmake --build --preset wasm-release          # writes demo/js/stomp-core.js
+tools/check-wasm.sh                          # checks the committed file matches a fresh build
+```
+
+[`tests/compare/`](tests/compare/) compares the native tool with the WebAssembly build,
+layer by layer (tokens, syntax trees, results, KiCad files, meshes), on the examples,
+the library, the docs' code and random edits of them.
 
 ## Documentation
 

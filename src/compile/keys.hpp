@@ -1,5 +1,5 @@
 // Field names of the compiler's records beyond the AST's (value.hpp STOMP_KEYS). Generated
-// from the K_ names used in src/compile, src/dev, src/kicad, src/model3d and wasm by tools/gen-keys.py; run it after adding one.
+// from the K_ names used in src/compile, src/dev, src/api, src/kicad, src/model3d and wasm by tools/gen-keys.py; run it after adding one.
 #ifndef STOMP_COMPILE_KEYS_HPP
 #define STOMP_COMPILE_KEYS_HPP
 

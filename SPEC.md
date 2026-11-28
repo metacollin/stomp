@@ -2,10 +2,11 @@
 
 *A stomp leaves a footprint. Files use the `.stomp` extension.*
 
-**Status: draft 1, syntax and grammar only.** This document pins down the language you
-write. Parsing (probably with PEGTL), constraint solving, IPC pad synthesis and 2D/3D
-generation are out of scope for this revision. Where the syntax forces a decision about
-meaning, the spec states the default and marks it as a decision. Open items are
+**Status: draft 1.** This document pins down the language you write and what it means.
+The engine that implements it is a C++20 library in [`src/`](src/), whose parser is
+built on PEGTL; [`demo/README.md`](demo/README.md) says what it leaves out. Where the
+syntax forces a decision about meaning, the spec states the default and marks it as a
+decision. Open items are
 collected in [§17 Open questions](#17-open-questions).
 
 The formal grammar is in [`grammar.peg`](grammar.peg), and worked examples are in
@@ -1253,9 +1254,10 @@ The syntax is designed so a checker can be blunt and specific. Required diagnost
 
 ## 16. Formal grammar
 
-The complete grammar is [`grammar.peg`](grammar.peg). It's a PEG (ordered choice), so
-it maps one to one onto a PEGTL implementation later. This spec and the grammar file
-are written to agree. Where they conflict, the grammar file wins for *syntax* and this
+The complete grammar is [`grammar.peg`](grammar.peg). It's a PEG (ordered choice), and
+the parser in [`src/parser/`](src/parser/) follows it rule by rule on PEGTL, matching
+the lexer's tokens rather than characters. This spec and the grammar file are written to
+agree. Where they conflict, the grammar file wins for *syntax* and this
 spec wins for *meaning*.
 
 ## 17. Open questions

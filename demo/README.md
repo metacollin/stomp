@@ -177,23 +177,30 @@ They check:
 
 ## Performance
 
-The file recompiles every time you pause typing, so big libraries need two things:
+The file recompiles every time you pause typing, so big libraries need three things:
 
 - **A build cache.** Each footprint's result is cached under the text it is built from:
   its template, its arguments and the file's names. Editing or adding one row of a
   table rebuilds only that row. A row's position isn't part of its key, so the rows below
   an edit stay cached and their diagnostics move with them.
 - **Lazy layers.** Automatic silk, assembly and courtyard geometry, the slow part, is
-  computed when a footprint is first drawn. Anything that can report a problem still
-  runs on every compile.
+  computed when a footprint is first drawn, and its pads' outlines come over from the
+  engine then too. Anything that can report a problem still runs on every compile.
+- **A memory budget.** A WebAssembly heap grows but never shrinks, so the engine keeps
+  the last compile's results and the most recently used others within a budget, and
+  the build cache within another. A result the engine let go is compiled again if the
+  editor still draws it, with the same values.
 
-For a 150-row QFN table in Chromium, a cold compile takes about 165 ms, and typing in
-one row recompiles in about 6 ms. Editing the template rebuilds every row.
+For a 150-row QFN table in Chromium, a cold compile takes about 125 ms, and typing in
+one row recompiles in about 4 ms. Editing the template rebuilds every row. The
+JavaScript engine this one replaced took about 110 ms and 2 ms: WebAssembly runs the C++
+at about half its native speed (the same cold compile takes 55 ms natively, with
+`stomp dev bench`), and the results cross into JavaScript as JSON.
 
 The standard library is parsed once. A model is built when it's first shown, in about a
 millisecond for most parts. A lead's feature runs once for each different lead, and the
-result is copied for the others, so a 484-ball BGA's model takes about 16 ms in Node
-and its VRML still writes the ball once.
+result is copied for the others, so a 484-ball BGA's model takes about 12 ms in
+Chromium and its VRML still writes the ball once.
 
 ## Semantic decisions
 

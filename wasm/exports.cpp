@@ -384,9 +384,12 @@ EMSCRIPTEN_KEEPALIVE int stomp_recompile(const char16_t* src, std::uint32_t n, c
 
 EMSCRIPTEN_KEEPALIVE std::uint32_t stomp_last_id() { return lastId; }
 
-/** A result's record, without the lazy layers and the pads' and holes' outlines. */
+/** A result's record, without the lazy layers, and with nulls for the pads' and holes' outlines. */
 EMSCRIPTEN_KEEPALIVE int stomp_result(std::uint32_t id) {
-  return guarded([&] { put_json(result_of(id)->rec); });
+  return guarded([&] {
+    const ResultP& r = result_of(id);
+    put_json(r->builder->withOutlines(r->rec, true));
+  });
 }
 
 EMSCRIPTEN_KEEPALIVE void stomp_clear_cache() { clear_cache(); }

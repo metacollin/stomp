@@ -749,7 +749,9 @@ class Builder : public std::enable_shared_from_this<Builder> {
   void finishLayers();
   ObjP lazyFields();   // { silk, assembly, courtyard, bbox, courtyardBox, courtyardClearance }
   // output.cpp: the pads' and holes' outlines, which records get only when asked
-  ObjP withOutlines(const ObjP& res) const;   // res with each pad's land, copper, mask, paste, drillShape and each hole's land, mask
+  // res with each pad's land, copper, mask, paste, drillShape and each hole's land, mask (or
+  // with nulls in their places, for the browser, which loads them when first used)
+  ObjP withOutlines(const ObjP& res, bool placeholders = false) const;
   ObjP outlines() const;                      // { pads: [[land, copper, mask, paste, drillShape]], holes: [[land, mask]] }
 
  private:

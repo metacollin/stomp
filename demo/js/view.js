@@ -219,7 +219,7 @@
         const b = state.res.body;
         const inside = b.kind === 'cyl' ? Math.hypot(p[0] - b.x, p[1] - b.y) <= b.w / 2
           : Math.abs(p[0] - b.x) <= b.w / 2 && Math.abs(p[1] - b.y) <= b.l / 2;
-        if (inside) best = Object.assign({ kind: 'body' }, b);
+        if (inside) best = Object.assign({}, b, { kind: 'body', body: b.kind });   // body: box or cyl
       }
       return best;
     }
@@ -273,7 +273,7 @@
     }
     function describe(ob) {
       if (ob.kind === 'body') {
-        return `<b>body</b><span>${ob.kind === 'cyl' ? 'cylinder ⌀' + len(ob.w) : len(ob.w) + ' × ' + len(ob.l)}${ob.h ? ' × ' + len(ob.h) : ''} ${U()}</span><span>center (${len(ob.x)}, ${len(ob.y)}) ${U()}</span>`;
+        return `<b>body</b><span>${ob.body === 'cyl' ? 'cylinder ⌀' + len(ob.w) : len(ob.w) + ' × ' + len(ob.l)}${ob.h ? ' × ' + len(ob.h) : ''} ${U()}</span><span>center (${len(ob.x)}, ${len(ob.y)}) ${U()}</span>`;
       }
       if (ob.kind === 'hole') {
         return `<b>hole ${esc(ob.name)}</b><span>NPTH ${sizeOf(ob.shape)} ${U()}${ob.shape.kind === 'oval' ? ' slot' : ''}</span><span>at (${len(ob.x)}, ${len(ob.y)}) ${U()}</span>`;
@@ -588,7 +588,8 @@
         state.focus.ranges = ranges || [];
         const objs = new Set();
         if (state.res && ranges && ranges.length) {
-          const hit = (src) => src && src.some((r) => ranges.some((q) => q.s >= r.s && q.s <= r.e));
+          // a statement under the cursor's lines (statements in a block start after their indent)
+          const hit = (src) => src && src.some((r) => ranges.some((q) => q.s <= r.e && q.e >= r.s));
           for (const ob of state.res.pads.concat(state.res.holes)) if (hit(ob.src)) objs.add(ob);
           if (state.res.body && hit(state.res.body.src)) objs.add('body');
         }

@@ -1,0 +1,8 @@
+# The Emscripten build stomp's WebAssembly is made with: an official build from the
+# emscripten-releases project, the same kind emsdk installs. tools/get-emscripten.sh
+# downloads it, checks it and sets it up; emsdk works as well.
+version=7.0.2-git
+emscripten=26fa03e2ad5aba9a2be222c83cc980824fa3c0b1
+releases=4adad84710b4a3e4069d0bd118d66883158015e0
+url=https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/4adad84710b4a3e4069d0bd118d66883158015e0/wasm-binaries.tar.xz
+sha256=67b33e75587aaf0a59641042799efd77e42d008ed5e1be97e9e51dd6f74739dd

@@ -24,10 +24,8 @@ const exDir = join(repo, 'examples');
 const libDir = join(repo, 'stdlib');
 
 // The standard library, in load order (SPEC 13.5). Files not listed go last, by name.
-const LIB_ORDER = [
-  'colors.stomp', 'shapes.stomp', 'symbols.stomp', 'marks.stomp', 'molded.stomp', 'leadless.stomp', 'chips.stomp',
-  'arrays.stomp', 'cans.stomp', 'leds.stomp', 'through_hole.stomp', 'packages.stomp', 'modules.stomp', 'silk.stomp',
-];
+// stdlib/ORDER: the order the library's files are read in (the C++ build reads it too)
+const LIB_ORDER = readFileSync(join(repo, 'stdlib', 'ORDER'), 'utf8').split('\n').filter((l) => l && !l.startsWith('#'));
 
 // The documentation pages, in the order the docs view lists them. Each is a Markdown
 // file of the repository, so it reads the same on GitHub. Its key starts its #links.

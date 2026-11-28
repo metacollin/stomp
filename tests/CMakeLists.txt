@@ -1,0 +1,12 @@
+file(GLOB STOMP_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp)
+add_executable(stomp_tests ${STOMP_TEST_SOURCES})
+target_link_libraries(stomp_tests PRIVATE stomp stomp_warnings stomp_pegtl)
+target_include_directories(stomp_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/third_party/v8-ieee754)
+add_test(NAME unit COMMAND stomp_tests)
+
+if(STOMP_BUILD_CLI)
+  add_test(NAME cli-version COMMAND stomp_cli --version)
+  set_tests_properties(cli-version PROPERTIES PASS_REGULAR_EXPRESSION "^stomp ${PROJECT_VERSION}")
+  add_test(NAME cli-library COMMAND stomp_cli dev library)
+  set_tests_properties(cli-library PROPERTIES PASS_REGULAR_EXPRESSION "colors.stomp [0-9]+")
+endif()

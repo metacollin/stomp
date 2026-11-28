@@ -1,0 +1,16 @@
+# The order the standard library is read in: each file's names and features can use
+# those of the files above it. build.mjs and the C++ build (cmake/EmbedStdlib.cmake) read it.
+colors.stomp
+shapes.stomp
+symbols.stomp
+marks.stomp
+molded.stomp
+leadless.stomp
+chips.stomp
+arrays.stomp
+cans.stomp
+leds.stomp
+through_hole.stomp
+packages.stomp
+modules.stomp
+silk.stomp

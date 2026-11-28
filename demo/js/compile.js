@@ -531,6 +531,7 @@
    * call has it. Otherwise it's reported on the calls that cause it: the table row
    * or `from` call with the bad values.
    */
+  function withoutInst(d) { const { inst, ...rest } = d; return rest; }
   function rehome(diags, instCount) {
     const out = [];
     const groups = new Map();
@@ -543,10 +544,10 @@
     for (const list of groups.values()) {
       const t = list[0].inst.tmpl;
       const calls = new Set(list.map((d) => `${d.inst.s}:${d.inst.e}`));
-      if (calls.size >= (instCount.get(t) || 1)) { out.push(Object.assign({}, list[0], { inst: undefined })); continue; }
+      if (calls.size >= (instCount.get(t) || 1)) { out.push(withoutInst(list[0])); continue; }
       for (const d of list) {
-        out.push(Object.assign({}, d, {
-          s: d.inst.s, e: d.inst.e, inst: undefined,
+        out.push(Object.assign(withoutInst(d), {
+          s: d.inst.s, e: d.inst.e,
           related: [{ message: `in template ${t}`, s: d.s, e: d.e }].concat(d.related || []),
         }));
       }
@@ -674,7 +675,9 @@
         related: (d.related || []).map((r) => Object.assign({}, r, pos(r.s))),
       }));
     }
-    out.sort((a, b) => a.s - b.s || (a.severity === 'error' ? -1 : 1));
+    // by position, errors before warnings; ties keep their order (the sort is stable)
+    const rank = (d) => (d.severity === 'error' ? 0 : 1);
+    out.sort((a, b) => a.s - b.s || rank(a) - rank(b));
     return out;
   }
 

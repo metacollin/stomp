@@ -183,14 +183,16 @@ std::string compile_view(std::u16string_view src, const json::Value* stdlib, boo
 }
 
 /** The cache layer: src is a JSON array of sources, compiled in turn with the cache on. Each
- *  line: which footprints reused an earlier result, then the compile's core view. */
-std::string cache_view(std::u16string_view src, const json::Value* stdlib) {
+ *  line: which footprints reused an earlier result, then a digest of the compile's core view
+ *  (the core layer compares the views themselves; a sequence's would run to gigabytes), or
+ *  with full, the view itself (cache-full, to see a difference). */
+std::string cache_view(std::u16string_view src, const json::Value* stdlib, bool full) {
   const json::Value seq = json::parse(std::string_view(js::narrow(src)));
   const auto files = library_of(stdlib);
   compiler::Options opts;
   if (stdlib && stdlib->is_array()) opts.stdlib = &files;
   compiler::clear_cache();
-  std::unordered_set<const compiler::Result*> seen;
+  std::unordered_set<std::uint32_t> seen;   // result ids: an address can come back for a new result
   std::string text;
   bool first = true;
   for (const auto& s : seq.array()) {
@@ -198,14 +200,15 @@ std::string cache_view(std::u16string_view src, const json::Value* stdlib) {
     std::string hits = "[";
     for (std::size_t i = 0; i < out.results.size(); ++i) {
       if (i) hits += ',';
-      hits += out.results[i] && seen.count(out.results[i].get()) ? '1' : '0';
+      hits += out.results[i] && seen.count(out.results[i]->id) ? '1' : '0';
     }
     hits += ']';
     for (const auto& r : out.results)
-      if (r) seen.insert(r.get());
+      if (r) seen.insert(r->id);
     if (!first) text += '\n';
     first = false;
-    text += hits + view_text(out, false);
+    const std::string view = view_text(out, false);
+    text += hits + " " + (full ? view : sha256_hex(std::span(reinterpret_cast<const std::uint8_t*>(view.data()), view.size())).substr(0, 16));
   }
   compiler::clear_cache();
   return text;
@@ -215,7 +218,7 @@ std::string cache_view(std::u16string_view src, const json::Value* stdlib) {
 
 std::string dump(std::string_view layer, std::u16string_view src, const json::Value* stdlib) {
   if (layer == "core") return compile_view(src, stdlib, false);
-  if (layer == "cache") return cache_view(src, stdlib);
+  if (layer == "cache" || layer == "cache-full") return cache_view(src, stdlib, layer == "cache-full");
   if (layer == "models" || layer == "models-full") {
     // each footprint's model and board, and its exports, as digests (or in full)
     const bool full = layer == "models-full";

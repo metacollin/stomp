@@ -3,14 +3,18 @@
 //   node tests/compare/compare.mjs [--a ENGINE] [--b ENGINE] [--layers lex,parse,core,cache,compile,kicad,models]
 //                                  [--fuzz N] [--seed S] [--only TEXT] [--show K] [--record]
 //
-// ENGINE is js:DIR (a copy of the JavaScript engine), oracle (the JavaScript engine as
-// committed, HEAD's demo/js), or cli:PATH (the C++ `stomp` tool; `stomp dev dump` prints
-// the same canonical text). The defaults compare demo/js with the oracle. The core layer
-// is compile without the lazy layers (silk, assembly, courtyard); models gives digests of
-// each footprint's model, board and exports, and models-full the texts themselves.
+// ENGINE is one of
+//   cli:PATH   the C++ `stomp` tool, whose `stomp dev dump` prints each layer's canonical
+//              text; a PATH ending in .js is the tool built as WebAssembly, run with Node
+//   js:DIR     a copy of the JavaScript engine the C++ one was ported from
+//   oracle     that JavaScript engine, as it was in the last commit that had it
+// The defaults compare the native tool (cmake --preset native-release) with the same C++
+// as WebAssembly (emcmake cmake --preset wasm-test). The core layer is compile without
+// the lazy layers (silk, assembly, courtyard); models gives digests of each footprint's
+// model, board and exports, and models-full the texts themselves.
 //
-// --record runs the JavaScript test suite once with record.mjs to collect the sources
-// it compiles into build/compare/recorded.jsonl; later runs include them.
+// --record runs the test suite once with record.mjs to collect the sources it compiles
+// into build/compare/recorded.jsonl; later runs include them.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -54,20 +58,20 @@ function listTests() {
   return require('node:fs').readdirSync(join(repo, 'demo/test')).filter((f) => f.endsWith('.test.mjs')).map((f) => join('demo/test', f));
 }
 
+// The last commit with the JavaScript engine in demo/js
+const JS_ENGINE_COMMIT = '597ad62a862cc140a1df9274eb1660babcc61455';
+
 function engineOf(spec) {
-  // the oracle: the JavaScript engine as committed (HEAD's demo/js), so edits in
-  // progress don't move the reference
   if (spec === 'oracle') {
     const dir = join(work, 'oracle');
-    const tree = execFileSync('git', ['rev-parse', 'HEAD:demo/js'], { cwd: repo }).toString().trim();
-    const stamp = join(dir, 'TREE');
-    if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== tree) {
+    const stamp = join(dir, 'COMMIT');
+    if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== JS_ENGINE_COMMIT) {
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });
-      execFileSync('sh', ['-c', `git archive HEAD demo/js | tar -x -C "${dir}"`], { cwd: repo });
-      writeFileSync(stamp, tree);
+      execFileSync('sh', ['-c', `git archive ${JS_ENGINE_COMMIT} demo/js | tar -x -C "${dir}"`], { cwd: repo });
+      writeFileSync(stamp, JS_ENGINE_COMMIT);
     }
-    return jsEngine(join(dir, 'demo/js'), `oracle (demo/js ${tree.slice(0, 7)})`);
+    return jsEngine(join(dir, 'demo/js'), `oracle (demo/js at ${JS_ENGINE_COMMIT.slice(0, 7)})`);
   }
   if (spec.startsWith('js:')) return jsEngine(resolve(repo, spec.slice(3)), spec);
   if (spec.startsWith('cli:')) return cliEngine(resolve(repo, spec.slice(4)), spec);
@@ -82,7 +86,8 @@ function jsEngine(dir, name) {
     lex: (c) => e.lex(c.src),
     parse: (c) => e.parse(c.src),
     core: (c) => e.core(c.src, c.stdlib),
-    cache: (c) => e.cache(c.src, c.stdlib),
+    cache: (c) => e.cache(c.src, c.stdlib, false),
+    'cache-full': (c) => e.cache(c.src, c.stdlib, true),
     kicad: (c) => e.kicad(c.src, c.stdlib),
     compile: (c) => e.compile(c.src, c.stdlib),
     models: (c) => e.models(c.src, c.stdlib, false),
@@ -93,9 +98,10 @@ function jsEngine(dir, name) {
 // The C++ tool: `stomp dev dump --layer L --batch` reads JSON lines {id, src, stdlib?}
 // and writes {id, text} (or {id, error}) for each, in one process per layer.
 function cliEngine(path, name) {
+  const [cmd, pre] = path.endsWith('.js') ? [process.execPath, [path]] : [path, []];
   const batch = (layer, inputs) => {
     const lines = inputs.map((c, i) => JSON.stringify({ id: i, src: c.src, stdlib: c.stdlib || null })).join('\n') + '\n';
-    const r = spawnSync(path, ['dev', 'dump', '--layer', layer, '--batch'], { input: lines, maxBuffer: 2 ** 30 });
+    const r = spawnSync(cmd, [...pre, 'dev', 'dump', '--layer', layer, '--batch'], { input: lines, maxBuffer: 2 ** 30 });
     const out = new Map();
     if (r.status !== 0) {
       const why = `<exit ${r.status} ${r.signal || ''}: ${String(r.stderr).trim().slice(0, 400)}>`;
@@ -120,8 +126,8 @@ function firstDiff(a, b) {
   return `at ${i}:\n    a: …${a.slice(from, i + 120)}\n    b: …${b.slice(from, i + 120)}`;
 }
 
-const A = engineOf(opt('--a', 'js:demo/js'));
-const B = engineOf(opt('--b', 'oracle'));
+const A = engineOf(opt('--a', 'cli:build/native-release/stomp'));
+const B = engineOf(opt('--b', 'cli:build/wasm-test/stomp.js'));
 let inputs = baseCorpus(repo, recorded);
 if (FUZZ) inputs = inputs.concat(fuzzed(inputs, FUZZ, SEED));
 if (ONLY) inputs = inputs.filter((c) => c.id.includes(ONLY));
@@ -130,8 +136,8 @@ console.log(`${A.name} against ${B.name}: ${inputs.length} inputs, layers ${LAYE
 let failed = 0;
 const t0 = Date.now();
 // each engine's text for a chunk of inputs (a batch where the engine has one); chunks
-// keep the texts in memory few at a time
-const CHUNK = 300;
+// keep the texts in memory few at a time (fewer for the cache layer's edit sequences)
+const chunkOf = (layer) => (layer.startsWith('cache') ? 40 : 300);
 function texts(E, layer, chunk) {
   if (E.batch) return E.batch(layer, chunk);
   const out = new Map();
@@ -144,9 +150,10 @@ function texts(E, layer, chunk) {
 const seedOf = (id) => { let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h || 1; };
 const asSequence = (c) => Object.assign({}, c, { src: JSON.stringify(edits(c.src, 6, seedOf(c.id))) });
 function* pairs(layer) {
-  for (let k = 0; k < inputs.length; k += CHUNK) {
-    let chunk = inputs.slice(k, k + CHUNK);
-    if (layer === 'cache') chunk = chunk.map(asSequence);
+  const n = chunkOf(layer);
+  for (let k = 0; k < inputs.length; k += n) {
+    let chunk = inputs.slice(k, k + n);
+    if (layer.startsWith('cache')) chunk = chunk.map(asSequence);
     const ta = texts(A, layer, chunk), tb = texts(B, layer, chunk);
     for (const [i, c] of chunk.entries()) yield [c, ta.get(i), tb.get(i)];
   }

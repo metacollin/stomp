@@ -7,8 +7,9 @@ pad numbers. Put the cursor on a placement and its dimension is drawn on the foo
 **3D** and the same source shows the part's model, sitting on a board with its copper,
 silk and courtyard.
 
-Everything runs in the browser, in plain JavaScript with no dependencies and no build
-step. The page works straight from disk.
+Everything runs in the browser, with no dependencies. The engine is C++ (`../src`),
+compiled to WebAssembly and committed as `js/stomp-core.js`, and the editor around it is
+plain JavaScript, so the page needs no build step and works straight from disk.
 
 ## Running it
 
@@ -39,27 +40,36 @@ open. It's also the editor's **Docs** page.
 
 ## What's implemented
 
-The engine implements the whole draft, from `grammar.peg` to finished layers:
+The engine implements the whole draft, from `grammar.peg` to finished layers. It is a
+C++20 library in [`../src`](../src):
 
 | file | what it does |
 |---|---|
-| `js/stomp-core.js` | **generated**: the C++ engine (`../src`) as WebAssembly, built by `cmake --preset wasm-release` (`../wasm`). It is replacing the JavaScript engine below one layer at a time; so far it lexes the editor's highlighting |
-| `js/engine.js` | the C++ engine as the editor sees it: `Stomp.ready` resolves once the module has loaded, and `Stomp.engine.lex` gives the JavaScript lexer's tokens |
-| `js/lexer.js` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4); a brace is reported, and a `}` still closes its block |
-| `js/parser.js` | recursive descent in `grammar.peg`'s choice order, with keywords that count only where expected; recovers from errors one statement at a time, and reports a missing `end` at the block that lacks it |
-| `js/compile.js` | units (per file, footprint or template), names (`NAME = value`) and `{...}` interpolation; functions and colors; custom features with sections and flags, and the standard library they're looked up in; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-list generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks (from library features); `model` blocks merged down `extends`, and their solids as descriptors for the 3D model; diagnostics (§15); a build cache |
-| `js/model3d.js` | the 3D model (SPEC §13): measures the part, calls the library's body, lead, exposed-pad and polarity features (SPEC §13.5), works out the flags they ask for, and turns the solids they draw into meshes; the board under it; VRML and STL export |
-| `js/kicad.js` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded, and whole `.pretty` libraries |
-| `js/geom.js` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
+| `../src/lexer.cpp` | tokens, as the grammar defines them: attached unit suffixes and side marks, `1..4` ranges, hyphenated keywords and the newline rules (SPEC §4); a brace is reported, and a `}` still closes its block |
+| `../src/parser/` | recursive descent in `grammar.peg`'s choice order, on [PEGTL](https://github.com/taocpp/PEGTL), with keywords that count only where expected; recovers from errors one statement at a time, and reports a missing `end` at the block that lacks it |
+| `../src/compile/` | units (per file, footprint or template), names (`NAME = value`) and `{...}` interpolation; functions and colors; custom features with sections and flags, and the standard library they're looked up in; templates, `from` calls, `footprints from` tables and `extends`; the `pins`, `balls` and side-list generators with every numbering scheme, plus `omit`, `only` and `delete`; IPC-style pad sizing and per-pin leads; the placement solver (§9); mask, paste windows, vias, automatic silk, courtyard and assembly, pin-1 and polarity marks (from library features); `model` blocks merged down `extends`, and their solids as descriptors for the 3D model; diagnostics (§15); a build cache |
+| `../src/model3d.cpp` | the 3D model (SPEC §13): measures the part, calls the library's body, lead, exposed-pad and polarity features (SPEC §13.5), works out the flags they ask for, and turns the solids they draw into meshes; the board under it; VRML and STL export |
+| `../src/kicad.cpp` | KiCad 9 export: footprints (`.kicad_mod`) with the 3D model embedded |
+| `../src/geom.cpp` | exact outlines (lines and arcs), offsets, hulls, silk clipping, triangulation |
+| `../src/jsrt.cpp` | JavaScript's number formatting and rounding, and V8's own trigonometry (`../third_party/v8-ieee754`), so every platform gives the same numbers as the JavaScript engine this was ported from |
+
+The C++ was ported from a JavaScript engine, function by function, and its comments cite
+the functions and lines it follows (`compile.js 686-930`). That engine is in the history:
+`demo/js` as of commit 597ad62. The editor's files:
+
+| file | what it does |
+|---|---|
+| `js/stomp-core.js` | **generated**: the engine as WebAssembly, by `emcmake cmake --preset wasm-release` (`../wasm`) |
+| `js/engine.js` | the engine as the editor sees it: `Stomp.ready` resolves once the module has loaded, and then `Stomp.compile`, `Stomp.model3d` and `Stomp.kicad` are ordinary calls. Results stay in the engine; their outlines and automatic layers come when first used, and a footprint the build cache keeps is the same object as before |
 | `js/view.js` | SVG viewer: layers at true width, pan and zoom, hover details, dimension overlays |
 | `js/view3d.js` | WebGL viewer: one merged buffer, lights that follow the camera, shiny metals, orbit, pan and zoom, preset views, highlights from the cursor |
 | `js/editor.js` | a code editor with no dependencies: a textarea over highlighting from the lexer, which also highlights the code in the docs |
-| `js/store.js` | your files: kept in IndexedDB with a copy in localStorage, merged on load, persistent storage asked for, other tabs told of changes; reading `.zip` files |
+| `js/store.js` | your files: kept in IndexedDB with a copy in localStorage, merged on load, persistent storage asked for, other tabs told of changes; reading and writing `.zip` files |
 | `js/docsview.js` | the docs view: pages, contents, `#links`, highlighted code with Try it and Copy |
 | `js/playground.js` | Try it: an example edited in place, its footprint drawn beside it in 2D or 3D |
-| `js/app.js` | ties it all together: the file picker and File menu, saving and opening files, the docs, saved settings |
+| `js/app.js` | ties it all together: the file picker and File menu, saving and opening files, KiCad libraries, the docs, saved settings |
 | `js/examples.js` | **generated** from `examples/*.stomp` by `tools/build.mjs` |
-| `js/stdlib.js` | **generated** from `../stdlib/*.stomp`, the standard library, by `tools/build.mjs` |
+| `js/stdlib.js` | **generated** from `../stdlib/*.stomp`, the standard library, by `tools/build.mjs`; the page hands it to the engine when it starts |
 | `js/docs.js` | **generated** from the docs' Markdown by `tools/build.mjs`, with `tools/md.mjs` |
 | `../docs/img/*.svg` | **generated** by `tools/figures.mjs`: footprints the engine builds, with the dimensions their numbers stand for |
 
@@ -115,9 +125,12 @@ node demo/tools/build.mjs            # rebuild js/examples.js, js/stdlib.js and 
                                      # after editing examples/, stdlib/ or the docs
 node demo/tools/snapshot.mjs         # compare every model with the recorded snapshot
 node demo/tools/snapshot.mjs --write # record it again, after a change you meant
+ctest --preset native-release        # the C++ library's own tests and the stomp tool's
+node tests/compare/compare.mjs       # the native engine against the WebAssembly one
 ```
 
-The tests check:
+The tests run on the engine the editor uses, the WebAssembly build in `js/stomp-core.js`.
+They check:
 
 - hand-calculated geometry for the relational examples (TO-252, USB micro-B, the syntax
   zoo), the generators, interpolation and tables, side marks and units in footprints;
@@ -139,6 +152,10 @@ The tests check:
   stored and deflated `.zip` files;
 - that half-typed and mangled versions of every example don't break the compiler, and
   that random edits never make the build cache change a result;
+- the engine as the editor sees it: tokens as the JavaScript lexer gave them, a
+  footprint the build cache keeps coming back as the same object, results and models
+  the engine let go made again with the same values, and the engine's memory staying
+  within its budget;
 - for 3D: each example's model is finite and wound consistently; measured parts
   (gull-wing toes at the span, terminals flush with the body, balls collapsed to the
   standoff, leads 3 mm below the board); per-pin leads and their lands; the `model`

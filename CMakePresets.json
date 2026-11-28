@@ -38,13 +38,14 @@
     },
     {
       "name": "wasm-test",
-      "displayName": "The C++ tests as WebAssembly, run in Node (emcmake cmake --preset wasm-test)",
+      "displayName": "The C++ tests and the stomp tool as WebAssembly, run in Node (emcmake cmake --preset wasm-test)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/wasm-test",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "STOMP_DEPLOY_WASM": "OFF",
-        "STOMP_BUILD_TESTS": "ON"
+        "STOMP_BUILD_TESTS": "ON",
+        "STOMP_BUILD_CLI": "ON"
       }
     }
   ],

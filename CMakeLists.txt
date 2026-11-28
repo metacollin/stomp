@@ -28,7 +28,8 @@ endif()
 option(STOMP_BUILD_CLI "Build the stomp command-line tool" ${STOMP_NATIVE})
 option(STOMP_BUILD_TESTS "Build the C++ tests" ${STOMP_TOP_LEVEL})
 option(STOMP_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
-option(STOMP_DEPLOY_WASM "Write demo/js/stomp-core.js after a WebAssembly build" ON)
+option(STOMP_DEPLOY_WASM "Build the editor's engine (a WebAssembly build only) into STOMP_WASM_OUT" ON)
+set(STOMP_WASM_OUT "${PROJECT_SOURCE_DIR}/demo/js/stomp-core.js" CACHE FILEPATH "Where a WebAssembly build writes the editor's engine")
 
 # Every target: the same arithmetic as the JavaScript engine (no fused multiply-add,
 # no fast-math), and exceptions on (the parser and evaluator use them).
@@ -102,6 +103,10 @@ if(STOMP_BUILD_CLI)
   set_target_properties(stomp_cli PROPERTIES OUTPUT_NAME stomp)
   target_link_libraries(stomp_cli PRIVATE stomp stomp_warnings)
   target_include_directories(stomp_cli PRIVATE ${PROJECT_SOURCE_DIR}/src)
+  if(EMSCRIPTEN)
+    # stomp.js, run with Node on the real file system (tests/compare runs it against the native tool)
+    target_link_options(stomp_cli PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sEXIT_RUNTIME=1)
+  endif()
 endif()
 
 if(EMSCRIPTEN AND STOMP_DEPLOY_WASM)

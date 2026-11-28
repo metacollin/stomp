@@ -1,36 +1,51 @@
 // The C++ engine as WebAssembly (stomp-core.js) through the editor's adapter (engine.js):
-// its tokens against the JavaScript lexer's while both exist, the objects it hands out,
-// and the results and models the engine lets go and makes again when they're used.
+// the tokens it gives the editor, the objects it hands out, and the results and models the
+// engine lets go and makes again when they're used.
 // Run: node --test demo/test/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import E from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-const require = createRequire(import.meta.url);
-const E = await require('../js/engine.js').ready;
-const L = require('../js/lexer.js');
 
 const sources = [];
 for (const dir of ['examples', 'stdlib']) {
   for (const f of readdirSync(join(repo, dir)).filter((x) => x.endsWith('.stomp'))) sources.push([`${dir}/${f}`, readFileSync(join(repo, dir, f), 'utf8')]);
 }
 sources.push(['corpus', readFileSync(join(here, 'fixtures/corpus.stomp'), 'utf8')]);
-sources.push(['odd', 'footprint "A" {\n  pad 1 at (0,0 1.27mmx2 43milw 1.1wx1.6h 5%\n"v{n:.2} {x:q} {} {" µΩ° 1e-3 .5 1..4 }\nend\n\t\v']);
+// tokens the JavaScript lexer gave, before the C++ one replaced it
+const recorded = JSON.parse(readFileSync(join(here, 'fixtures/tokens.json'), 'utf8'));
+const plain = (x) => JSON.parse(JSON.stringify(x));
 
-test('the WebAssembly lexer gives the JavaScript lexer\'s tokens', () => {
+test('the lexer gives the tokens the JavaScript lexer gave', () => {
+  for (const [name, r] of Object.entries(recorded)) {
+    const lx = E.lex(r.src);
+    const stream = lx.tokens.map((t) => { const i = lx.all.indexOf(t); return i >= 0 ? i : t; });
+    assert.deepEqual(plain({ all: lx.all, stream, eof: lx.eof }), { all: r.all, stream: r.stream, eof: r.eof }, name);
+  }
+});
+
+test('tokens cover each file in order, with their lines and columns, and the stream shares them', () => {
   for (const [name, src] of sources) {
-    const a = E.lex(src), b = L.lex(src, null);
-    assert.deepEqual(a.all, b.all, `${name}: every token`);
-    assert.deepEqual(a.tokens, b.tokens, `${name}: the parser's stream`);
-    assert.deepEqual(a.eof, b.eof, `${name}: the end`);
-    // the stream shares its tokens with `all` (the editor's annotations rely on it)
-    const shared = (lx) => lx.tokens.map((k) => lx.all.indexOf(k));
-    assert.deepEqual(shared(a), shared(b), `${name}: shared tokens`);
+    const lx = E.lex(src);
+    let at = 0, line = 1, lineStart = 0;
+    for (const k of lx.all) {
+      assert.ok(k.s >= at && k.e >= k.s && k.e <= src.length, `${name}: the token at ${k.s} comes in order`);
+      assert.match(src.slice(at, k.s), /^[ \t]*$/, `${name}: only spaces and tabs before ${k.s}`);
+      for (let i = at; i < k.s; i++) if (src[i] === '\n') { line++; lineStart = i + 1; }
+      assert.deepEqual([k.line, k.col], [line, k.s - lineStart + 1], `${name}: line and column at ${k.s}`);
+      for (let i = k.s; i < k.e; i++) if (src[i] === '\n') { line++; lineStart = i + 1; }
+      at = k.e;
+    }
+    assert.match(src.slice(at), /^[ \t]*$/, `${name}: nothing after the last token`);
+    // the parser's stream is made of the same objects (the editor's annotations rely on
+    // it), but for the `end` a `}` becomes and the end of the file
+    const all = new Set(lx.all);
+    for (const k of lx.tokens) assert.ok(all.has(k) || k.brace === true || k === lx.eof, `${name}: the stream's token at ${k.s}`);
   }
 });
 

@@ -1,4 +1,4 @@
-// Records every source the JavaScript test suite compiles, for the comparison corpus:
+// Records every source the test suite compiles, for the comparison corpus:
 //   STOMP_RECORD=build/compare/recorded.jsonl node --import ./tests/compare/record.mjs --test demo/test/*.test.mjs
 // Each line is {h, src, stdlib?}; compare.mjs removes the repeats.
 import { appendFileSync } from 'node:fs';
@@ -10,7 +10,8 @@ if (out) {
   const load = Module._load;
   Module._load = function (request, ...rest) {
     const m = load.call(this, request, ...rest);
-    if (/(^|[\\/])compile\.js$/.test(request) && m && typeof m.compile === 'function' && !m.compile.recorded) {
+    // the engine's adapter (demo/js/engine.js), whose compile the tests call
+    if (/(^|[\\/])engine\.js$/.test(request) && m && typeof m.compile === 'function' && !m.compile.recorded) {
       const compile = m.compile;
       const wrapped = function (src, opts) {
         const stdlib = opts && opts.stdlib ? opts.stdlib.map((f) => ({ file: f.file, source: f.source })) : undefined;
@@ -20,6 +21,7 @@ if (out) {
       };
       wrapped.recorded = true;
       m.compile = wrapped;
+      if (m.compiler) m.compiler.compile = wrapped;
     }
     return m;
   };

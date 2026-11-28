@@ -76,7 +76,7 @@ function engine(dir) {
 
   // cache: a sequence of sources (a JSON array) compiled with the cache on, as the editor
   // does; for each compile, which footprints reused an earlier result, then its core view
-  function cache(seqText, stdlib) {
+  function cache(seqText, stdlib, full) {
     const seq = JSON.parse(seqText);
     C.clearCache();
     const seen = new Set();
@@ -85,7 +85,7 @@ function engine(dir) {
       const out = C.compile(src, stdlib ? { stdlib } : {});
       const hits = out.footprints.map((f) => (f.result && seen.has(f.result) ? 1 : 0));
       for (const f of out.footprints) if (f.result) seen.add(f.result);
-      parts.push(JSON.stringify(hits) + coreText(out));
+      parts.push(`${JSON.stringify(hits)} ${full ? coreText(out) : sha(coreText(out))}`);
     }
     C.clearCache();
     return parts.join('\n');

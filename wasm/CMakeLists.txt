@@ -1,5 +1,6 @@
 # The WebAssembly module: Emscripten's loader as a classic script (file:// pages can't
-# load modules), with the wasm embedded by embed.mjs into demo/js/stomp-core.js.
+# load modules), with the wasm embedded by embed.mjs into STOMP_WASM_OUT (by default
+# demo/js/stomp-core.js; tools/check-wasm.sh builds one elsewhere to compare).
 add_executable(stomp_wasm exports.cpp)
 target_link_libraries(stomp_wasm PRIVATE stomp stomp_warnings)
 target_include_directories(stomp_wasm PRIVATE ${PROJECT_SOURCE_DIR}/src)
@@ -22,12 +23,9 @@ target_link_options(stomp_wasm PRIVATE
   "-sEXPORTED_RUNTIME_METHODS=[UTF8ToString,HEAPU8,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64]"
   "-sINCOMING_MODULE_JS_API=[wasmBinary,print,printErr]")
 
-if(STOMP_DEPLOY_WASM)
-  find_program(NODE_EXECUTABLE NAMES node REQUIRED)
-  set(core_js ${PROJECT_SOURCE_DIR}/demo/js/stomp-core.js)
-  add_custom_command(TARGET stomp_wasm POST_BUILD
-    COMMAND ${NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/embed.mjs
-            $<TARGET_FILE_DIR:stomp_wasm>/stomp_wasm.js $<TARGET_FILE_DIR:stomp_wasm>/stomp_wasm.wasm ${core_js}
-    COMMENT "Writing demo/js/stomp-core.js"
-    VERBATIM)
-endif()
+find_program(NODE_EXECUTABLE NAMES node REQUIRED)
+add_custom_command(TARGET stomp_wasm POST_BUILD
+  COMMAND ${NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/embed.mjs
+          $<TARGET_FILE_DIR:stomp_wasm>/stomp_wasm.js $<TARGET_FILE_DIR:stomp_wasm>/stomp_wasm.wasm ${STOMP_WASM_OUT}
+  COMMENT "Writing ${STOMP_WASM_OUT}"
+  VERBATIM)

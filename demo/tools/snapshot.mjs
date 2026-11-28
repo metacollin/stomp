@@ -8,9 +8,9 @@
 //   node demo/tools/snapshot.mjs --time          also print build times
 //   node demo/tools/snapshot.mjs --only TEXT     only footprints whose file or name holds TEXT
 //   node demo/tools/snapshot.mjs --against DIR   compare mesh by mesh, vertex for vertex, with the
-//                                                JavaScript engine in DIR: demo/js at the js-oracle
-//                                                tag (git archive js-oracle demo/js | tar -x -C T,
-//                                                then DIR is T/demo/js)
+//                                                JavaScript engine in DIR: demo/js as it was before
+//                                                the C++ engine replaced it (git archive 597ad62
+//                                                demo/js | tar -x -C T, then DIR is T/demo/js)
 //
 // A record keeps, per mesh: name, kind, color, triangle and vertex counts, and
 // its surface's area, bounding box, centroid and second moments. The moments

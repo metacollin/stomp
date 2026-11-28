@@ -1,14 +1,17 @@
 // Writes tests/unit/vectors/js.json: what JavaScript (Node) and the JavaScript engine's
 // encoders give for a spread of inputs, for the C++ tests (tests/unit/jsrt_test.cpp).
 // Doubles are 16 hex digits of their bits, so -0, NaN and the infinities travel exactly.
-//   node tests/unit/vectors/make.mjs [ENGINE_DIR]    (default demo/js; the js-oracle tag after the port)
+//   node tests/unit/vectors/make.mjs ENGINE_DIR
+// ENGINE_DIR is demo/js from the last commit with the JavaScript engine:
+//   git archive 597ad62 demo/js | tar -x -C T, then ENGINE_DIR is T/demo/js
 import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const engine = resolve(process.argv[2] || join(here, '../../../demo/js'));
+if (!process.argv[2]) throw new Error('usage: node tests/unit/vectors/make.mjs ENGINE_DIR (see the top of this file)');
+const engine = resolve(process.argv[2]);
 const require = createRequire(import.meta.url);
 const K = require(join(engine, 'kicad.js'));
 const P = require(join(engine, 'parser.js'));
